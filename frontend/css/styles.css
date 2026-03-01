@@ -105,3 +105,14 @@ button {
     grid-template-columns: 1fr;
   }
 }
+
+.google-btn {
+  margin-top: 10px;
+  border: 1px solid #d0d7e4;
+  background: #ffffff;
+  color: #1b2438;
+}
+
+.google-btn:hover {
+  background: #f6f8fc;
+}

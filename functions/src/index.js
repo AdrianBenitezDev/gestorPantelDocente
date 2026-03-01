@@ -8,6 +8,7 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 const allowedCorsOrigins = ["https://horario-escuelas.web.app"];
+const callableOptions = { cors: allowedCorsOrigins, invoker: "public" };
 
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
@@ -28,11 +29,11 @@ function assertString(value, field, min = 1, max = 120) {
   return v;
 }
 
-exports.health = onCall({ cors: allowedCorsOrigins }, () => {
+exports.health = onCall(callableOptions, () => {
   return { ok: true, service: "gestor-plantel-docente" };
 });
 
-exports.registerUser = onCall({ cors: allowedCorsOrigins }, async (request) => {
+exports.registerUser = onCall(callableOptions, async (request) => {
   const data = request.data || {};
 
   const nombre = assertString(data.nombre, "nombre", 3, 120);
@@ -117,7 +118,7 @@ exports.registerUser = onCall({ cors: allowedCorsOrigins }, async (request) => {
   }
 });
 
-exports.setUserProfile = onCall({ cors: allowedCorsOrigins }, async (request) => {
+exports.setUserProfile = onCall(callableOptions, async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Auth required");
   }

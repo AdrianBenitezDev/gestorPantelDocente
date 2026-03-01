@@ -3,6 +3,8 @@ import {
   getAuth,
   onAuthStateChanged,
   signInWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
   signOut,
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import {
@@ -29,6 +31,7 @@ const registerMsg = document.getElementById("register-msg");
 const loginMsg = document.getElementById("login-msg");
 const sessionStatus = document.getElementById("session-status");
 const logoutBtn = document.getElementById("logout-btn");
+const googleLoginBtn = document.getElementById("google-login-btn");
 
 function setMsg(el, text, isError = false) {
   el.textContent = text;
@@ -81,6 +84,17 @@ loginForm.addEventListener("submit", async (event) => {
   } catch (error) {
     console.error(error);
     setMsg(loginMsg, "Credenciales invalidas", true);
+  }
+});
+
+googleLoginBtn.addEventListener("click", async () => {
+  try {
+    const provider = new GoogleAuthProvider();
+    await signInWithPopup(auth, provider);
+    setMsg(loginMsg, "Login con Google correcto");
+  } catch (error) {
+    console.error(error);
+    setMsg(loginMsg, "No se pudo iniciar con Google", true);
   }
 });
 
