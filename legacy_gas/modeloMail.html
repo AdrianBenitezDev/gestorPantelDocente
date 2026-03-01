@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+  <body style="font-family: Arial, sans-serif;">
+    <h2>Hola, <?= nombre ?>:</h2>
+
+    <p>Se registró el alta en nuestra aplicación con esta cuenta de correo electrónico.</p>
+
+    <p>Para verificar tu correo, hacé clic en el siguiente botón:</p>
+
+    <p>
+      
+      <a href="<?= baseUrl ?>?page=validarCode&verificar=<?= code ?>" target="_blank"
+   style="padding: 10px 20px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px;">
+   Verificar Correo
+</a>
+
+    </p>
+
+    <p>Este mensaje fue enviado automáticamente desde el sistema.</p>
+  </body>
+</html>

@@ -1,0 +1,2744 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>HORARIOS</title>
+  <base target="_top">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+  <style>
+
+.spiner{
+  display:none;
+  width:60px;
+  height:60px;
+  border:6px solid #ccc;
+  border-top:6px solid #2196F3;
+  border-radius: 50%;
+  animation:spin 1s linear infinite;
+
+}
+   @keyframes spiner {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+
+.rowPre{
+  display:none;
+}
+
+.row5ta{
+  display:none;
+}
+    td:hover .editar {
+  display: inline;
+}
+
+    .editar{
+      display:none;
+      position:absolute;
+      top:0px;
+      right:0px;
+
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+          background-color: #4b00ff8c;
+     
+    }
+
+    .row{
+      display:flex;
+      flex-direction:row;
+      justify-content: space-between
+    }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+            font-size: 16px;
+            text-align: left;
+        }
+        th, td {
+          position:relative;
+            background-color: #f2f2f2;
+            border: 1px solid #000000;
+            padding: 8px;
+            text-align: center;
+        }
+
+        th.dia, td.column {
+            background-color: #f9f9f9;
+        }
+       
+        td[colspan="6"] {
+            text-align: center;
+            font-weight: bold;
+            background-color: #ffeb3b;
+        }
+        p {
+            margin: 0;
+        }
+
+
+    .btn {
+      padding: 7px 13px;
+      margin: 2px;
+      border: none;
+      border-radius: 8px;
+      color: white;
+      cursor: pointer;
+      font-size: 16px;
+      transition: background-color 0.3s, transform 0.3s;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    }
+
+    .btnmenu{
+      padding: 7px 13px;
+      margin: 2px;
+      border: none;
+      border-radius: 8px;
+      color: black;
+      cursor: pointer;
+      font-size: 16px;
+      transition: background-color 0.3s, transform 0.3s;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+      background-color: #f99b9bc4;
+    }
+
+    .btnMañana {
+      background-color: #7c9fed;
+    }
+
+    .btnTarde {
+      background-color: #e9e54d;
+      color: black;
+    }
+
+    .btnVespertino {
+      background-color: #4de95d;
+    }
+
+    .btn:hover {
+      transform: translateY(-2px);
+    }
+
+    .btn:active {
+      transform: translateY(0);
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    }
+
+    h2 {
+      text-align: center;
+          background-color: cornsilk;
+    }
+
+    .columntitle {
+     display: flex;
+      flex-direction: column;
+          align-items: center;
+    }
+
+    p {
+      padding: 0;
+      margin: 0;
+    }
+
+    .titular {
+      color: blue;
+    }
+
+    .titularinterino {
+      color: black;
+    }
+
+    .provisional {
+      color: red;
+    }
+
+    .otros {
+      color: orange;
+    }
+
+    .suplente {
+      color: green;
+    }
+
+     /* Estilos para el modal de contraseña */
+      .modal {
+        display: none;
+        position: fixed;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.5);
+        justify-content: center;
+        align-items: center;
+      }
+
+      .modal-content {
+        z-Index:300;
+        background-color: #fff;
+        padding: 20px;
+        border-radius: 5px;
+        width: 300px;
+        text-align: center;
+      }
+
+      .modal-content input {
+        width: 100%;
+        padding: 10px;
+        margin-top: 10px;
+        border: 1px solid #6200ea;
+        border-radius: 5px;
+        font-size: 16px;
+      }
+
+      .divContactos{
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: baseline
+      }
+
+      .styleContacto{
+        background-color:red;
+      }
+        .styleContactoTitular{
+         background-color:#6b85e5;
+      }
+        .styleContactoInterino{
+         background-color:#25283382;
+      }
+        .styleContactoProvisional{
+         background-color:red;
+      }
+      .styleContactoSuplente{
+         background-color:#5ea738;
+      }
+      .contenedorBtnContactos{
+        display:flex;
+        align-items: center
+      }
+
+      .row2{
+          display: flex
+;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-content: center;
+    align-items: center;
+    justify-content: space-between
+
+      }
+
+      .btn{
+        color:black;
+      }
+      span{
+        color:red;
+      }
+
+
+.ribbon {
+  position: absolute;
+  top: 10px;
+  left: -30px;
+  background: #e63946;
+  color: white;
+  padding: 5px 40px;
+  font-size: 12px;
+  font-weight: bold;
+  transform: rotate(-45deg);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+}
+.fieldset-pro {
+  position: relative; /* necesario para que la cinta se posicione dentro */
+  border: 2px solid #ccc;
+  padding: 20px;
+  background-color: #f5dc76;
+  margin: 20px 0;
+}
+
+  </style>
+</head>
+<body>
+      <div class="row2">
+            <h1>Horarios version de <span style="color:red;">PRUEBA </span>  (2025)</h1>
+
+            <button class="btnmenu" onclick="creadorPac()">Creador de Pac</button>
+             <button class="btnmenu" onclick="agregarDocente()">Agregar Docente</button>
+             <button class="btnmenu" id="configurarApp">Configurar App</button>
+            
+            <div class="columntitle">
+
+
+            <span><svg xmlns="http://www.w3.org/2000/svg" version="1.0" width="100.000000pt" height="213.000000pt" viewBox="0 0 219.000000 213.000000" preserveAspectRatio="xMidYMid meet" style="height: 60px; width:60px">
+<g transform="translate(0.000000,213.000000) scale(0.100000,-0.100000)" fill="black" stroke="none">
+<path d="M887 2130 c-79 -20 -138 -63 -182 -132 -9 -16 -23 -28 -31 -28 -7 0 -32 -7 -54 -16 -74 -30 -83 -80 -55 -317 l15 -128 -25 -27 c-62 -67 -32 -214 52 -254 23 -11 29 -22 35 -63 9 -66 29 -112 73 -169 26 -35 35 -56 35 -85 0 -57 -7 -68 -38 -63 -24 3 -41 -8 -104 -67 -74 -69 -79 -72 -218 -120 -157 -54 -203 -83 -237 -151 -21 -41 -23 -58 -23 -216 0 -222 -7 -212 155 -227 73 -7 345 -11 695 -11 617 0 839 11 872 40 16 15 18 35 18 193 0 164 -2 179 -24 227 -30 64 -56 80 -230 143 -128 47 -141 54 -217 120 -59 52 -87 71 -108 71 -27 0 -29 3 -35 50 -7 49 -5 53 33 96 40 46 65 104 77 182 4 23 10 42 15 42 18 0 71 55 84 87 8 20 15 59 15 88 0 43 -5 60 -26 84 -25 30 -25 33 -15 100 15 94 14 149 -4 206 -11 37 -12 59 -4 96 12 54 -6 146 -38 197 -9 15 -17 28 -18 29 -1 2 -19 -6 -40 -17 -52 -26 -69 -25 -193 10 -117 34 -199 44 -255 30z m46 -456 c64 -16 106 -15 197 6 64 15 105 8 120 -20 14 -25 31 -142 37 -250 11 -200 -71 -385 -201 -452 -91 -47 -209 -2 -281 105 -66 98 -111 314 -85 413 6 27 16 78 20 114 13 101 56 120 193 84z m-294 -296 l-1 -53 -13 30 c-16 33 -18 58 -8 68 16 17 23 3 22 -45z m751 14 c0 -16 -7 -37 -15 -48 -14 -18 -14 -18 -15 6 0 35 11 70 21 70 5 0 9 -13 9 -28z m-325 -578 c117 -1 119 -15 15 -89 l-75 -53 -84 54 c-71 47 -82 58 -77 77 3 12 6 34 6 50 l0 27 63 -32 c56 -30 70 -33 152 -34z m158 -241 c-21 -18 -40 -32 -43 -32 -7 -1 -63 80 -58 84 2 2 32 26 68 53 l65 49 3 -60 c3 -60 2 -62 -35 -94z m-339 55 c5 -3 -5 -24 -23 -47 l-32 -41 -40 32 c-37 30 -39 34 -39 90 l0 59 62 -43 c34 -24 66 -46 72 -50z m150 -73 c21 -32 20 -42 -8 -89 l-24 -39 -27 53 -26 52 22 24 c28 30 43 30 63 -1z m-170 -146 l25 24 12 -26 c10 -22 6 -43 -25 -141 l-37 -116 -49 0 -50 0 0 167 0 167 50 -49 50 -49 24 23z m401 -21 c-1 -46 -2 -118 -3 -160 l-2 -78 -48 0 -49 0 -22 83 c-13 45 -29 97 -37 115 -10 26 -11 39 -3 55 17 32 17 32 44 7 l24 -23 43 42 c24 22 46 41 49 41 3 0 5 -37 4 -82z m-233 -146 c27 -87 25 -92 -25 -92 -24 0 -46 2 -49 5 -5 5 17 87 37 144 8 21 17 7 37 -57z"></path>
+</g>
+</svg></span>
+             <button class="btn" id="btnUser" onclick="verOpciones()">
+   <strong> Usuario no Identificado </strong>
+</button>
+
+            </div>
+            
+         
+      </div>
+       
+<br>
+<div class="row">
+  
+  <div class="column">
+
+          <div id="btnAcceso" class="row">
+
+            <div class="spiner" id="idSpiner"></div>
+
+          </div>
+          <div id="btnCursos" class="column"> </div>
+
+  </div>
+   
+
+  <div class="column">
+
+
+          <div class="row">
+              <input type="text" id="searchInput" placeholder="Ingresa el Apellido de un Docente">
+              <button class="btnmenu" onclick="reset()">Borrar</button>
+              <button class="btnmenu" onclick="colocarEfi()">EFI</button>
+              <button class="btnmenu" onclick="colocarCCD()">CCD</button>
+              <button class="btnmenu" onclick="porPID()">Buscar por PID</button>
+                <button class="btnmenu" onclick="imprimirTodo()">Imprimir Todos</button>
+        
+          </div>
+          
+         
+  </div>
+</div>
+
+<div class="row2">
+  <h2> Curso Seleccionado<span>    :</span></h2>
+
+  <h2 id="cursoSeleccionado"></h2>
+  <div class="row" id="btnExcel">
+
+  </div>
+  
+</div>
+  
+  <table id="table" border="1">
+      <tr >
+     <td  id="preceptorName" colspan="6" >
+
+     
+      
+    </td>
+    
+   </tr>
+   <tr>
+        <th id="cursoSeleccionadoTabla"></th>
+        <th>Lunes</th>
+        <th>Martes</th>
+        <th>Miércoles</th>
+        <th>Jueves</th>
+        <th>Viernes</th>
+      </tr>
+      <tr class="rowPre" id="rowPre">
+        <td class="column" id="0tablaHorario"> <p>Pre Hora</p> <p>  determinar  </p></td>
+        <td id="lunesPreH"> </td>
+        <td id="martesPreH"></td>
+        <td id="miercolesPreH"></td>
+        <td id="juevesPreH"></td>
+        <td id="viernesPreH"></td>
+      </tr>
+      <tr>
+        <td class="column"> <p>1ra</p> <p id="1tablaHorario"></p></td>
+        <td id="lunes1ra"></td>
+        <td id="martes1ra"></td>
+        <td id="miercoles1ra"></td>
+        <td id="jueves1ra"></td>
+        <td id="viernes1ra"></td>
+      </tr>
+      <tr>
+        <td class="column"> <p>2da</p> <p  id="2tablaHorario"> </p></td>
+        <td id="lunes2da"></td>
+        <td id="martes2da"></td>
+        <td id="miercoles2da"></td>
+        <td id="jueves2da"></td>
+        <td id="viernes2da"></td>
+      </tr>
+      <tr>
+        <td style="background-color:#e9e54d;" colspan="6">RECREO 20 minutos</td>
+      </tr>
+      <tr>
+        <td class="column"> <p>3ra</p> <p  id="3tablaHorario">  </p></td>
+        <td id="lunes3ra"></td>
+        <td id="martes3ra"></td>
+        <td id="miercoles3ra"></td>
+        <td id="jueves3ra"></td>
+        <td id="viernes3ra"></td>
+      </tr>
+      <tr>
+        <td class="column"> <p>4ta</p> <p  id="4tablaHorario"></p></td>
+        <td id="lunes4ta"></td>
+        <td id="martes4ta"></td>
+        <td id="miercoles4ta"></td>
+        <td id="jueves4ta"></td>
+        <td id="viernes4ta"></td>
+      </tr>
+      <tr class="row5ta" id="row5ta">
+        <td class="column"> <p>5ta</p> <p  id="5tablaHorario"> </p></td>
+        <td id="lunes5ta"></td>
+        <td id="martes5ta"></td>
+        <td id="miercoles5ta"></td>
+        <td id="jueves5ta"></td>
+        <td id="viernes5ta"></td>
+      </tr>
+      <tr>
+        <td class="column"> <p>Contraturno</p> <p  id="efiH"> </p></td>
+        <td id="lunes6ta"></td>
+        <td id="martes6ta"></td>
+        <td id="miercoles6ta"></td>
+        <td id="jueves6ta"></td>
+        <td id="viernes6ta"></td>
+      </tr>
+
+  </table>
+
+     <!-- Modal para la contraseña -->
+    <div id="myModal" class="modal">
+      <div class="modal-content" >
+        <p>Ingrese su credencial:</p>
+        <input type="password" id="passwordInput" placeholder="Contraseña">
+        <button class="btn btnmenu" onclick="submitPassword()">Acceder</button>
+         <button class="btn btnmenu" onclick="ocultarModal()">Cancelar</button>
+      </div>
+    </div>
+
+    <div class="column">
+
+       <h2>Accesos Utiles</h2>
+
+ <a class="btnmenu" id="btnUrlExcel" target="_blanck" href="">
+   Abrir excel de la <strong>POF 2025</strong>
+</a>
+<br>
+
+    
+    </div>
+
+    <div id="column">
+      <h2>Número de teléfono</h2>
+      <div class="column divContactos" id="contactos">
+
+      </div>
+    </div>
+  
+  <script>
+
+    
+var cursosBackend = [];
+
+    configurarApp();
+
+     var usuario={};
+    
+function configurarApp(){
+
+
+//-----------------------------------------------------------------------------------------------------
+
+let btnConfig=document.getElementById("configurarApp")
+
+btnConfig.addEventListener('click',()=>{
+
+    
+
+traerCursosBackend()
+
+   // Llamar a la función 
+crearPanel();
+
+})
+}
+
+
+function traerCursosBackend(){
+
+
+google.script.run.withSuccessHandler(function(datos) {
+
+localStorage.setItem("estructuraEscuelaPDD", JSON.stringify(datos));
+cursosBackend=datos.cursos;
+console.log("cursosBackend traidos del excel")
+console.log(cursosBackend)
+
+}).traerCursosEscuela(usuario.url);
+
+
+}
+
+
+//index = es igual a curso+seccion
+function cambiarTurno(btn,curso,seccion,index){
+
+  
+console.log(index)
+
+console.log("cursosBackend:")
+console.log(cursosBackend)
+let cursoIndex = cursosBackend.find(c => c.id == index);
+
+console.log(cursoIndex)
+
+if (btn.classList.contains('btnMañana')) {
+  btn.classList.replace('btnMañana', 'btnTarde');
+
+  cursoIndex.turno = 'T'; 
+
+} else if (btn.classList.contains('btnTarde')) {
+  btn.classList.replace('btnTarde', 'btnVespertino');
+cursoIndex.turno='V';
+
+} else if (btn.classList.contains('btnVespertino')) {
+  btn.classList.replace('btnVespertino', 'btnMañana');
+  cursoIndex.turno='M';
+
+} else {
+ 
+}
+  console.log(cursosBackend)
+}
+//--------------------------------------------------------------------------------------------
+
+//--------------------------------------------------------------------------------------------
+function crearPanel() {
+  let estructuraEscuelaPDD = JSON.parse(localStorage.getItem("estructuraEscuelaPDD")) || {
+    cantidadcursos: [],
+    cursos: [],
+    tipoIdentificacionSecciones: "Alfabéticamente"
+  };
+
+  const overlay = document.createElement("div");
+  overlay.style.cssText = `
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background-color: rgba(0,0,0,0.5); z-index: 1000;
+  `;
+
+  const panel = document.createElement("div");
+  panel.style.cssText = `
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    background: white; border-radius: 10px; padding: 20px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2); z-index: 1001; width: 320px;
+  `;
+
+  panel.innerHTML = `
+    <h3 style="text-align:center;">Configuración extensión PDD</h3>
+    <label>Las secciones están identificadas:</label>
+    <select id="tipoIdentificacionSecciones" style="width:100%;padding:8px;margin-top:5px;">
+      <option ${estructuraEscuelaPDD.tipoIdentificacionSecciones === "Numéricamente" ? "selected" : ""}>Numéricamente</option>
+      <option ${estructuraEscuelaPDD.tipoIdentificacionSecciones === "Alfabéticamente" ? "selected" : ""}>Alfabéticamente</option>
+    </select>
+    
+    <br><br>
+    <p>Coloca la cantidad de secciones por año</p>
+    <br>
+
+    <div id="bloqueAnios" style="display:flex; flex-direction:column; gap:10px; margin-bottom:20px;">
+      ${[1,2,3,4,5,6,7].map(a=>`<div>${crearDesplegable(`${a}° año`)}</div>`).join("")}
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:15px;">
+      <div>${crearDesplegable("ADA")} <span>ADA: aulas de aceleración/AFTE</span></div>
+      <div>${crearDesplegable("P")} <span>P: poliaño</span></div>
+    </div>
+
+    <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">
+      <button id="btnGuardar" style="background:#4CAF50;color:white;border:none;border-radius:5px;padding:8px 12px;">Guardar</button>
+      <button id="btnSalir" style="background:#d9534f;color:white;border:none;border-radius:5px;padding:8px 12px;">Salir</button>
+    </div>
+
+    <hr>
+    <div style="text-align:center; font-size:12px; color:#555;">
+      <span>Developer: Benitez Adrian</span><br>
+      <span>Consultas: artbenitez@abc.gob.ar</span>
+    </div>
+    <hr>
+  `;
+
+  document.body.append(overlay, panel);
+
+  let letraCurso = ["A","B","C","D","E","F","G","H","I","J","K","L"];
+  let numeroCurso = ["1","2","3","4","5","6","7","8","9","10","11","12"];
+  
+
+  document.getElementById("tipoIdentificacionSecciones").addEventListener("change", () => {
+    for (let p = 1; p <= 7; p++) {
+      document.getElementById(p + "_curso_turno_div").innerHTML = "";
+      document.getElementById(p + "_curso").value = 0;
+    }
+  });
+
+  for (let r = 1; r <= 7; r++) {
+    const select = document.getElementById(r + "_curso");
+    const contenedor = document.getElementById(r + "_curso_turno_div");
+    if (!select || !contenedor) continue;
+
+
+
+    select.addEventListener("change", () => {
+      let arraySeccion =
+        document.getElementById("tipoIdentificacionSecciones").value === "Numéricamente"
+          ? numeroCurso
+          : letraCurso;
+
+      contenedor.innerHTML = "";
+      let cursoSelec = parseInt(select.value);
+      //guardamos el valor en estructuraPDD
+      estructuraEscuelaPDD.cantidadcursos[r-1]=cursoSelec;
+
+      for (let d = 1; d <= cursoSelec; d++) {
+        let index = `${r}${d}`;
+        let cursoObj = { curso: r, seccion: arraySeccion[d - 1], turno: "M", id: index };
+        //cursosBackend.push(cursoObj);
+        
+        console.log(estructuraEscuelaPDD)
+        console.log(cursoObj)
+        //estructuraEscuelaPDD.cursos.push(cursoObj)
+        cursosBackend.push(cursoObj);
+
+
+        // crear el botón de forma segura
+        let btn = document.createElement("button");
+        btn.className = "btnMañana";
+        btn.textContent = `${r} ${arraySeccion[d - 1]}`;
+        btn.addEventListener("click", () =>
+          cambiarTurno(btn, cursoObj.curso, cursoObj.seccion, cursoObj.id)
+        );
+        contenedor.appendChild(btn);
+      }
+    });
+  }
+
+  document.getElementById("btnSalir").onclick = () => {
+    overlay.remove();
+    panel.remove();
+  };
+
+  document.getElementById("btnGuardar").onclick = () => {
+    let datosGuardar = {
+      cantidadcursos: [],
+      tipoIdentificacionSecciones: document.getElementById("tipoIdentificacionSecciones").value,
+      cursos: cursosBackend
+    };
+
+    for (let i = 1; i <= 7; i++) {
+      datosGuardar.cantidadcursos.push(document.getElementById(`${i}_curso`).value);
+    }
+    datosGuardar.cantidadcursos.push(document.getElementById("ADA_curso").value);
+    datosGuardar.cantidadcursos.push(document.getElementById("P_curso").value);
+
+    console.log("Antes de Guardar datosGuardar")
+    console.log(datosGuardar)
+
+    localStorage.setItem("estructuraEscuelaPDD", JSON.stringify(datosGuardar));
+
+    google.script.run.withSuccessHandler((res)=>{
+        alert(res)
+    }).actualizarCursosBackend(usuario.url,datosGuardar);
+
+
+    alert("Datos guardados correctamente");
+    //location.reload();
+  };
+
+  // ---------- función interna ----------
+  function crearDesplegable(titulo) {
+    let opciones = "";
+    let botonesCursos = "";
+    let numero = titulo.match(/\d+/);
+    let index;
+
+    if (numero) {
+      index = parseInt(numero[0]) - 1;
+
+      for (let i = 0; i <= 12; i++) {
+        opciones += `<option ${
+          estructuraEscuelaPDD.cantidadcursos?.[index] == i ? "selected" : ""
+        } value="${i}">${i}</option>`;
+      }
+
+      if (Array.isArray(estructuraEscuelaPDD.cursos)) {
+
+       
+
+        estructuraEscuelaPDD.cursos.forEach((curso) => {
+          
+          let id=curso.curso+""+numero;
+          
+          if (curso.curso == numero) {
+       
+            cursosBackend.push(curso)
+            botonesCursos += `<button class=${curso.turno=='M'?"btnMañana":curso.turno=='T'?"btnTarde":"btnVespertino"}
+              onclick="cambiarTurno(this,'${curso.curso}','${curso.seccion}','${id}')">
+              ${curso.curso} ${curso.seccion}</button>`;
+          }
+        });
+      }
+
+      return `<label>${titulo}:</label>
+        <select id="${numero}_curso">${opciones}</select>
+        <div id="${numero}_curso_turno_div">${botonesCursos}</div>`;
+    } else {
+      index = titulo === "ADA" ? 7 : 8;
+      for (let i = 0; i <= 5; i++) {
+        opciones += `<option ${
+          estructuraEscuelaPDD.cantidadcursos?.[index] == i ? "selected" : ""
+        } value="${i}">${i}</option>`;
+      }
+      return `<label>${titulo}:</label>
+        <select id="${titulo}_curso">${opciones}</select>`;
+    }
+    
+  }
+}
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+function agregarDocente() {
+  const container = document.createElement("div");
+  container.style.backgroundColor = "white";
+  container.style.borderRadius = "10px";
+  container.style.padding = "20px";
+  container.style.maxHeight = "80vh";
+  container.style.overflowY = "auto";
+
+  const title = document.createElement("h2");
+  title.textContent = "Agregar un Nuevo Docente a la Institución";
+  container.appendChild(title);
+
+
+  let html = `
+   <fieldset class="fieldset-pro">
+  <div class="ribbon">Funcionalidad Pro</div>
+  
+  <h4>Buscar Docente en el Mail (si estás logeado con el mail institucional)</h4>
+  <input placeholder="Ingrese Apellido, Nombre, Dni, Cuil">
+  <button onclick="addDocenteBuscarMail()">Buscar</button>
+
+  <div id="resultadoBuscarDocenteMail"></div>
+</fieldset>
+
+    <form id="formularioAddDocente">
+
+     <fieldset style="border:2px solid #ccc; padding:10px; background-color:#a7f576; margin:10px 0;">
+        
+      <label>CURSO:</label><br>
+      <input type="text" name="curso" required><br><br>
+
+     <hr>
+
+<label>Turno:</label><br>
+<select name="turno" id="turnoSelect">
+  <option value="Mañana">Mañana</option>
+  <option value="Tarde">Tarde</option>
+  <option value="Vespertino">Vespertino</option>
+  <option value="Contraturno">Contraturno</option>
+</select><br><br>
+
+<!-- Contenedor oculto al inicio -->
+<div id="contraturnoExtra" style="display:none;">
+
+  <label>Si es contraturno ingrese el horario manualmente (ejemplo: 14:00 - 17:00 )</label>
+  <select name="diaContraturno1">
+    <option value="1">Lunes</option>
+    <option value="2">Martes</option>
+    <option value="3">Miércoles</option>
+    <option value="4">Jueves</option>
+    <option value="5">Viernes</option>
+    <option value="6">Sábado</option>
+  </select>
+  <input type="text" name="contraturno_manual1" style="width: 100%;"><br><br>
+
+  <label>Si es contraturno ingrese el horario manualmente (ejemplo: 14:00 - 17:00 )</label>
+  <select name="diaContraturno2">
+    <option value="1">Lunes</option>
+    <option value="2">Martes</option>
+    <option value="3">Miércoles</option>
+    <option value="4">Jueves</option>
+    <option value="5">Viernes</option>
+    <option value="6">Sábado</option>
+  </select>
+  <input type="text" name="contraturno_manual2" style="width: 100%;"><br><br>
+
+</div>
+
+<hr>
+
+  `;
+
+html += `
+      
+
+  <label>DÍA Y HORARIO LABORAL (Seleccioná celdas):</label><br>
+  <table border="1" style="border-collapse: collapse; text-align: center; width: 100%; margin-bottom: 10px;">
+    <thead>
+      <tr>
+        <th>Horario \\ Día</th>
+        <th>LUNES</th>
+        <th>MARTES</th>
+        <th>MIÉRCOLES</th>
+        <th>JUEVES</th>
+        <th>VIERNES</th>
+        <th>SÁBADO</th>
+      </tr>
+    </thead>
+    <tbody>
+`;
+
+const dias = ["LUNES", "MARTES", "MIÉRCOLES", "JUEVES", "VIERNES", "SÁBADO"];
+const horarios = ["1RA", "2DA", "3RA", "4TA", "5TA"];
+
+horarios.forEach(horario => {
+  html += `<tr><td><strong>${horario}</strong></td>`;
+  dias.forEach(dia => {
+    const nombre = `${dia}_${horario}`;
+    html += `<td><input type="checkbox" name="horariosSeleccionados" value="${nombre}"></td>`;
+  });
+  html += `</tr>`;
+});
+
+html += `
+    </tbody>
+  </table>
+  
+`;
+
+
+
+
+
+  html += `
+      <label>PID:</label><br>
+      <input type="text" name="pid" required><br><br>
+
+      <label>Espacio Curricular:</label><br>
+      <input type="text" name="espacio" required><br><br>
+
+      <label>CUPOF:</label><br>
+      <input type="text" name="cupof"><br><br>
+
+      <label>Apellido y Nombre del docente:</label><br>
+      <input type="text" name="nombre" required><br><br>
+
+      <label>CUIL:</label><br>
+      <input type="text" name="cuil" required><br><br>
+
+      <label>Situación de Revista:</label><br>
+      <select name="situacion">
+        <option value="T">T</option>
+        <option value="TI">TI</option>
+        <option value="P">P</option>
+      </select><br><br>
+
+
+
+      <label>Teléfono Titular:</label><br>
+      <input type="text" name="telefono"><br><br>
+
+      <label>Correo ABC Titular:</label><br>
+      <input type="email" name="correo"><br><br>
+
+      <label>Domicilio Titular:</label><br>
+      <input type="text" name="domicilio"><br><br>
+
+       </fieldset>
+
+      <button type="submit">Agregar Docente</button>
+
+      
+    </form>
+     <button id="btnSalirAgregarDocente">Cancelar</button>
+  `;
+
+  container.insertAdjacentHTML("beforeend", html);
+
+  // Agregar manejador del formulario
+  container.querySelector("#formularioAddDocente").addEventListener("submit", function (e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+    const datos = {};
+    for (let pair of formData.entries()) {
+      if (datos[pair[0]]) {
+        if (!Array.isArray(datos[pair[0]])) datos[pair[0]] = [datos[pair[0]]];
+        datos[pair[0]].push(pair[1]);
+      } else {
+        datos[pair[0]] = pair[1];
+      }
+    }
+    console.log("Datos del docente:", datos);
+    
+    // Enviar a Google Apps Script si querés:
+    // google.script.run.guardarDocente(datos);
+  });
+
+
+  // Mostrar el formulario en tu modal o panel
+  crearPanelOscuro(container); // esta función debe mostrarlo como popup
+
+  container.addEventListener("click", (e) => {
+  if (e.target.id === "btnSalirAgregarDocente") {
+    removerOverley();
+  }
+});
+
+//agregamos el bloque que determinara si el usuario elije "Contraturno" se desplega la seccon para el ingreso de datos
+
+const turnoSelect = document.getElementById("turnoSelect");
+  const contraturnoExtra = document.getElementById("contraturnoExtra");
+
+  turnoSelect.addEventListener("change", () => {
+    if (turnoSelect.value === "Contraturno") {
+      contraturnoExtra.style.display = "block";
+    } else {
+      contraturnoExtra.style.display = "none";
+    }
+  });
+  
+
+
+
+
+
+}
+
+
+
+    function verOpciones(){
+      
+       usuario = JSON.parse(localStorage.getItem('user'))||"";
+
+
+      let opciones=document.createElement('div');
+      opciones.style.backgroundColor="white";
+      opciones.style.borderRadius='10px';
+
+      
+      let title=document.createElement('h3');
+      title.textContent=usuario.mail||"Usuario no Identificado ";
+      title.id="titleUsuario"
+
+
+        let btnIniciarSesion=document.createElement('button');
+      btnIniciarSesion.textContent='Iniciar Sesión'
+
+        let btnRegistrar=document.createElement('button');
+      btnRegistrar.textContent='Crear Cuenta'
+
+       let btnCerrarSesion=document.createElement('button');
+      btnCerrarSesion.textContent='Cerrar Sesión'
+
+      let btnSalir=document.createElement('button');
+      btnSalir.textContent='Salir'
+
+      opciones.appendChild(title);
+      
+
+      if (usuario && usuario.mail) {
+  
+            
+      opciones.appendChild(btnCerrarSesion)
+      
+      }else{
+  
+  
+        opciones.appendChild(btnIniciarSesion);
+        opciones.appendChild(btnRegistrar);
+      }
+      opciones.appendChild(btnSalir);
+
+//crear listener
+
+btnIniciarSesion.addEventListener('click',()=>{
+
+
+removerOverley();
+  logearse();
+})
+
+btnRegistrar.addEventListener('click',()=>{
+
+    registrarse();
+  
+
+})
+
+btnCerrarSesion.addEventListener('click',()=>{
+
+  let cerrar=confirm("¿Desea cerrar Sesión?");
+
+  if(cerrar){
+  document.getElementById("btnUser").innerHTML="<strong> Usuario no Identificado </strong>";
+
+  //document.getElementById("titleUser").textContent="Usuario no Identificado ";
+
+  removerOverley();
+
+  document.getElementById("btnCursos").innerHTML="";
+
+  //removemos todos los datos
+  localStorage.removeItem('datosBackend25');
+  localStorage.removeItem('datosBackendC25');
+  localStorage.removeItem('datosBackendEfc25');
+  localStorage.removeItem('datosVersion25');
+  localStorage.removeItem('datosVersionC25');
+    localStorage.removeItem('user');
+
+    //eliminamos la url
+document.getElementById("btnUrlExcel").setAttribute("href", "");
+
+
+    limpiarRender();
+
+    datosTraidos=[]
+
+  }
+})
+
+btnSalir.addEventListener('click',()=>{
+  removerOverley();
+})
+
+      crearPanelOscuro(opciones);
+    }
+
+
+    let svgIcon=`<svg xmlns="http://www.w3.org/2000/svg" version="1.0" width="100.000000pt" height="213.000000pt" viewBox="0 0 219.000000 213.000000" preserveAspectRatio="xMidYMid meet" style="height: 60px; width=60px">
+<g transform="translate(0.000000,213.000000) scale(0.100000,-0.100000)" fill="black" stroke="none">
+<path d="M887 2130 c-79 -20 -138 -63 -182 -132 -9 -16 -23 -28 -31 -28 -7 0 -32 -7 -54 -16 -74 -30 -83 -80 -55 -317 l15 -128 -25 -27 c-62 -67 -32 -214 52 -254 23 -11 29 -22 35 -63 9 -66 29 -112 73 -169 26 -35 35 -56 35 -85 0 -57 -7 -68 -38 -63 -24 3 -41 -8 -104 -67 -74 -69 -79 -72 -218 -120 -157 -54 -203 -83 -237 -151 -21 -41 -23 -58 -23 -216 0 -222 -7 -212 155 -227 73 -7 345 -11 695 -11 617 0 839 11 872 40 16 15 18 35 18 193 0 164 -2 179 -24 227 -30 64 -56 80 -230 143 -128 47 -141 54 -217 120 -59 52 -87 71 -108 71 -27 0 -29 3 -35 50 -7 49 -5 53 33 96 40 46 65 104 77 182 4 23 10 42 15 42 18 0 71 55 84 87 8 20 15 59 15 88 0 43 -5 60 -26 84 -25 30 -25 33 -15 100 15 94 14 149 -4 206 -11 37 -12 59 -4 96 12 54 -6 146 -38 197 -9 15 -17 28 -18 29 -1 2 -19 -6 -40 -17 -52 -26 -69 -25 -193 10 -117 34 -199 44 -255 30z m46 -456 c64 -16 106 -15 197 6 64 15 105 8 120 -20 14 -25 31 -142 37 -250 11 -200 -71 -385 -201 -452 -91 -47 -209 -2 -281 105 -66 98 -111 314 -85 413 6 27 16 78 20 114 13 101 56 120 193 84z m-294 -296 l-1 -53 -13 30 c-16 33 -18 58 -8 68 16 17 23 3 22 -45z m751 14 c0 -16 -7 -37 -15 -48 -14 -18 -14 -18 -15 6 0 35 11 70 21 70 5 0 9 -13 9 -28z m-325 -578 c117 -1 119 -15 15 -89 l-75 -53 -84 54 c-71 47 -82 58 -77 77 3 12 6 34 6 50 l0 27 63 -32 c56 -30 70 -33 152 -34z m158 -241 c-21 -18 -40 -32 -43 -32 -7 -1 -63 80 -58 84 2 2 32 26 68 53 l65 49 3 -60 c3 -60 2 -62 -35 -94z m-339 55 c5 -3 -5 -24 -23 -47 l-32 -41 -40 32 c-37 30 -39 34 -39 90 l0 59 62 -43 c34 -24 66 -46 72 -50z m150 -73 c21 -32 20 -42 -8 -89 l-24 -39 -27 53 -26 52 22 24 c28 30 43 30 63 -1z m-170 -146 l25 24 12 -26 c10 -22 6 -43 -25 -141 l-37 -116 -49 0 -50 0 0 167 0 167 50 -49 50 -49 24 23z m401 -21 c-1 -46 -2 -118 -3 -160 l-2 -78 -48 0 -49 0 -22 83 c-13 45 -29 97 -37 115 -10 26 -11 39 -3 55 17 32 17 32 44 7 l24 -23 43 42 c24 22 46 41 49 41 3 0 5 -37 4 -82z m-233 -146 c27 -87 25 -92 -25 -92 -24 0 -46 2 -49 5 -5 5 17 87 37 144 8 21 17 7 37 -57z"></path>
+</g>
+</svg>`;
+
+    let contactos=[];
+
+
+    function colocarContactos(datosCurso){
+     // alert("colocando contacos");
+//div contactos
+let divContactos=document.getElementById("contactos");
+
+divContactos.innerHTML="";
+let suplente='';
+
+datosCurso.forEach((element, index) => {
+  // Inicializa `suplente` como una cadena vacía
+  let suplente = '';
+
+  // Condición para crear el botón `suplente` si `element[6]` no está vacío
+  if (element[6] !== '') {
+
+    suplente = `
+      <button class="btn btnmenu styleContactoSuplente" onclick="crearVcard('${element[6]}','${element[0]}','${element[22]}','${element[10]}')">
+        <div class="column">
+          ${svgIcon}
+          <p>${element[6]}</p>
+           <p>(${element[22]!==''?element[22]:"Sin Registrar"})</p>
+        </div>
+      </button>
+    `;
+  }
+
+  // Define la clase `btn` basada en `element[15]` y `element[16]`
+  let styleClass = "styleContactoProvisional";
+  if (element[15] !== '') {
+    styleClass = "styleContactoTitular";
+  } else if (element[16] !== '') {
+    styleClass = "styleContactoInterino";
+  }
+
+
+  // Agrega el contenido HTML al contenedor `divContactos`
+  divContactos.innerHTML += `
+    <div class="row contenedorBtnContactos">
+      <p style="color: black;">${element[10]}</p>
+      <button class="btn btnmenu ${styleClass}" onclick="crearVcard('${element[13]}','${element[0]}','${element[19]}','${element[10]}')">
+        <div class="column">
+          ${svgIcon}
+          <p>${element[13]}</p>
+           <p>(${element[19]!==''?element[19]:"Sin Registrar"})</p>
+        </div>
+      </button>
+      ${suplente}
+    </div>
+  `;
+});
+}
+
+
+
+function crearVcard(nombre, curso, telefono, pid) {
+
+  if(telefono!==''){
+    alert(telefono)
+
+  // Definir el contenido de la vCard
+    const vCardData = `
+BEGIN:VCARD
+VERSION:3.0
+FN:${nombre+' '+pid+' '+curso}
+ORG:"ees 26"
+TEL;TYPE=CELL:${telefono}
+UID:${pid}
+END:VCARD
+    `.trim();
+
+    // Crear un blob de la vCard
+    const blob = new Blob([vCardData], { type: 'text/vcard' });
+
+    // Crear un enlace de descarga
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${nombre}.vcf`; // Nombre del archivo descargado
+    document.body.appendChild(link);
+    link.click();
+
+    // Limpiar el DOM
+    document.body.removeChild(link);
+
+  }else{
+    alert("El docente no Registro su celular")
+  }
+  
+}
+
+    function ocultarModal(){
+       document.getElementById("myModal").style.display="none";
+    }
+
+    document.getElementById("myModal").addEventListener("click",()=>{
+      document.getElementById("myModal").style.display="none";
+    })
+
+    function submitPassword(){
+
+      let contra=document.getElementById("passwordInput").value;
+
+google.script.run.withSuccessHandler(function (data){
+  if(data){
+
+//si es verdadero guardamos el usuario y lo renderizamos
+ localStorage.setItem('user', JSON.stringify(datosTraidosC[15]));
+identificarUsuario();
+
+document.getElementById("myModal").style.display="none";
+
+  }else{
+
+document.getElementById("myModal").style.display="none";
+document.getElementById("passwordInput").value="";
+
+
+alert("No tiene las credenciales Necesarias para acceder a este usuario")
+
+
+  }
+} ).comprobarCodigoUseiarioMaster(contra)
+
+    }
+/*
+
+  var urls = [
+  { "curso": "1A", "url": "https://docs.google.com/spreadsheets/d/1fQGJtIarLJzT7GW7c_vfuA9CvwDBSpsVxgfn0VUOiyo" },
+  { "curso": "1B", "url": "https://docs.google.com/spreadsheets/d/1Jrt8Z_sxQmeXHEyhhSmOSqRu6CM1lkJQjgBhUFVZ0bk" },
+  { "curso": "1C", "url": "https://docs.google.com/spreadsheets/d/1znoGa4Q6Q9Pb_o5bWifdvkRjfl4Nz30TNF77K-6QNJY" },
+  { "curso": "1D", "url": "https://docs.google.com/spreadsheets/d/1N4ub7OLILeYvyFJLRiw27zEYyV5XXigtIuMa0dsJ6sc" },
+  { "curso": "1E", "url": "https://docs.google.com/spreadsheets/d/1Bo5_GaBZEKFa0r0VUtnGc5QbJ6WE0R8_BJnx3EWvVzE" },
+  { "curso": "2A", "url": "https://docs.google.com/spreadsheets/d/1JyrOKAHdHxYD0cYchz9XTI0lpfneQ74YZRXOaf6gwzU" },
+  { "curso": "2B", "url": "https://docs.google.com/spreadsheets/d/1JMIRqFz8efac6gIhOE3GmurcGlfmCafaNYGe9IFnDvM" },
+  { "curso": "2C", "url": "https://docs.google.com/spreadsheets/d/1Y4g0XeIoPTMy3HqXch4RLjuV3v3K13mpRgub8d71PXk" },
+  { "curso": "2D", "url": "https://docs.google.com/spreadsheets/d/10tFRDStU_wKcx_ZTEh2Cgz-PRBVxmGzhIKrt_dakxFU" },
+  { "curso": "2E", "url": "https://docs.google.com/spreadsheets/d/1hLQhG9LEid-ER-idHlnQ8jogoYkgbfPs_eoiPSznonQ" },
+  { "curso": "2F", "url": "https://docs.google.com/spreadsheets/d/1hAKqafZgatvZGm4re7OadaoP8SqmcjCNOqVfIrbO5nU" },
+  { "curso": "3A", "url": "https://docs.google.com/spreadsheets/d/1kXPjXPKlMimkcoBK9xuHONFtf2d6lDXIZsuWQZGhKPc" },
+  { "curso": "3B", "url": "https://docs.google.com/spreadsheets/d/1G7kwBJGlZN4ITaQl2RV069Cj-qvyYhO6JUCgHj19YbI" },
+  { "curso": "3C", "url": "https://docs.google.com/spreadsheets/d/1uUbgfV_Pip98LKKFZWgfwDwXbU2SJNRrMDoTgWaiCyk" },
+  { "curso": "3D", "url": "https://docs.google.com/spreadsheets/d/1exDlNQd0ErP9sE6EawhBwiNNV7pnFR4wMaDO_83bnys" },
+  { "curso": "4A", "url": "https://docs.google.com/spreadsheets/d/1PtWpaG09r1A2ipD07H7XjWELA_c-sTtPHkqrNhK2x84" },
+  { "curso": "4B", "url": "https://docs.google.com/spreadsheets/d/1_Yqk4WIcp_vOZDmengZd7zbON0hb8sxqLxpyZRYehyE" },
+  { "curso": "4C", "url": "https://docs.google.com/spreadsheets/d/1WiPwgQflL9_t2udZdZkiNLpUDZThYOsrx_dCBm6a9_Y" },
+  { "curso": "5A", "url": "https://docs.google.com/spreadsheets/d/1THP-a4cCUibXFBIMDWG1qws8sgN8ejH_MkLhvZPns8c" },
+  { "curso": "5B", "url": "https://docs.google.com/spreadsheets/d/19r_t4NPiZkjY9tdNyaTtq66hD12fksjiyItJs1cEn5Q" },
+  { "curso": "5C", "url": "https://docs.google.com/spreadsheets/d/1Z4RlPDad7_FowDC1LmWKoUMJLXUmawmc5BchK5sZW5g" },
+  { "curso": "6A", "url": "https://docs.google.com/spreadsheets/d/1YnPZ7aNvnOOeLfr60v84IWadfvXR7mQBWp87bH1Gl8E" },
+  { "curso": "6C", "url": "https://docs.google.com/spreadsheets/d/1qtiCGHFKIfWzOU_MpWfQGWAcSHvuWKZMARG4KuHU9x4" },
+  { "curso": "AF1", "url": "https://docs.google.com/spreadsheets/d/13OuIDXe1_cQkFDjNu8Fh9o5MBeZVXdGc8iwDG-C60vg" },
+  { "curso": "AF2", "url": "https://docs.google.com/spreadsheets/d/1_xWQfOHMJOvXUYNk9UDMpKt7HMy_GcxkTBSGaQfNp-s" }
+];
+
+
+*/
+
+    let datosBackendEfi=[];
+
+    
+
+  function crearPanelOscuro(panelHijo){
+        // Crear el overlay oscuro que cubre toda la pantalla
+  const overlay = document.createElement('div');
+  overlay.style.position = 'fixed';
+  overlay.id="overlayId"
+  overlay.style.top = '0';
+  overlay.style.left = '0';
+  overlay.style.width = '100%';
+  overlay.style.height = '100%';
+  overlay.style.backgroundColor = 'rgba(150, 100, 0, 0.8)'; // Fondo oscuro
+  overlay.style.display = 'flex';
+  overlay.style.justifyContent = 'center';
+  overlay.style.alignItems = 'center';
+  overlay.style.zIndex = '1000';
+
+  // Crear el contenedor del panel
+  const panel = document.createElement('div');
+  panel.style.backgroundColor = 'white';
+  panel.style.padding = '10px';
+  panel.style.borderRadius = '8px';
+//  panel.style.width = '300px';
+  panel.style.boxShadow = '0px 0px 10px rgba(0, 0, 0, 0.5)';
+  
+  //panel hijo es el panel que se le agrega con una determinada funcionalidad
+  try{
+
+panel.appendChild(panelHijo)
+
+  }catch{
+
+  }    // Añadir el panel al overlay
+  overlay.appendChild(panel);
+
+  // Cerrar el panel si se hace clic fuera de él
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) {
+      removerOverley();
+    }
+  });
+
+  // Evitar que el clic en el panel cierre el overlay
+  panel.addEventListener('click', (e) => {
+    e.stopPropagation();
+  });
+
+  // Añadir el overlay al body
+  document.body.appendChild(overlay);
+  }
+
+  //creamos la función para identificarse
+function registrarse(){
+
+    // Obtener la URL base al cargar la página
+  google.script.run.withSuccessHandler(function(url) {
+    
+     window.open(url + '?page=registrarse', '_blank');
+
+  }).obtenerUrlBase();
+}
+
+function logearse() {
+
+//crearPanelOscuro()
+spiner(true);
+
+try{
+  usuario = JSON.parse(localStorage.getItem('user'));
+  if(usuario){
+                              
+                         
+                          // 2. Asignás el listener con una URL como parámetro
+                          colocarBotonExcel(usuario.url);
+                          
+                          
+
+  }else{
+           colocarBotonExcel('none');
+  }
+  
+}catch(error){
+alert("error: "+error)
+}
+  
+    if (usuario){
+
+      spiner(false);
+
+      document.getElementById("btnUser").textContent=usuario.mail;
+
+      
+      verVersion();
+
+      colocarCursos();
+
+     // alert("logeado con: "+ usuario.mail)
+
+
+      removerOverley()
+  
+    }else{
+
+
+
+
+  google.script.run.withSuccessHandler(function(respuesta) {
+     console.log(respuesta)
+
+   // alert("revisando mail")
+
+  if(respuesta[0]!==null){
+
+    colocarBotonExcel(respuesta.url);
+
+
+    spiner(false);
+    //alert("logeado con mail: "+respuesta[1])
+
+    localStorage.setItem('user',JSON.stringify({mail:respuesta[1],id:respuesta[0],url:respuesta[2]}))
+
+
+    usuario={mail:respuesta[1],id:respuesta[0]};
+    document.getElementById("btnUser").textContent=usuario.mail;
+
+    
+      verVersion();
+
+     colocarCursos();
+
+  }else{
+    
+    spiner(false);
+    document.getElementById("btnUser").innerHTML="<strong>Usuario No Registrado</strong>";
+    colocarBotonExcel('none')
+
+    //alert("el mail actual no se encuentra registrado");
+
+    
+  const container = document.createElement('div');
+  container.classList.add('login-modal');
+
+
+
+  // Contenedor del formulario
+  let form = document.createElement('div');
+  form.style.background = 'white';
+  form.style.padding = '20px';
+  form.style.borderRadius = '8px';
+  form.style.width = '300px';
+  form.style.margin = '100px auto';
+  form.style.display = 'flex';
+  form.style.flexDirection = 'column';
+  form.style.gap = '10px';
+  form.style.boxShadow = '0 0 10px rgba(0,0,0,0.2)';
+
+  let titulo=document.createElement('h3');
+  titulo.textContent="Administrador de Escuela";
+  titulo.style.display="flex";
+  titulo.style.justifyContent="center"
+  titulo.style.margin="10px";
+
+  // Campo de usuario
+  let containerUsuario = document.createElement('div');
+  let inputUsuario = document.createElement('input');
+  inputUsuario.placeholder = 'Usuario';
+  inputUsuario.type = 'text';
+  inputUsuario.style.width = '100%';
+  containerUsuario.appendChild(inputUsuario);
+
+  // Campo de contraseña
+  let containerPassword = document.createElement('div');
+  let inputPassword = document.createElement('input');
+  inputPassword.placeholder = 'Contraseña';
+  inputPassword.type = 'password';
+  inputPassword.style.width = '100%';
+  containerPassword.appendChild(inputPassword);
+
+  // Botón
+  let button = document.createElement('button');
+  button.innerText = 'Iniciar sesión';
+  button.style.padding = '8px';
+  button.style.cursor = 'pointer';
+
+ let buttonS = document.createElement('button');
+  buttonS.innerText = 'Salir';
+  buttonS.style.padding = '8px';
+  buttonS.style.cursor = 'pointer';
+
+   let buttonR = document.createElement('button');
+  buttonR.innerText = 'Registrarse';
+  buttonR.style.padding = '8px';
+  buttonR.style.cursor = 'pointer';
+
+
+//listener
+
+  buttonS.addEventListener('click', () => {
+    removerOverley();
+      
+  })
+
+  
+  buttonR.addEventListener('click', () => {
+      registrarse()
+  })
+
+
+  button.addEventListener('click', () => {
+    let username = inputUsuario.value.trim();
+    let password = inputPassword.value.trim();
+
+    if (!username || !password) {
+      alert('Por favor complete ambos campos.');
+      return;
+    }
+
+    // Llamada a Google Apps Script
+    google.script.run.withSuccessHandler(function(respuesta) {
+
+
+colocarBotonExcel(respuesta.url)
+
+      console.log("->",respuesta)
+      if (respuesta[0] !== null && respuesta[0] !== '') {
+ 
+        console.log('✅ Inicio de sesión exitoso');
+      
+    usuario={mail:respuesta[1],id:respuesta[0]};
+
+    localStorage.setItem('user',JSON.stringify({mail:respuesta[1],id:respuesta[0],url:respuesta[2]}))
+    
+    document.getElementById("btnUser").textContent=respuesta[1];
+
+    
+ verVersion();
+    
+    colocarCursos();
+     
+     removerOverley()
+      
+      } else {
+        alert('❌ Usuario o contraseña incorrectos');
+      }
+    }).login(username, password);
+  });
+
+  // Agregar elementos al formulario
+  form.appendChild(titulo);
+  form.appendChild(containerUsuario);
+  form.appendChild(containerPassword);
+  form.appendChild(button);
+  form.appendChild(buttonS);
+  form.appendChild(buttonR);
+
+  // Agregar formulario al panel oscuro
+  container.appendChild(form);
+
+  // Mostrar en pantalla
+    // Fondo oscuro
+  crearPanelOscuro(container);
+
+
+  }
+
+}).loginConMail();
+
+
+
+
+    }
+
+
+}
+
+function colocarBotonExcel(url) {
+  try {
+    document.getElementById("btnUrlExcel").setAttribute("href", url);
+  } catch (error) {
+    alert("Error al colocar el botón: " + error.message);
+  }
+}
+
+
+
+
+
+
+function removerOverley(){
+  try{
+    let overlayId=document.getElementById("overlayId");
+document.body.removeChild(overlayId);
+    }catch{
+
+    }
+}
+
+
+//colocamos el spiner
+function spiner(estado) {
+  const spinnerId = 'custom-loading-spinner';
+  const overlayId = 'overlay';
+
+  let existingSpinner = document.getElementById(spinnerId);
+  let existingOverlay = document.getElementById(overlayId);
+
+  if (estado) {
+    if (existingSpinner || existingOverlay) return; // Ya está activo
+
+    // Crear el overlay oscuro
+    const overlay = document.createElement('div');
+    overlay.id = overlayId;
+    overlay.style.position = 'fixed';
+    overlay.style.top = '0';
+    overlay.style.left = '0';
+    overlay.style.width = '100%';
+    overlay.style.height = '100%';
+    overlay.style.backgroundColor = 'rgba(150, 100, 0, 0.8)';
+    overlay.style.display = 'flex';
+    overlay.style.justifyContent = 'center';
+    overlay.style.alignItems = 'center';
+    overlay.style.zIndex = '1000';
+
+    // Crear el spinner
+    const spinner = document.createElement('div');
+    spinner.id = spinnerId;
+    spinner.style.width = '60px';
+    spinner.style.height = '60px';
+    spinner.style.border = '6px solid #ccc';
+    spinner.style.borderTop = '6px solid #2196F3';
+    spinner.style.borderRadius = '50%';
+    spinner.style.animation = 'spin 1s linear infinite';
+
+    overlay.appendChild(spinner);
+    document.body.appendChild(overlay);
+
+    // Agregar animación CSS si no existe
+    if (!document.getElementById('spinner-style')) {
+      const style = document.createElement('style');
+      style.id = 'spinner-style';
+      style.innerHTML = `
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      `;
+      document.head.appendChild(style);
+    }
+  } else {
+    // Eliminar el overlay y spinner
+    if (existingOverlay) {
+      existingOverlay.remove();
+    }
+  }
+}
+
+
+
+
+function saveUser(i) {
+
+  try{
+    document.getElementById("btnCursos").innerHTML=``;
+  }catch{
+
+  }
+
+  if(datosTraidosC[i][0]==1397484){
+
+    document.getElementById("myModal").style.display = "flex";
+    
+    document.getElementById("passwordInput").focus();
+
+
+  }else{
+
+ localStorage.setItem('user25', JSON.stringify(datosTraidosC[i]));
+identificarUsuario();
+
+  }
+  removerOverley();
+
+  
+  console.log("usuario guardado: ",datosTraidosC[i])
+  // Convierte el array u objeto a una cadena JSON
+ 
+}
+
+function colocarSpiner(vari){
+
+if(vari){
+document.getElementById("idSpiner").style.display="flex";
+
+}else{
+document.getElementById("idSpiner").style.display="none";
+
+}
+  
+
+}
+
+function colocarCursos(){
+  colocarSpiner(true)
+ google.script.run.withSuccessHandler((res) => {
+
+  console.log(res)
+  var btnList = JSON.parse(res);
+
+  let div = document.getElementById("btnCursos");
+
+  var cursosM = [];
+  var cursosT = [];
+  var cursosV = [];
+  var otro = [];
+
+  btnList.forEach((e) => {
+    if (e[1] === 'm' || e[1] === 'M') {
+      cursosM.push(e);
+    } else if (e[1] === 't' || e[1] === 'T') {
+      cursosT.push(e);
+    } else if (e[1] === 'v' || e[1] === 'V') {
+      cursosV.push(e);
+    } else {
+      otro.push(e);
+    }
+  });
+
+  const crearBotones = (lista, clase) => {
+    return lista.map(e =>
+      `<button class="btn ${clase}" onclick="pintarCurso('${e[0]}')">${e[0]}</button>`
+    ).join('');
+  };
+
+  div.innerHTML += `
+    <div class="row">${crearBotones(cursosM, 'btnMañana')}</div>
+    <div class="row">${crearBotones(cursosT, 'btnTarde')}</div>
+    <div class="row">${crearBotones(cursosV, 'btnVespertino')}</div>
+   
+  `;
+
+  colocarSpiner(false);
+
+}).colbtn(usuario.id);
+
+}
+
+/*
+let colorPid = [
+  {"pid": "APV", "color": "rgba(255, 0, 0, 0.6)"},     // Rojo
+  {"pid": "CCD", "color": "rgba(255, 165, 0, 0.6)"},   // Naranja
+  {"pid": "CNT", "color": "rgba(255, 255, 0, 0.6)"},   // Amarillo
+  {"pid": "CSC", "color": "rgba(0, 128, 0, 0.6)"},     // Verde
+  {"pid": "EFI", "color": "rgba(0, 0, 255, 0.6)"},     // Azul
+  {"pid": "ING", "color": "rgba(107, 16, 173, 0.2)"},    // Añil (Indigo)
+  {"pid": "MTM", "color": "rgba(238, 130, 238, 0.6)"}, // Violeta
+  {"pid": "PLG", "color": "rgba(255, 20, 147, 0.6)"},  // Rosa fuerte
+  {"pid": "BLG", "color": "rgba(139, 69, 19, 0.6)"},   // Marrón
+  {"pid": "FQA", "color": "rgba(255, 99, 71, 0.6)"},   // Tomate
+  {"pid": "GGF", "color": "rgba(255, 215, 0, 0.6)"},   // Oro
+  {"pid": "HTR", "color": "rgba(0, 255, 255, 0.6)"},   // Cian
+  {"pid": "IAF", "color": "rgba(128, 0, 128, 0.6)"},   // Púrpura
+  {"pid": "LITES", "color": "rgba(0, 255, 0, 0.6)"},   // Verde neón
+  {"pid": "MCS", "color": "rgba(255, 192, 203, 0.6)"}, // Rosa claro
+  {"pid": "NTI", "color": "rgba(30, 144, 255, 0.6)"},  // Azul dodger
+  {"pid": "PSI", "color": "rgba(255, 69, 0, 0.6)"},    // Naranja rojizo
+  {"pid": "SYA", "color": "rgba(60, 179, 113, 0.6)"},  // Verde mar
+  {"pid": "CCS", "color": "rgba(138, 43, 226, 0.6)"},  // Azul violáceo
+  {"pid": "EPO", "color": "rgba(128, 128, 0, 0.6)"},   // Verde oliva
+  {"pid": "IAQ", "color": "rgba(107, 16, 173, 0.2)"},    // Añil (Indigo)
+  {"pid": "PIC", "color": "rgba(255, 20, 147, 0.6)"},  // Rosa fuerte
+  {"pid": "SOC", "color": "rgba(255, 99, 71, 0.6)"},   // Tomate
+  {"pid": "CCSC", "color": "rgba(255, 215, 0, 0.6)"},  // Oro
+  {"pid": "ART", "color": "rgba(0, 255, 255, 0.6)"},   // Cian
+  {"pid": "FIA", "color": "rgba(128, 0, 128, 0.6)"},   // Púrpura
+  {"pid": "TYC", "color": "rgba(255, 192, 203, 0.6)"}  // Rosa claro
+];
+
+*/
+
+
+    var datosTraidos=[];
+
+    var datosTraidosC=[];
+
+    var datosTraidosHorarios=[];
+
+    var horariosEFI=[];
+
+     var tablaBusqueda=`
+      <tr >
+    <td id="preceptorName"  colspan="6">
+     
+    </td>
+    
+   </tr>
+     <tr>
+        <th class="dia" >Lunes</th>
+        <th class="dia" >Martes</th>
+        <th class="dia" >Miércoles</th>
+        <th class="dia" >Jueves</th>
+        <th class="dia" >Viernes</th>
+      </tr>
+     `;
+
+    var tabla = `
+     <tr >
+    <td  id="preceptorName" colspan="6" >
+
+     
+      
+    </td>
+    
+   </tr>
+     <tr>
+        <th class="dia" id="cursoSeleccionadoTabla"></th>
+        <th class="dia" >Lunes</th>
+        <th class="dia" >Martes</th>
+        <th class="dia" >Miércoles</th>
+        <th class="dia" >Jueves</th>
+        <th class="dia" >Viernes</th>
+      </tr>
+      <tr class="rowPre" id="rowPre">
+        <td class="column"> <p>Pre Hora</p> <p  id="0tablaHorario">  determinar  </p></td>
+        <td id="lunesPreH"> </td>
+        <td id="martesPreH"></td>
+        <td id="miercolesPreH"></td>
+        <td id="juevesPreH"></td>
+        <td id="viernesPreH"></td>
+      </tr>
+      <tr>
+        <td class="column"> <p>1ra</p> <p id="1tablaHorario"></p></td>
+        <td id="lunes1ra"></td>
+        <td id="martes1ra"></td>
+        <td id="miercoles1ra"></td>
+        <td id="jueves1ra"></td>
+        <td id="viernes1ra"></td>
+      </tr>
+      <tr>
+        <td class="column"> <p>2da</p> <p  id="2tablaHorario"> </p></td>
+        <td id="lunes2da"></td>
+        <td id="martes2da"></td>
+        <td id="miercoles2da"></td>
+        <td id="jueves2da"></td>
+        <td id="viernes2da"></td>
+      </tr>
+      <tr>
+        <td style="background-color: #e9e54d;" colspan="6">RECREO 20 minutos</td>
+      </tr>
+      <tr>
+        <td class="column"> <p>3ra</p> <p  id="3tablaHorario">  </p></td>
+        <td id="lunes3ra"></td>
+        <td id="martes3ra"></td>
+        <td id="miercoles3ra"></td>
+        <td id="jueves3ra"></td>
+        <td id="viernes3ra"></td>
+      </tr>
+      <tr>
+        <td class="column"> <p>4ta</p> <p  id="4tablaHorario"></p></td>
+        <td id="lunes4ta"></td>
+        <td id="martes4ta"></td>
+        <td id="miercoles4ta"></td>
+        <td id="jueves4ta"></td>
+        <td id="viernes4ta"></td>
+      </tr>
+      <tr class="row5ta" id="row5ta">
+        <td class="column"> <p>5ta</p> <p  id="5tablaHorario"> </p></td>
+        <td id="lunes5ta"></td>
+        <td id="martes5ta"></td>
+        <td id="miercoles5ta"></td>
+        <td id="jueves5ta"></td>
+        <td id="viernes5ta"></td>
+      </tr>
+      <tr>
+        <td class="column"> <p>Contraturno</p> <p  id="efiH"> </p></td>
+        <td id="lunes6ta"></td>
+        <td id="martes6ta"></td>
+        <td id="miercoles6ta"></td>
+        <td id="jueves6ta"></td>
+        <td id="viernes6ta"></td>
+      </tr>
+    `;
+
+
+        var arrayB1 = [];
+        var arrayB2 = [];
+        var arrayB3 = [];
+        var arrayB4 = [];
+        var arrayB5 = [];
+
+async function imprimirTodo() {
+ // let confirmacion = confirm("Atención: se creará un archivo PDF que contendrá todos los horarios de la escuela");
+
+  //if (!confirmacion) return;
+
+  const todosLosCursos = [...new Set(datosTraidos.map(curso => curso[0]))];
+  const tablasClonadas = [];
+
+  for (const curso of todosLosCursos) {
+    pintarCurso(curso);
+
+    // Esperar a que el DOM se actualice visualmente (necesario si pintarCurso es rápida)
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    const tabla = document.getElementById("table");
+    if (tabla) {
+      const wrapper = document.createElement("div");
+      wrapper.style.pageBreakAfter = "always"; // fuerza salto de página
+      wrapper.style.width = "100%";
+      wrapper.style.height = "100%";
+      wrapper.style.display = "flex";
+      wrapper.style.flexDirection = "column";
+      wrapper.style.justifyContent = "flex-start";
+      wrapper.style.alignItems = "center";
+
+      const titulo = document.createElement("h2");
+      titulo.innerText = "Curso: " + curso;
+      titulo.style.textAlign = "center";
+      titulo.style.margin=0;
+      titulo.style.padding=0;
+
+      const clon = tabla.cloneNode(true);
+      clon.style.width = "95%";
+      clon.style.maxHeight = "90%"; // asegura que no desborde verticalmente
+
+      wrapper.appendChild(titulo);
+      wrapper.appendChild(clon);
+      tablasClonadas.push(wrapper);
+    }
+  }
+
+  // Contenedor de todo el documento
+  const contenedor = document.createElement("div");
+  tablasClonadas.forEach(tablaDiv => contenedor.appendChild(tablaDiv));
+
+  // Generar el PDF
+  html2pdf().from(contenedor).set({
+    margin: 0,
+    filename: "Horarios_Escuela.pdf",
+    html2canvas: {
+      scale: 3,
+      useCORS: true
+    },
+    jsPDF: {
+      unit: "mm",
+      format: "a4",
+      orientation: "landscape" // 👉 orientación horizontal
+    }
+  }).save();
+}
+
+
+
+function porPID(){
+
+let pid=prompt("ingrese el PID a buscar");
+
+if(pid.length>5){
+  alert("PID invalido")
+}else{
+    renderizarDatosTraidos(pid.toUpperCase());
+}
+
+ 
+
+}
+
+function colocarEfi(){
+
+
+ renderizarDatosTraidos('EFC');
+
+}
+
+function colocarCCD(){
+
+
+ renderizarDatosTraidos('CCD');
+
+}
+
+
+    function goToCell(cell) {
+      google.script.run.irCelda(cell);
+    }
+
+
+
+function traerEfi() {
+
+  // Filter the array to only include elements where the 11th item is 'EFC'
+ datosBackendEfi = datosTraidos.filter(elemento => elemento[10] == "EFC");
+
+
+  console.log("datostraidos (efc) : ",datosBackendEfi)
+  // Only save to localStorage if the filtered array is not empty
+  if (datosBackendEfi.length > 0) {
+    // Save the filtered array to localStorage as a JSON string
+    localStorage.setItem("datosBackendEfc25", JSON.stringify(datosBackendEfi));
+  } else {
+    console.log("No matching elements found for 'EFC'.");
+  }
+}
+
+
+  function pintarCurso(curso) {
+
+    //colcamos el nombre del preceptor
+    let namePrece=datosTraidosC.find(elemento=>elemento[7]==curso||elemento[8]==curso||elemento[9]==curso)
+
+//PARTE DEL CODIGO QUE PINTA EL CURSO
+    limpiarRender();
+    
+    //pintamos las horas de efi
+    pintarContraturno(curso);
+    // Filtramos los datos que coinciden con el curso especificado
+    let miDato = datosTraidos.filter((elemento) => elemento[0] === curso);
+    
+    if (miDato.length > 0) {
+
+        gestionarDato(miDato);
+        colocarContactos(miDato); //colocamos los contacots de los doncetes
+
+        mensaje("se trabajo con elementos del local storage")
+    } else {
+      mensaje("sin conexión con el backend")
+        console.log("No se encontraron datos para el curso:", curso);
+    }
+     if(namePrece){
+      document.getElementById('preceptorName').innerHTML=`<p>Preceptor: <span>${namePrece[2]}</span>    CUPOF: <span> ${namePrece[0]}</span><p>`
+    }
+}
+
+
+function mensaje(texto){
+  console.log(texto)
+}
+
+
+    function limpiarRender() {
+      document.getElementById("table").innerHTML = tabla;
+    }
+      function limpiarRenderParaBusqueda() {
+      document.getElementById("table").innerHTML = tablaBusqueda;
+    }
+
+// Horarios para cada turno (lo vamos a modificar y lovamos a traer del backend)
+let horariosManiana = ['1','2','3','4','5'];
+
+let horariosTarde =  ['0','1','2','3','4'];
+
+let horariosVespe =  ['1','2','3','4','5'];
+
+
+
+// Pintar en función de los horarios para todos los turnos
+function renderizarHorario(data, numDia, selectorId, horarios) {
+ 
+  //selectorId es un array que tiene los id para cada dia
+    for (let fila = 0; fila < data.length; fila++) {
+        let celda = data[fila][numDia];
+
+        // Skip empty cells
+        if (celda === '') continue;
+try{
+
+  selectorId.forEach((element, numero) => {
+          
+    
+ if (celda.includes(numero) && data[fila][18] !== 'C' && data[fila][numDia].length<6){
+
+      pintar(data[fila], element)
+//si hay prehora o 5ta hora volvemos visible las row correspondientes
+
+if(celda.includes(0)){
+  document.getElementById("rowPre").style.display="flex";
+}else if(celda.includes(5)){
+ document.getElementById("row5ta").style.display="flex";
+}
+
+            }
+        });
+
+
+}catch{
+
+}
+      
+    }
+}
+
+
+// Uso de la función para los diferentes turnos
+function renderizarTurno(data, numDia, selectorId) {
+    if (data[0][18].includes("M")) {
+       
+        renderizarHorario(data, numDia, selectorId, horariosManiana);
+
+//COLOCAMOS LOS HORARIOS EN LA TABLA
+datosTraidosHorarios.forEach((horario,index)=>{
+  if(horario[0]=='M'){
+  document.getElementById(horario[1]+"tablaHorario").textContent = horario[2]+" - "+horario[3];
+  }
+})
+        document.getElementById("rowPre").style.display = "none";
+
+    } else if (data[0][18].includes("T")) {
+        renderizarHorario(data, numDia, selectorId, horariosTarde);
+
+       
+//COLOCAMOS LOS HORARIOS EN LA TABLA
+datosTraidosHorarios.forEach((horario,index)=>{
+  if(horario[0]=='T'){
+  document.getElementById(horario[1]+"tablaHorario").textContent = horario[2]+" - "+horario[3];
+  }
+})
+        document.getElementById("row5ta").style.display = "none";
+
+    } else if (data[0][18].includes("V")) {
+        renderizarHorario(data, numDia, selectorId, horariosVespe);
+
+            //COLOCAMOS LOS HORARIOS EN LA TABLA
+      datosTraidosHorarios.forEach((horario,index)=>{
+        if(horario[0]=='V'){
+        document.getElementById(horario[1]+"tablaHorario").textContent = horario[2]+" - "+horario[3];
+        }
+      })
+        //document.getElementById("row5ta").style.display = "none";
+    }
+}
+
+// Función pintar (sin cambios)
+function pintar(data, selector) {
+
+  //console.log(data)
+
+let colorPorPid="white";
+//let thispid=data[fila][10];
+
+//const elementoEncontrado = colorPid.find((elemento) => thispid == elemento.pid);
+
+//if (elementoEncontrado) {
+  //colorPorPid = elementoEncontrado.color;
+//}else{
+  //colorPorPid="white";
+//}
+
+document.getElementById(selector).style.backgroundColor=colorPorPid;
+
+    document.getElementById(selector).addEventListener('click',()=>{panelEditar(data)})
+// <span class="editar">✏️</span>
+    document.getElementById(selector).innerHTML = `
+        <span class="editar">✏️</span>
+        <p class="materia"><strong>${data[11]}</strong></p>
+        <p class=${data[15] !== '' ? "titular" : data[16] !== '' ? "titularinterino" : data[17] !== '' ? "provisional" : "otros"}>${data[13]}</p>
+        <p class="suplente">${data[6]} ${data[8] !== '' ? " - " + data[8] : ''}</p>
+        <p>${data[12]}</p>
+      `;
+}
+
+
+function panelEditarBusqueda(array,index) {
+
+if(array==1){
+panelEditar(arrayB1[index])
+}else if(array==2){
+panelEditar(arrayB2[index])
+}else if(array==3){
+panelEditar(arrayB3[index])
+}else if(array==4){
+panelEditar(arrayB4[index])
+}else if(array==5){
+
+panelEditar(arrayB5[index])
+}
+}
+
+function panelEditar(data) {
+  // Crear el overlay oscuro que cubre toda la pantalla
+  const overlay = document.createElement('div');
+  overlay.id="overlayId"
+  overlay.style.position = 'fixed';
+  overlay.style.top = '0';
+  overlay.style.left = '0';
+  overlay.style.width = '100%';
+  overlay.style.height = '100%';
+  overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.8)'; // Fondo oscuro
+  overlay.style.display = 'flex';
+  overlay.style.justifyContent = 'center';
+  overlay.style.alignItems = 'center';
+  overlay.style.zIndex = '1000';
+
+  // Crear el contenedor del panel
+  const panel = document.createElement('div');
+  panel.style.backgroundColor = 'white';
+  panel.style.padding = '10px';
+  panel.style.borderRadius = '8px';
+  panel.style.width = '300px';
+  panel.style.boxShadow = '0px 0px 10px rgba(0, 0, 0, 0.5)';
+
+    const title = document.createElement('H2');
+    title.textContent=`Curso: ${data[0]}`
+
+    const subtitle = document.createElement('H2');
+    subtitle.textContent=`Materia: ${data[11]}`
+
+    panel.appendChild(title)
+    panel.appendChild(subtitle)
+
+  // Crear un contenedor para los inputs y sus botones
+  const inputContainer = document.createElement('div');
+  
+  // Crear los 6 inputs con botones "Copiar" y "Borrar"
+   
+
+ // docente titular
+    inputContainer.appendChild(colocarInput(data[13],"Titular","id13"));
+ // cuil del docente
+    inputContainer.appendChild(colocarInput(data[14],"Cuil Titular","id14"));
+    
+ // docente titular
+    inputContainer.appendChild(colocarInput(data[6],"Suplente","id6"));
+ // cuil del docente
+    inputContainer.appendChild(colocarInput(data[7],"Cuil suplente","id7"));
+    
+ // docente titular
+    inputContainer.appendChild(colocarInput(data[8],"Suplente 2","id8"));
+ // cuil del docente
+    inputContainer.appendChild(colocarInput(data[9],"Cuil Suplente 2","id9"));
+
+
+
+
+  // Añadir el contenedor de inputs al panel
+  panel.appendChild(inputContainer);
+
+  // Crear el contenedor de los botones
+  const buttonContainer = document.createElement('div');
+  buttonContainer.style.display = 'flex';
+  buttonContainer.style.justifyContent = 'space-between';
+  buttonContainer.style.marginTop = '20px';
+
+  // Crear el botón "Guardar"
+  const saveButton = document.createElement('button');
+  saveButton.textContent = 'Guardar';
+  saveButton.style.padding = '10px 20px';
+  saveButton.style.backgroundColor = '#4CAF50';
+  saveButton.style.color = 'white';
+  saveButton.style.border = 'none';
+  saveButton.style.borderRadius = '5px';
+  saveButton.style.cursor = 'pointer';
+
+  // Crear el botón "Cancelar"
+  const cancelButton = document.createElement('button');
+  cancelButton.textContent = 'Cancelar';
+  cancelButton.style.padding = '10px 20px';
+  cancelButton.style.backgroundColor = '#f44336';
+  cancelButton.style.color = 'white';
+  cancelButton.style.border = 'none';
+  cancelButton.style.borderRadius = '5px';
+  cancelButton.style.cursor = 'pointer';
+
+  // Cerrar el panel cuando se presiona "Cancelar"
+  cancelButton.addEventListener('click', () => {
+    removerOverley();
+  });
+
+  // Añadir los botones al contenedor de botones
+  buttonContainer.appendChild(saveButton);
+  buttonContainer.appendChild(cancelButton);
+  panel.appendChild(buttonContainer);
+
+  // Añadir el panel al overlay
+  overlay.appendChild(panel);
+
+  // Cerrar el panel si se hace clic fuera de él
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) {
+      document.body.removeChild(overlay);
+    }
+  });
+
+  // Evitar que el clic en el panel cierre el overlay
+  panel.addEventListener('click', (e) => {
+    e.stopPropagation();
+  });
+
+  // Añadir el overlay al body
+  document.body.appendChild(overlay);
+}
+
+function colocarInput(texto,place,id){
+   const inputWrapper = document.createElement('div');
+    inputWrapper.style.display = 'flex';
+    inputWrapper.style.marginBottom = '10px';
+    inputWrapper.style.alignItems = 'center';
+    
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = texto;
+    input.placeholder=place;
+    input.id=id;
+    input.style.flex = '1';
+    input.style.marginRight = '10px';
+    input.style.padding = '8px';
+    
+    // Botón "Copiar"
+    const copyButton = document.createElement('button');
+    copyButton.textContent = 'Copiar';
+    copyButton.style.padding = '5px 10px';
+    copyButton.style.marginRight = '5px';
+    copyButton.style.backgroundColor = '#2196F3';
+    copyButton.style.color = 'white';
+    copyButton.style.border = 'none';
+    copyButton.style.borderRadius = '5px';
+    copyButton.style.cursor = 'pointer';
+    
+    copyButton.addEventListener('click', () => {
+      input.select();
+      document.execCommand('copy');
+    });
+    
+    // Botón "Borrar"
+    const deleteButton = document.createElement('button');
+    deleteButton.textContent = 'X';
+    deleteButton.style.padding = '5px 10px';
+    deleteButton.style.backgroundColor = '#f44336';
+    deleteButton.style.color = 'white';
+    deleteButton.style.border = 'none';
+    deleteButton.style.borderRadius = '5px';
+    deleteButton.style.cursor = 'pointer';
+    
+    deleteButton.addEventListener('click', () => {
+      input.value = '';
+    });
+    
+    // Añadir el input y los botones al wrapper
+    inputWrapper.appendChild(input);
+    inputWrapper.appendChild(copyButton);
+    inputWrapper.appendChild(deleteButton);
+
+    return inputWrapper;
+    
+   
+}
+
+
+
+function pintarContraturno(curso) {
+
+  console.log("BACKENDefi", datosBackendEfi)
+  let quinta = ["nada", "lunes6ta", "martes6ta", "miercoles6ta", "jueves6ta", "viernes6ta"];
+
+//encontramos la fila para ccd
+let ccd = Array.isArray(datosTraidos) 
+    ? datosTraidos.find(elemento => Array.isArray(elemento) && elemento[0] === curso && elemento[10] === 'CCD' && elemento[18] === 'C') 
+    : undefined;
+
+  // Use find() to get the matching element
+  let selectedElement = datosBackendEfi.find((elemento) => elemento[0] === curso);
+
+  // If the element is found
+  if (selectedElement) {
+    // Loop through the 'quinta' array
+    for (let h = 1; h < quinta.length; h++) {
+      // Check if the selected element has a value in the desired index (you may need to adjust the index)
+     
+      if (selectedElement[h] !== '') {
+        // Update the content in the specified element
+        //document.getElementById("efiH").textContent = selectedElement[h];
+
+
+        document.getElementById(quinta[h]).innerHTML = `
+          <div class="column" id="${quinta[h]}_contraturnoEFC">
+           <span class="editar">✏️</span>
+            <p class="materia">${selectedElement[11]}</p>
+            <p class=${selectedElement[15] !== '' ? "titular" : selectedElement[16] !== '' ? "titularinterino" : selectedElement[17] !== '' ? "provisional" : "otros"}>${selectedElement[13]}</p>
+            <p class="suplente">${selectedElement[6]}</p>
+              <p class="materia">${selectedElement[h]}</p>
+            <p>${selectedElement[12]}</p>
+          </div>`;
+
+          //colocamos el onclick para la quita hora
+           document.getElementById(quinta[h]+"_contraturnoEFC").addEventListener('click',()=>{panelEditar(selectedElement)})
+
+      }
+       if(ccd !==undefined && ccd[h]!==''){
+
+        document.getElementById("efiH").textContent += selectedElement[h];
+
+        document.getElementById(quinta[h]).insertAdjacentHTML("beforeend", `
+ 
+          <div class="column" id="${quinta[h]}_contraturnoCCD">
+           <span class="editar">✏️</span>
+            <p class="materia">${ccd[11]}</p>
+            <p class=${ccd[15] !== '' ? "titular" : ccd[16] !== '' ? "titularinterino" : ccd[17] !== '' ? "provisional" : "otros"}>${ccd[13]}</p>
+            <p class="suplente">${ccd[6]}</p>
+            <p class="materia">${ccd[h]}</p>
+            <p>${ccd[12]}</p>
+          </div>
+          `);
+
+          //colocamos el onclick para la quita hora
+           document.getElementById(quinta[h]+"_contraturnoCCD").addEventListener('click',()=>{panelEditar(ccd)})
+
+      }
+    }
+  } else {
+    // Optionally handle the case where no matching element is found
+    console.log('No matching element found for curso:', curso);
+  }
+}
+
+
+    function gestionarDato(data){
+      
+      document.getElementById("cursoSeleccionado").textContent=data[0][0];
+      
+      document.getElementById("cursoSeleccionadoTabla").innerHTML=data[0][0];
+
+      lunes(data);
+      martes(data);
+      miercoles(data);
+      jueves(data);
+      viernes(data);
+
+    }
+
+    function lunes(data) {
+      
+      renderizarTurno(data, 1, ['lunesPreH','lunes1ra', 'lunes2da', 'lunes3ra', 'lunes4ta', 'lunes5ta']);
+    }
+
+    function martes(data) {
+      renderizarTurno(data, 2, ['martesPreH','martes1ra', 'martes2da', 'martes3ra', 'martes4ta', 'martes5ta']);
+    }
+
+    function miercoles(data) {
+      renderizarTurno(data, 3, ['miercolesPreH','miercoles1ra', 'miercoles2da', 'miercoles3ra', 'miercoles4ta', 'miercoles5ta']);
+    }
+
+    function jueves(data) {
+      renderizarTurno(data, 4, ['juevesPreH','jueves1ra', 'jueves2da', 'jueves3ra', 'jueves4ta', 'jueves5ta']);
+    }
+
+    function viernes(data) {
+      renderizarTurno(data, 5, ['viernesPreH','viernes1ra', 'viernes2da', 'viernes3ra', 'viernes4ta', 'viernes5ta']);
+    }
+
+ 
+
+
+    function displayData(data) {
+      var container = document.getElementById('data');
+      container.innerHTML = '';
+      var H1 = document.createElement('H1');
+      H1.textContent = "Horarios de " + data[0][0];
+      container.appendChild(H1);
+    }
+
+  window.onload = function() {
+
+ logearse();
+
+ 
+};
+
+function creadorPac(){
+  //abrimos una nueva ventana con creadordepac
+   // Obtener la URL base al cargar la página
+  google.script.run.withSuccessHandler(function(url) {
+    
+     window.open(url + '?page=creadorPac', '_blank');
+  }).obtenerUrlBase();
+
+}
+
+function verVersion(){
+
+usuario=JSON.parse(localStorage.getItem('user'));
+
+      //console.log("✅ hasta aca bien!",usuario);
+
+  document.getElementById('searchInput').focus();
+
+            // Obtener la versión almacenada en localStorage
+            let localVersion = localStorage.getItem('datosVersion25') || '0';
+            
+            if(localVersion=="0"){
+              localStorage.setItem("datosVersion25",'0');
+              }
+            
+            // Llamar a la función getVersion del script de Google Apps
+            google.script.run.withSuccessHandler(function(serverVersion) {
+              
+              console.log("local version: ",localVersion)
+              console.log("server version: ",serverVersion)
+
+                let servidoresVersion = serverVersion;
+
+                if (servidoresVersion == localVersion) {
+
+                    // Las versiones coinciden, usar los datos del localStorage
+                    datosTraidos = JSON.parse(localStorage.getItem('datosBackend25'));
+
+                    console.warn("---datosTraidos (localStorage)" ,datosTraidos)
+
+                   //traer la version de efi  
+                    datosBackendEfi = JSON.parse(localStorage.getItem('datosBackendEfc25'));
+
+                    console.log("Coinciden las versiones, se traen los datos del localStorage");
+                    console.warn("datos del backend: ",datosTraidos);
+
+                    traerEfi();
+                  
+                  } else {
+                              
+                          google.script.run
+                                .withSuccessHandler(function(data){
+                                  console.log("✅ Todos los datos recibidos:", data);
+
+                          let datosCompletos=JSON.parse(data);
+
+                            //actualizamos la variable datosTraidos
+                            datosTraidos=JSON.parse(data)
+                          
+                              // Guardamos los datos
+                              localStorage.setItem('datosVersion25', servidoresVersion);
+                              localStorage.setItem('datosBackend25', JSON.stringify(datosCompletos));
+
+                              traerEfi(); // Continuamos
+
+                              console.log("🚀 Datos guardados en localStorage");
+                              
+                              console.log("🚀 ",usuario);
+
+                                })
+                                .getData( usuario.id); // ajustá rango y ID si hace falta
+                          
+
+                }
+            }).getVersion(usuario.id);
+
+
+
+//obtenemos la version de los cargos
+
+             // Obtener la versión almacenada en localStorage
+            const localVersionC = localStorage.getItem('datosVersionC25') || '0';
+
+            if(localVersionC=='0'){
+              localStorage.setItem('datosVersionC25',"0")
+            }
+
+            // Llamar a la función getVersion del script de Google Apps
+            google.script.run.withSuccessHandler(function(serverVersionC) {
+                const servidoresVersionC = serverVersionC;
+
+                if (servidoresVersionC == localVersionC) {
+                    // Las versiones coinciden, usar los datos del localStorage
+                    datosTraidosC = JSON.parse(localStorage.getItem('datosBackendC25'));
+                    console.log("Coinciden las versiones, se traen los datos del localStorage");
+                    console.log(datosTraidosC);
+                } else {
+                    // Las versiones no coinciden, obtener datos nuevos y actualizar localStorage
+                    google.script.run.withSuccessHandler(function(data) {
+                         datosTraidosC = data;
+
+                        // Guardar la nueva versión y datos en localStorage
+                        localStorage.setItem('datosVersionC25', servidoresVersionC);
+                        localStorage.setItem('datosBackendC25', JSON.stringify(datosTraidosC));
+
+                        console.log("Se recibieron datos");
+                        //console.log(datosTraidos);
+                        console.log("Se guardaron los datos en localStorage");
+                    }).getDataCargos(usuario.id);
+                }
+            }).getVersionCargos(usuario.id);
+ //obtenemos la version de los horario
+
+              // Obtener la versión almacenada en localStorage
+            let localVersionHorarios = localStorage.getItem('datosVersionHorarios') || '0';
+            
+            if(localVersionHorarios =="0"){
+              localStorage.setItem("datosVersionHorarios",'0');
+              }
+            
+            // Llamar a la función getVersion del script de Google Apps
+            google.script.run.withSuccessHandler(function(serverVersionHorarios) {
+              
+              console.log("local version HORARIOS: ",localVersionHorarios)
+              console.log("server version HORARIOS : ",serverVersionHorarios)
+
+               // let servidoresVersion = serverVersion;
+
+                if (serverVersionHorarios == localVersionHorarios) {
+
+                    // Las versiones coinciden, usar los datos del localStorage
+                   datosTraidosHorarios = JSON.parse(localStorage.getItem('datosFrontendHorarios'));
+
+                    console.warn("---datosTraidosHorarios (localStorage)" ,datosTraidosHorarios)
+
+              
+                  
+                  } else {
+                              
+                          google.script.run
+                                .withSuccessHandler(function(data){
+                                  console.log("✅ HORARIOS DEL BACKEND:", data);
+
+                         // let datosHorariosbackend=data
+
+                            //actualizamos la variable datosTraidos
+                            datosTraidosHorarios=data;
+                          
+                              // Guardamos los datos
+                              localStorage.setItem('datosVersionHorarios', serverVersionHorarios);
+                              localStorage.setItem('datosFrontendHorarios', JSON.stringify(datosTraidosHorarios));
+
+                             
+
+                              console.log("🚀 Datos de HORARIOS guardados en localStorage");
+                              
+                              console.log("🚀 ",usuario);
+
+                              })
+                                .getDataHorarios(usuario.id); // ajustá rango y ID si hace falta
+                          
+
+                }
+            }).getVersionHorarios(usuario.id);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+function reset(){
+    document.getElementById('searchInput').value='';
+    document.getElementById('searchInput').focus();
+
+    limpiarRenderParaBusqueda();
+
+}
+
+document.getElementById('searchInput').addEventListener('keyup', function() {
+
+    let fullName = this.value.trim();  // Eliminar espacios en blanco al principio y al final
+    let part1 = '';
+    let part2 = '';
+
+    if (fullName.includes(' ')) {
+        let parts = fullName.split(' ');
+        part1 = parts[0];
+        part2 = parts.slice(1).join(' ');  // Esto asegura que todo después del primer espacio esté en part2, en caso de múltiples espacios
+    } else {
+        part1 = fullName;  // Si no hay espacio, todo el valor se asigna a part1
+    }
+
+
+
+   
+    if (fullName.length > 3) {
+ 
+
+ renderizarDatosTraidos('',fullName,part1,part2);
+
+    
+
+
+    } else if (fullName.length == 2) {
+        limpiarRenderParaBusqueda();
+    } else if (fullName.length == 0) {
+        limpiarRender();
+    }
+});
+
+function renderizarDatosTraidos(pid,fullName,part1,part2){
+         arrayB1 = [];
+         arrayB2 = [];
+         arrayB3 = [];
+         arrayB4 = [];
+         arrayB5 = [];
+
+if(pid!==''){
+        arrayB1=datosTraidos.filter(elemento=>elemento[1]!='' && elemento[10]==pid)
+         arrayB2=datosTraidos.filter(elemento=>elemento[2]!='' && elemento[10]==pid)
+          arrayB3=datosTraidos.filter(elemento=>elemento[3]!='' && elemento[10]==pid)
+           arrayB4=datosTraidos.filter(elemento=>elemento[4]!='' && elemento[10]==pid)
+            arrayB5=datosTraidos.filter(elemento=>elemento[5]!='' && elemento[10]==pid)
+
+}else{
+
+datosTraidos.forEach(elemento => {
+          
+           if (elemento[13]!==''&&(elemento[13].toUpperCase().includes(fullName.toUpperCase())||
+            elemento[13].toUpperCase().includes(part1.toUpperCase())&&
+            elemento[13].toUpperCase().includes(part2.toUpperCase()))||
+
+            (elemento[6]!==''&& (elemento[6].toUpperCase().includes(fullName.toUpperCase())||
+            elemento[6].toUpperCase().includes(part1.toUpperCase())&&
+            elemento[6].toUpperCase().includes(part2.toUpperCase())))||
+
+            
+            (elemento[8]!==''&& (elemento[8].toUpperCase().includes(fullName.toUpperCase())||
+            elemento[8].toUpperCase().includes(part1.toUpperCase())&&
+            elemento[8].toUpperCase().includes(part2.toUpperCase())))
+            ) {
+
+                if (elemento[1] !== '') arrayB1.push(elemento);
+                
+                if (elemento[2] !== '') arrayB2.push(elemento);
+                
+                if (elemento[3] !== '') arrayB3.push(elemento);
+                
+                if (elemento[4] !== '') arrayB4.push(elemento);
+                
+                if (elemento[5] !== '') arrayB5.push(elemento);
+            }
+        });
+
+}
+        arrayB1.sort((a, b) => {
+    if (a[1] < b[1]) return -1;
+    if (a[1] > b[1]) return 1;
+    return 0;
+});
+
+     arrayB2.sort((a, b) => {
+    if (a[2] < b[2]) return -1;
+    if (a[2] > b[2]) return 1;
+    return 0;
+});
+     arrayB3.sort((a, b) => {
+    if (a[3] < b[3]) return -1;
+    if (a[3] > b[3]) return 1;
+    return 0;
+});
+     arrayB4.sort((a, b) => {
+    if (a[4] < b[4]) return -1;
+    if (a[4] > b[4]) return 1;
+    return 0;
+});
+     arrayB5.sort((a, b) => {
+    if (a[5] < b[5]) return -1;
+    if (a[5] > b[5]) return 1;
+    return 0;
+});
+
+        console.log("arrayB1:", arrayB1);
+        console.log("arrayB2:", arrayB2);
+        console.log("arrayB3:", arrayB3);
+        console.log("arrayB4:", arrayB4);
+        console.log("arrayB5:", arrayB5);
+
+        limpiarRenderParaBusqueda();
+
+        const table = document.getElementById("table");
+        let tableContent = '';
+
+//    0     1      2     3     4     5      6      7       8     9      10
+//[e[0], e[13], e[6], e[8], e[5], e[18], e[12], e[11], e[15], e[16], e[17]]
+
+
+ console.log(datosTraidosHorarios)
+var thisHorario;
+for (let index = 0; index < 10; index++) {
+  try {
+    //                1       2         3         4       5
+    //              Lunes   martes   miercoles juves   viernes
+    let filaHTML = [arrayB1, arrayB2, arrayB3, arrayB4, arrayB5]
+      .map((array, bloque) => {
+       // console.log(bloque+" _elemento length:"+array.length+" index:"+index)
+
+        if (array.length>index) {
+     
+// datosTraidosHorarios:
+//         0   1    2      3  
+ // (4) ['M', 1, '7:30', '8:30']
+        if(array[index][bloque+1].includes(',')){
+ thisHorario=datosTraidosHorarios.filter(elemento=>(elemento[0] == array[index][18]) && (array[index][bloque+1].includes(elemento[1])))
+
+          console.log(thisHorario)
+
+        }else{
+ thisHorario=array[index][bloque+1]
+        }
+          
+          return `
+            <td class="${
+              array[index][18].toUpperCase() == 'M' ? 'btnMañana' :
+              array[index][18].toUpperCase() == 'T' ? 'btnTarde' :
+              'btnVespertino'
+            }" onclick="panelEditarBusqueda(${bloque + 1}, ${index})">
+              <span class="editar">✏️</span>
+              <p>${array[index][0]} - ${array[index][11]}</p>
+             <p style="font-weight: bold; color: ${
+  array[index]?.[15] != null ? 'blue' :
+  array[index]?.[16] != null ? 'black' :
+  array[index]?.[17] != null ? 'red' :
+  'inherit'
+};">
+  ${array[index]?.[13] ?? ''}
+</p>
+
+              <p style="${
+                array[index][6] !== '' ? 'font-weight: bold; color: green;' : ''
+              }">${array[index][6]}</p>
+              <p style="${
+                array[index][8] !== '' ? 'font-weight: bold; color: green;' : ''
+              }">${array[index][8]}</p>
+
+            
+              <p>${
+  Array.isArray(thisHorario) && thisHorario.length > 0
+    ? `${thisHorario[0][2]} - ${thisHorario[thisHorario.length-1][3]}`
+    : thisHorario || ''
+}</p>
+
+              <p>${array[index][12]}</p>
+            </td>
+          `;
+        } else {
+          
+          return `<td> Sin Datos </td>`;
+        }
+      })
+      .join('');
+      
+
+    tableContent += `<tr>${filaHTML}</tr>`;
+  } catch (error) {
+    console.log("error " + error);
+  }
+}
+
+table.innerHTML += tableContent;
+
+}
+
+
+  </script>
+
+  <footer>
+<p>Benitez Adrian artbenitezdev@gmail.com</p>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <title>Verificando correo...</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        text-align: center;
+        padding: 50px;
+        background-color: #f4f4f4;
+      }
+      #spinner {
+        border: 6px solid #f3f3f3;
+        border-top: 6px solid #3498db;
+        border-radius: 50%;
+        width: 50px;
+        height: 50px;
+        animation: spin 1s linear infinite;
+        margin: 30px auto;
+      }
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      #estado {
+        font-size: 18px;
+        margin-top: 20px;
+      }
+      .success {
+        color: green;
+        font-size: 50px;
+      }
+      .error {
+        color: red;
+        font-size: 50px;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>Verificando tu correo electrónico...</h2>
+    <div id="spinner"></div>
+    <div id="estado"></div>
+
+
+
+<script>
+
+
+
+  window.onload = function () {
+
+       const codigo = '<?= verificar ?>';  // inyectado desde .gs
+
+  console.log("Código recibido:", codigo);
+
+    if (!codigo) {
+      console.log("⚠️ No se encontró el parámetro 'verificar' en la URL.");
+      document.getElementById("spinner").style.display = "none";
+      document.getElementById("estado").innerHTML = '<div class="error">✘</div><p>Falta el código de verificación en la URL.</p>';
+      return;
+    }
+
+    google.script.run.withSuccessHandler(function(resultado) {
+      console.log("✅ Resultado de verificación:", resultado);
+      document.getElementById("spinner").style.display = "none";
+      const estado = document.getElementById("estado");
+
+      if (resultado === true) {
+        estado.innerHTML = '<div class="success">✔</div><p>Correo verificado exitosamente.</p>';
+      } else {
+        estado.innerHTML = '<div class="error">✘</div><p>Código inválido o expirado.</p>';
+      }
+    }).verificarCodigoDesdeWeb(codigo);
+  };
+</script>
+
+
+
+
+   
+
+
+
+  </body>
+</html>

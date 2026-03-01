@@ -1,0 +1,11 @@
+﻿Importante para que funcione:
+
+Completar firebaseConfig en frontend/js/app.js.
+Ejecutar npm install dentro de functions.
+Habilitar Email/Password en Firebase Auth y crear Firestore.
+Deploy con firebase deploy --only functions,hosting,firestore.
+
+Siguiente paso recomendado:
+
+Migrar el flujo de verificacion de correo (envio real por proveedor de email).
+Migrar cursos/conf/docentes desde Sheets a colecciones Firestore.

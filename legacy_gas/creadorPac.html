@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CREADOR DE PAC</title>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <link rel="stylesheet" href="style.css">
+    
+    <style>
+      :root {
+  --btn-bg: #1e1e1e;
+  --btn-text: #ffffff;
+  --btn-shadow: rgba(0, 0, 0, 0.3);
+  --border-color: #333;
+}
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #f7f7f7;
+  margin: 0;
+  padding: 0;
+  color: #222;
+}
+
+h1, h3 {
+  text-align: center;
+  color: #222;
+}
+
+.up {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+}
+
+.banerSuperior {
+  position: sticky;
+  margin: 10px;
+  padding: 5px;
+  bottom: 10px;
+  z-index: 200;
+  border: solid 2px var(--border-color);
+  border-radius: 12px;
+  background-color: #ffffffa9;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+}
+
+.row {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-evenly;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.center {
+  align-items: center;
+  justify-content: center;
+}
+
+.borde {
+  margin: 10px;
+  padding: 15px;
+  border: solid 2px var(--border-color);
+  border-radius: 12px;
+  background-color: #ffffff;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+}
+
+button {
+  background-color: var(--btn-bg);
+  color: var(--btn-text);
+  border: none;
+  padding: 10px 18px;
+  margin: 5px;
+  border-radius: 8px;
+  font-size: 15px;
+  cursor: pointer;
+  box-shadow: 0 4px 6px var(--btn-shadow);
+  transition: background-color 0.3s ease, transform 0.2s ease;
+}
+
+button:hover {
+  background-color: #333;
+  transform: translateY(-1px);
+}
+
+button:active {
+  transform: translateY(1px);
+  background-color: #000;
+}
+
+input[type="text"] {
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  width: 250px;
+}
+
+.spinner-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  display: none;
+}
+.info{
+  padding: 10px;
+
+}
+
+.pinfo{
+  margin-left: 10px;
+  margin-right: 10px;
+  text-align: center;
+}
+.spinner {
+  border: 8px solid #f3f3f3;
+  border-top: 8px solid #3498db;
+  border-radius: 50%;
+  width: 60px;
+  height: 60px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+
+/* Ocultamos el checkbox original */
+.casilla {
+  position: absolute;
+  opacity: 0;
+  cursor: pointer;
+}
+
+/* Estilo visual del checkbox */
+.casilla + label {
+  position: relative;
+  padding-left: 30px;
+  cursor: pointer;
+  user-select: none;
+  display: inline-block;
+  line-height: 20px;
+  color: #333;
+}
+
+/* Caja del checkbox */
+.casilla + label::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: -10px;
+  height: 20px;
+  width: 20px;
+  background-color: #fff;
+  border: 2px solid #333;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+/* Check marcado */
+.casilla:checked + label::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: -10px;
+  width: 6px;
+  height: 12px;
+  border: solid rgb(207, 10, 10);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+/* Opcional: cambio de fondo al marcar */
+.casilla:checked + label::before {
+  background-color: #e0e0e0;
+}
+
+
+.mail-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  border-radius: 8px;
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.2);
+  margin-bottom: 10px;
+  background-color: #f9f9f9;
+  width: 100%;
+}
+
+.mail-index {
+  width: 30px;
+  text-align: center;
+}
+
+.checkbox-container {
+  width: 30px;
+  display: flex;
+  justify-content: center;
+}
+
+.mail-info {
+  flex-grow: 1;
+  margin: 0 10px;
+  overflow: hidden;
+}
+
+.mail-subject {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin: 0;
+  max-width: 100%;
+}
+
+.mail-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-dark {
+  background-color: #222;
+  color: white;
+  border: none;
+  
+  border-radius: 6px;
+  cursor: pointer;
+  transition: 0.3s ease;
+}
+
+.btn-dark:hover {
+  background-color: #444;
+}
+
+.containerMail{
+  display:flex;
+  flex-direction: column;
+  justify-content: center;
+  
+}
+
+.containerPanel{
+  display: flex;
+  flex-direction: row;
+}
+
+.containerApp{
+  display: flex;
+  flex-direction: column;
+  margin-left: 5%;
+  margin-right: 5%;
+  padding: 10px;
+}
+
+.footer {
+
+  width: 100%;
+    position: absolute;
+    background-color: #1f1f1f;
+    color: #f1f1f1;
+    padding: 20px;
+    font-size: 14px;
+    line-height: 1.6;
+    text-align: center;
+    border-top: 1px solid #333;
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.4);
+    
+}
+
+.footer p {
+  margin: 10px 0;
+}
+
+.footer a {
+  color: #4da6ff;
+  text-decoration: underline;
+  cursor: pointer;
+  transition: color 0.3s ease;
+}
+
+.footer a:hover {
+  color: #80caff;
+}
+    </style>
+    
+</head>
+<body>
+    
+    <h1> Creador de PAC</h1>
+
+    <!-- Botón de inicio de sesión de Google -->
+    
+    <div id="profile-info"></div>
+
+    <div class="center border info">
+        <p class="pinfo">Esta web crea automaticamente las <b>Planillas Adicioanales de Contralor (PAC)</b> obteniedo la información de los correos institucionales</p>
+
+        <p class="pinfo">Página Creada con fines colaborativos y sin ánimo de lucro para los secretarios de la provincia de Bs As</p>
+        
+    </div>
+
+    <div id="spiner" class="spinner-overlay">
+        <div class="spinner"></div>
+    </div>
+
+    <div class="center containerApp" id="containerApp">
+        
+        
+        <div class="row containerPAnel">
+                    
+                    <div class="row borde center">
+                        
+                        <button onclick="obtenerMails(10)">Obtener <b> 10 </b> Datos</button>
+                        <button onclick="obtenerMails(20)">Obtener <b> 20 </b> Datos</button>
+                        
+                    </div> 
+                    
+                    <div class="borde  center">
+                        <div class="row">
+                    
+                            <input type="text" id="inputBuscar" placeholder="Buscar por DNI, CUIL, APELLIDO, CUPOF">        
+                            <button onclick="obtenerMailsPersonalizado()">Buscar</button>
+                            <button onclick="pegar()">Pegar</button>
+                            <button onclick="borrar()">Borrar</button>
+                    
+                        </div>
+                        
+                    </div> 
+        </div>    
+
+    
+        <div id="containerMails" style="
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+    ">
+       </div>
+    </div>
+
+    
+    <div class="row banerSuperior center" id="containerApp">
+        
+        <button onclick="reiniciar()">Reiniciar</button>
+
+        <button onclick="generarPac()">Generar Pac</button>
+
+    </div>
+
+
+    
+
+    <script src="googleUser.js"></script>
+    <script src="userInterface.js"></script>
+    <script src="headerPac.js"></script>
+    <script src="gestorMail.js"></script>
+
+    <footer class="footer">
+        <p>
+          Estimado usuario, se informa que esta web no almacena ni distribuye información sensible. Al cerrar la web, se eliminan todos los datos con los que opera.
+        </p>
+        <p>
+          Para más información sobre el manejo de datos puede acceder 
+          <a onclick="redicInfo()">aquí</a>.
+        </p>
+        <p> mail: <b>artbenitez@abc.gob.ar</b></p>
+        
+      </footer>
+      
+</body>
+
+<script>
+
+  function obtenerMailsPersonalizado(){
+
+    let parametroBuscar=document.getElementById("inputBuscar").value;
+
+if(parametroBuscar!==''&&parametroBuscar.length<10){
+
+ google.script.run.withSuccessHandler(function (data){
+
+if(data.length>0){
+
+
+}else{
+document.getElementById("containerMails").innerHTML=`<div><p>No hubo coincidencas con los parametros ingresados</p><p>${parametroBuscar}</p></div>`;
+}
+    }).obtenerMails(parametroBuscar);
+
+}else{
+  alert("Debe ingresar algun parametro de busqueda valido")
+}
+   
+
+
+  }
+
+</script>
+
+</html>
