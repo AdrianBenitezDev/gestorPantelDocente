@@ -28,6 +28,19 @@ Estructura inicial creada para separar la app nueva de `legacy_gas`.
 ## Deploy
 - `firebase deploy --only functions,hosting,firestore`
 
+## Deploy automatico con GitHub Actions
+Se agrego el workflow `.github/workflows/firebase-hosting-deploy.yml`.
+
+Para activarlo:
+1. Generar token local:
+   - `firebase login:ci`
+2. En GitHub repo -> Settings -> Secrets and variables -> Actions:
+   - Crear secret `FIREBASE_TOKEN` con el valor generado.
+3. Hacer `push` a `master` o `main`.
+
+El workflow deploya Hosting con:
+- `firebase deploy --only hosting --project horario-escuelas --non-interactive`
+
 ## Nota sobre verificacion de correo
 La funcion `registerUser` genera `verificationLink` de Firebase Auth y lo devuelve para pruebas.
 En produccion conviene enviar ese link por correo con un proveedor dedicado (SendGrid, Resend o SMTP).
