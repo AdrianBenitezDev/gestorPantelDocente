@@ -1,0 +1,71 @@
+Estructura propuesta Firestore (multi-tenant)
+
+1) usuarios/{uid}
+- uid: string
+- tenantId: string
+- nombre: string
+- correo: string
+- rol: string (admin_escuela | operador | lector)
+- activo: boolean
+- createdAt: timestamp
+- updatedAt: timestamp
+
+2) tenants/{tenantId}
+- tenantId: string
+- nombreInstitucion: string
+- distrito: string
+- nivel: string
+- ownerUid: string
+- createdAt: timestamp
+- updatedAt: timestamp
+
+3) tenants/{tenantId}/configuracion/general
+- zonaHoraria: string
+- formatoFecha: string
+- permitirImportacion: boolean
+- hojaPofaNombre: string (ej: POFA)
+- updatedAt: timestamp
+
+4) tenants/{tenantId}/cursos/{cursoId}
+- cursoId: string (ej: 1A)
+- nombre: string (ej: Primero A)
+- anio: number
+- division: string
+- turno: string
+- activo: boolean
+- createdAt: timestamp
+- updatedAt: timestamp
+
+5) tenants/{tenantId}/docentes/{cuil}
+- cuil: string (clave unica)
+- apellido: string
+- nombre: string
+- fechaNacimiento: string
+- pid: string
+- cursos: array<string> (ej: ["1A","2B"])
+- estado: string (activo|inactivo)
+- source.sheetUrl: string
+- source.sheetName: string (POFA)
+- source.course: string
+- source.importedBy: string (uid)
+- createdAt: timestamp
+- updatedAt: timestamp
+
+6) tenants/{tenantId}/personal/{personalId}
+- tipo: string (directivo|preceptor|administrativo|auxiliar)
+- apellido: string
+- nombre: string
+- documento: string
+- contacto: string
+- activo: boolean
+- createdAt: timestamp
+- updatedAt: timestamp
+
+Indices recomendados
+- docentes: cuil asc (unico por docId)
+- docentes: cursos array-contains + estado asc
+- cursos: activo asc + cursoId asc
+
+Notas
+- Mantener CUIL como docId en docentes evita duplicados en importaciones.
+- El primer paso de importacion puede ser curso 1A desde hoja POFA (columna A = curso).

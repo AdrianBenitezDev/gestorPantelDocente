@@ -34,8 +34,9 @@ registerForm.addEventListener("submit", async (event) => {
     setMsg(registerMsg, "Creando cuenta...");
     const registerUser = httpsCallable(functions, "registerUser");
     const result = await registerUser(payload);
+    const tenantId = result.data?.tenantId || "(sin tenant)";
     const link = result.data?.verificationLink || "(no generado)";
-    setMsg(registerMsg, `Cuenta creada. Verifica correo con el link generado: ${link}`);
+    setMsg(registerMsg, `Cuenta creada. Tenant: ${tenantId}. Verifica correo con el link generado: ${link}`);
     registerForm.reset();
   } catch (error) {
     console.error(error);

@@ -27,7 +27,7 @@
       <p class="subtitle">Login</p>
     </header>
 
-    <section class="card">
+    <section id="login-section" class="card">
       <h2>Login</h2>
       <form id="login-form" class="row-form">
         <input id="login-email" type="email" placeholder="correo@dominio.com" required />
@@ -37,6 +37,34 @@
       <button id="google-login-btn" type="button" class="google-btn">Ingresar con Google</button>
       <p id="login-msg" class="msg"></p>
       <p class="msg">No tienes cuenta? <a href="/registro.html">Ir a registro</a></p>
+    </section>
+
+    <section id="panel-section" class="card is-hidden">
+      <h2>Panel</h2>
+      <p id="panel-msg" class="msg"></p>
+
+      <div id="tenant-empty-import" class="is-hidden">
+        <h3>Importar docentes desde Google Sheets</h3>
+        <p id="course-buttons-msg" class="msg"></p>
+        <div id="course-buttons" class="review-actions"></div>
+        <p id="selected-course" class="msg">Curso seleccionado: -</p>
+        <form id="sheet-import-form" class="grid-form">
+          <label>URL Google Sheet <input id="sheet-url" type="url" placeholder="https://docs.google.com/spreadsheets/d/..." value="https://docs.google.com/spreadsheets/d/1sePsT0xdSgO-J4-ty84b0VSUz8LzE474nsTOvAWhOLQ/edit?usp=sharing" required /></label>
+          <label>Nombre de hoja <input id="sheet-name" placeholder="POFA" value="POFA" required /></label>
+          <button type="submit">Cargar docentes</button>
+        </form>
+
+        <div id="import-review" class="card is-hidden">
+          <h3>Revision de docentes</h3>
+          <p id="review-progress" class="msg"></p>
+          <pre id="review-docente" class="review-docente"></pre>
+          <div class="review-actions">
+            <button id="accept-docente-btn" type="button">Aceptar y guardar</button>
+            <button id="skip-docente-btn" type="button" class="google-btn">Omitir</button>
+            <button id="cancel-docente-btn" type="button" class="danger-btn">Cancelar</button>
+          </div>
+        </div>
+      </div>
     </section>
   </main>
 

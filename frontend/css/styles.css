@@ -96,6 +96,10 @@ button {
   color: var(--success);
 }
 
+.is-hidden {
+  display: none !important;
+}
+
 .top-banner {
   position: fixed;
   top: 0;
@@ -203,4 +207,25 @@ button {
 
 .google-btn:hover {
   background: #f6f8fc;
+}
+
+.danger-btn {
+  border-color: #d92d20;
+  background: #d92d20;
+}
+
+.review-docente {
+  margin: 10px 0;
+  padding: 10px;
+  background: #f6f8fc;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.review-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }

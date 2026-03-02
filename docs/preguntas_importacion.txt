@@ -1,0 +1,22 @@
+Preguntas para ajustar la importacion al flujo exacto
+
+1) Encabezados reales de la hoja "docentes": 
+   - Hoy se detectan: apellido, nombre, cuil/dni/documento, fechaNacimiento, pid/legajo/id, cursos.
+   - Si tus columnas tienen otros nombres, escribelos aqui.
+
+2) Clave unica de docente:
+   - Hoy se usa: pid (si existe), sino cuil, sino id automatico.
+   - Confirmar si esta prioridad es correcta.
+
+3) Formato de cursos:
+   - Hoy se separa por coma, punto y coma o barra (",", ";", "|").
+   - Confirmar si este formato coincide con tus hojas.
+
+respuestas:
+1) la hoja donde se deben extraer los datos es POFA
+
+2) LA CLAVE UNICA DEL DOCENTE ES EL cuil
+
+3)LOS CURSOS en este excel estan en la hoja pofa columna A
+
+quiero que crees un boton para subir solo los docentes de el curso 1A 

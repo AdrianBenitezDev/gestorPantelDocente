@@ -1,0 +1,3 @@
+ otra coleccion que sea usuarios, y creo que se cree un doc en el tenantId de la escuela
+  que contenga diferentes subcolecciones, una del personalDocente (debe contener apellido y
+   nombre, cuil, fecha de nacimiento, pid, cursos (array de cursos))
