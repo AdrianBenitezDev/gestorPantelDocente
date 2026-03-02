@@ -208,6 +208,87 @@ async function resolveTenantIdForUser(uid, currentTenantId) {
   return foundTenantId;
 }
 
+async function ensureUserProfileDocument(user) {
+  const userRef = doc(db, "usuarios", user.uid);
+  const userSnap = await getDoc(userRef);
+
+  if (userSnap.exists()) {
+    return userSnap.data();
+  }
+
+  let foundTenantId = "";
+  const byOwnerUid = await getDocs(
+    query(collection(db, "tenants"), where("ownerUid", "==", user.uid), limit(1))
+  );
+  if (!byOwnerUid.empty) {
+    foundTenantId = byOwnerUid.docs[0].id;
+  } else if (user.email) {
+    const byOwnerEmail = await getDocs(
+      query(collection(db, "tenants"), where("ownerEmail", "==", user.email), limit(1))
+    );
+    if (!byOwnerEmail.empty) {
+      foundTenantId = byOwnerEmail.docs[0].id;
+    }
+  }
+
+  const bootstrapProfile = {
+    uid: user.uid,
+    nombre: user.displayName || user.email || "Usuario",
+    correo: user.email || "",
+    tenantId: foundTenantId,
+    rol: "admin_escuela",
+    updatedAt: new Date(),
+    createdAt: new Date(),
+  };
+
+  await setDoc(userRef, bootstrapProfile, { merge: true });
+  return bootstrapProfile;
+}
+
+async function ensureTenantForUser(user, profile) {
+  let tenantId = await resolveTenantIdForUser(user.uid, profile.tenantId);
+  if (tenantId) {
+    return tenantId;
+  }
+
+  const tenantRef = doc(collection(db, "tenants"));
+  tenantId = tenantRef.id;
+  const now = new Date();
+  const ownerEmail = String(user.email || profile.correo || "").trim().toLowerCase();
+  const ownerName = String(profile.nombre || user.displayName || ownerEmail || "Usuario").trim();
+
+  await setDoc(
+    tenantRef,
+    {
+      tenantId,
+      ownerUid: user.uid,
+      ownerEmail,
+      nombreInstitucion: String(profile.escuela || "Escuela").trim(),
+      distrito: String(profile.distrito || "").trim(),
+      nivel: String(profile.nivel || "").trim(),
+      createdAt: now,
+      updatedAt: now,
+    },
+    { merge: true }
+  );
+
+  await setDoc(
+    doc(db, "usuarios", user.uid),
+    {
+      uid: user.uid,
+      nombre: ownerName,
+      correo: ownerEmail,
+      tenantId,
+      rol: String(profile.rol || "admin_escuela"),
+      updatedAt: now,
+      createdAt: profile.createdAt || now,
+    },
+    { merge: true }
+  );
+
+  return tenantId;
+}
+
 loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const email = document.getElementById("login-email").value.trim();
@@ -265,8 +346,22 @@ sheetImportForm.addEventListener("submit", async (event) => {
     const docentes = result.data?.docentes || [];
 
     if (!docentes.length) {
-      setMsg(panelMsg, "No se encontraron docentes en la hoja indicada", true);
-      resetImportState();
+      const detectedCourses = result.data?.detectedCourses || [];
+      const debug = result.data?.debug || {};
+      const details = [
+        `No se encontraron docentes para el curso ${importState.selectedCourse}.`,
+        detectedCourses.length ? `Cursos detectados en hoja: ${detectedCourses.join(", ")}` : "",
+        debug.hasHeaders === false ? "No se detectaron encabezados validos en la primera fila." : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      setMsg(panelMsg, details || "No se encontraron docentes en la hoja indicada", true);
+      importState.docentes = [];
+      importState.index = 0;
+      importState.accepted = 0;
+      importState.skipped = 0;
+      importState.cancelled = false;
+      importReview.classList.add("is-hidden");
       return;
     }
 
@@ -353,16 +448,11 @@ onAuthStateChanged(auth, (user) => {
   userName.textContent = user.displayName || user.email || "Usuario";
   userEmail.textContent = user.email || "-";
 
-  getDoc(doc(db, "usuarios", user.uid))
-    .then((snapshot) => {
-      if (!snapshot.exists()) {
-        setMsg(panelMsg, "No existe perfil de usuario en Firestore", true);
-        return;
-      }
-      const profile = snapshot.data();
+  ensureUserProfileDocument(user)
+    .then((profile) => {
       userName.textContent = profile.nombre || userName.textContent;
       userEmail.textContent = profile.correo || userEmail.textContent;
-      resolveTenantIdForUser(user.uid, profile.tenantId)
+      ensureTenantForUser(user, profile)
         .then((tenantId) => {
           importState.tenantId = tenantId;
           if (!importState.tenantId) {
