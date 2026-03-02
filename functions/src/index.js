@@ -264,6 +264,23 @@ function normalizeIdentityPart(value) {
     .replace(/[^a-z0-9_-]/g, "");
 }
 
+function buildDocenteKey({ cuil, apellido, nombre, pid, keyHint }) {
+  const normalizedCuil = String(cuil || "").trim();
+  if (normalizedCuil) {
+    return normalizedCuil.replace(/[^a-zA-Z0-9_-]/g, "_");
+  }
+
+  const apellidoKey = normalizeIdentityPart(apellido);
+  const nombreKey = normalizeIdentityPart(nombre);
+  const pidKey = normalizeIdentityPart(pid);
+  const hintKey = normalizeIdentityPart(keyHint);
+  const composed = [apellidoKey, nombreKey, pidKey, hintKey]
+    .filter(Boolean)
+    .join("_");
+
+  return composed || db.collection("_tmp").doc().id;
+}
+
 function parseSheetId(sheetUrl) {
   const match = String(sheetUrl || "").match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
   return match ? match[1] : "";
@@ -621,20 +638,10 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
           }
 
           return {
-            tipo: variant.tipo,
             apellido: variant.apellido,
             nombre: variant.nombre,
             cuil: variant.cuil,
             fechaNacimiento,
-            pid,
-            curso: selectedCourse,
-            espacioCurricular,
-            cupof,
-            turno,
-            modulosTitular,
-            modulosTitularInterino,
-            modulosProvisional,
-            situacionesActivas,
             cursoRefs: buildCursoRefs(
               cupof,
               modulosTitular,
@@ -644,7 +651,6 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
             telefono: variant.telefono,
             correo: variant.correo,
             domicilio: variant.domicilio,
-            keyHint: `${normalizeIdentityPart(variant.tipo)}_${normalizeIdentityPart(variant.cuil || pid || variant.nombre)}`,
           };
         })
         .filter(Boolean);
@@ -714,8 +720,13 @@ exports.saveImportedDocente = onCall(callableOptions, async (request) => {
   }
 
   const createdAt = admin.firestore.FieldValue.serverTimestamp();
-  const rawKey = cuil || docente.keyHint || `${pid}_${nombre}_${apellido}`;
-  const key = String(rawKey).replace(/[^a-zA-Z0-9_-]/g, "_");
+  const key = buildDocenteKey({
+    cuil,
+    apellido,
+    nombre,
+    pid,
+    keyHint: docente.keyHint,
+  });
   const docenteRef = db.collection("tenants").doc(tenantId).collection("docentes").doc(key);
   const docenteSnap = await docenteRef.get();
   const existingData = docenteSnap.exists ? docenteSnap.data() : {};

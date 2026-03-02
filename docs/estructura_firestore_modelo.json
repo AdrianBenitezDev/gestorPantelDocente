@@ -1,0 +1,99 @@
+{
+  "version": "2026-03-02",
+  "firebase": {
+    "colecciones": {
+      "tenants/{tenantId}/docentes/{docenteId}": {
+        "descripcion": "Nomina de personas docentes. No guarda asignaciones de materia/curso fuera de cursos[].",
+        "campos": {
+          "apellido": "string",
+          "nombre": "string",
+          "cuil": "string",
+          "fechaNacimiento": "string",
+          "telefono": "string",
+          "correo": "string",
+          "domicilio": "string",
+          "cursos": [
+            {
+              "cupof": "string",
+              "situacionRevista": "T | TI | P"
+            }
+          ],
+          "tenantId": "string",
+          "source": {
+            "sheetUrl": "string",
+            "sheetName": "string",
+            "course": "string",
+            "importedBy": "string(uid)"
+          },
+          "createdAt": "timestamp",
+          "updatedAt": "timestamp"
+        },
+        "ejemplo": {
+          "apellido": "PONCE",
+          "nombre": "LEANDRO",
+          "cuil": "20-12345678-9",
+          "fechaNacimiento": "",
+          "telefono": "11668975240",
+          "correo": "lponce@abc.gob.ar",
+          "domicilio": "",
+          "cursos": [
+            {
+              "cupof": "41926",
+              "situacionRevista": "TI"
+            },
+            {
+              "cupof": "43010",
+              "situacionRevista": "T"
+            }
+          ],
+          "tenantId": "tenant_abc123",
+          "source": {
+            "sheetUrl": "https://docs.google.com/spreadsheets/d/xxxx/edit",
+            "sheetName": "POFA 2026",
+            "course": "1A",
+            "importedBy": "uid_admin"
+          }
+        }
+      },
+      "tenants/{tenantId}/cursos/{cursoItemId}": {
+        "descripcion": "Asignacion de materia en un curso/horario. Referencia docentes por cuil + cupof.",
+        "campos": {
+          "curso": "string (ej: 1A)",
+          "cupof": "string",
+          "materia": "string",
+          "dia": "string (LUNES|MARTES|MIERCOLES|JUEVES|VIERNES)",
+          "horario": {
+            "inicio": "string HH:mm",
+            "fin": "string HH:mm",
+            "bloque": "string opcional"
+          },
+          "docenteCuil": "string",
+          "suplenteCuil": "string",
+          "situacionRevista": "T | TI | P",
+          "tenantId": "string",
+          "createdAt": "timestamp",
+          "updatedAt": "timestamp"
+        },
+        "ejemplo": {
+          "curso": "1A",
+          "cupof": "41926",
+          "materia": "Cs. Sociales",
+          "dia": "LUNES",
+          "horario": {
+            "inicio": "07:30",
+            "fin": "09:30",
+            "bloque": "1-2"
+          },
+          "docenteCuil": "20-12345678-9",
+          "suplenteCuil": "27-33444555-1",
+          "situacionRevista": "TI",
+          "tenantId": "tenant_abc123"
+        },
+        "matchDocente": {
+          "descripcion": "Cruce recomendado al renderizar",
+          "regla": "docente.cuil == curso.docenteCuil AND existe en docente.cursos un item con mismo cupof y situacionRevista"
+        }
+      }
+    }
+  }
+}
