@@ -10,25 +10,8 @@
   <main class="app">
     <header class="header">
       <h1>Gestor Plantel Docente</h1>
-      <p class="subtitle">Migracion inicial a Firebase: registro y login</p>
+      <p class="subtitle">Login</p>
     </header>
-
-    <section class="card">
-      <h2>Registro</h2>
-      <form id="register-form" class="grid-form">
-        <label>Distrito <input id="reg-distrito" required /></label>
-        <label>Nivel <input id="reg-nivel" required /></label>
-        <label>Numero de escuela <input id="reg-escuela" required /></label>
-        <label>Apellido y nombre <input id="reg-nombre" required /></label>
-        <label>Numero de contacto <input id="reg-contacto" required /></label>
-        <label>Correo institucional <input id="reg-correo" type="email" required /></label>
-        <label>Correo alternativo <input id="reg-correo-alt" type="email" /></label>
-        <label>Usuario <input id="reg-usuario" required /></label>
-        <label>Contrasena <input id="reg-password" type="password" minlength="8" required /></label>
-        <button type="submit">Crear cuenta</button>
-      </form>
-      <p id="register-msg" class="msg"></p>
-    </section>
 
     <section class="card">
       <h2>Login</h2>
@@ -39,6 +22,7 @@
       </form>
       <button id="google-login-btn" type="button" class="google-btn">Ingresar con Google</button>
       <p id="login-msg" class="msg"></p>
+      <p class="msg">No tienes cuenta? <a href="/registro.html">Ir a registro</a></p>
     </section>
 
     <section class="card">
