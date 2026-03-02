@@ -7,6 +7,20 @@
   <link rel="stylesheet" href="./css/styles.css" />
 </head>
 <body>
+  <header class="top-banner">
+    <div class="brand-block">
+      <span class="brand-icon" aria-hidden="true">&#127891;</span>
+      <span class="brand-name">Gestor Plantel Docente</span>
+    </div>
+    <div class="user-block">
+      <div class="user-meta">
+        <span class="user-icon" aria-hidden="true">&#128100;</span>
+        <span id="user-name" class="user-name">Sin sesion</span>
+        <span id="user-email" class="user-email">-</span>
+      </div>
+      <button id="logout-btn" type="button">Cerrar sesion</button>
+    </div>
+  </header>
   <main class="app">
     <header class="header">
       <h1>Gestor Plantel Docente</h1>
@@ -23,12 +37,6 @@
       <button id="google-login-btn" type="button" class="google-btn">Ingresar con Google</button>
       <p id="login-msg" class="msg"></p>
       <p class="msg">No tienes cuenta? <a href="/registro.html">Ir a registro</a></p>
-    </section>
-
-    <section class="card">
-      <h2>Sesion actual</h2>
-      <p id="session-status">Sin sesion</p>
-      <button id="logout-btn" type="button">Cerrar sesion</button>
     </section>
   </main>
 

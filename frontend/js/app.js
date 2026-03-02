@@ -9,7 +9,8 @@ import { auth } from "./firebaseClient.js";
 
 const loginForm = document.getElementById("login-form");
 const loginMsg = document.getElementById("login-msg");
-const sessionStatus = document.getElementById("session-status");
+const userName = document.getElementById("user-name");
+const userEmail = document.getElementById("user-email");
 const logoutBtn = document.getElementById("logout-btn");
 const googleLoginBtn = document.getElementById("google-login-btn");
 
@@ -57,8 +58,10 @@ logoutBtn.addEventListener("click", async () => {
 
 onAuthStateChanged(auth, (user) => {
   if (!user) {
-    sessionStatus.textContent = "Sin sesion";
+    userName.textContent = "Sin sesion";
+    userEmail.textContent = "-";
     return;
   }
-  sessionStatus.textContent = `UID: ${user.uid} | Email: ${user.email} | Verificado: ${user.emailVerified}`;
+  userName.textContent = user.displayName || user.email || "Usuario";
+  userEmail.textContent = user.email || "-";
 });
