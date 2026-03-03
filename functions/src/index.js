@@ -289,6 +289,34 @@ function normalizeCuil(value) {
   return raw || "sin datos";
 }
 
+function buildDocenteAggregateKey(docente) {
+  const cuil = String(docente?.cuil || "").trim();
+  if (cuil) {
+    return `cuil:${cuil}`;
+  }
+  const apellido = normalizeIdentityPart(docente?.apellido);
+  const nombre = normalizeIdentityPart(docente?.nombre);
+  const telefono = normalizeIdentityPart(docente?.telefono);
+  const correo = normalizeIdentityPart(docente?.correo);
+  const fallback = [apellido, nombre, telefono, correo].filter(Boolean).join("_");
+  return `identity:${fallback || db.collection("_tmp").doc().id}`;
+}
+
+function mergeDocenteRecord(base, incoming) {
+  return {
+    ...base,
+    ...incoming,
+    apellido: base.apellido || incoming.apellido || "",
+    nombre: base.nombre || incoming.nombre || "",
+    cuil: base.cuil || incoming.cuil || "",
+    fechaNacimiento: base.fechaNacimiento || incoming.fechaNacimiento || "",
+    telefono: base.telefono || incoming.telefono || "",
+    correo: base.correo || incoming.correo || "",
+    domicilio: base.domicilio || incoming.domicilio || "",
+    cursoRefs: mergeCursoRefs(base.cursoRefs, incoming.cursoRefs),
+  };
+}
+
 function buildDocenteKey({ cuil, apellido, nombre, pid, keyHint }) {
   const normalizedCuil = String(cuil || "").trim();
   if (normalizedCuil) {
@@ -557,7 +585,7 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
   };
   let lastDetectedCourse = "";
 
-  const docentes = dataRows
+  const docentesRaw = dataRows
     .flatMap((values) => {
       const rowObj = {};
       if (hasHeaders) {
@@ -687,6 +715,21 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
     })
     .filter(Boolean)
     .slice(0, 500);
+
+  const docentesMap = new Map();
+  docentesRaw.forEach((docente) => {
+    const key = buildDocenteAggregateKey(docente);
+    const existing = docentesMap.get(key);
+    if (!existing) {
+      docentesMap.set(key, {
+        ...docente,
+        cursoRefs: Array.isArray(docente.cursoRefs) ? docente.cursoRefs : [],
+      });
+      return;
+    }
+    docentesMap.set(key, mergeDocenteRecord(existing, docente));
+  });
+  const docentes = Array.from(docentesMap.values()).slice(0, 500);
 
   const detectedCourses = Array.from(detectedCoursesSet).slice(0, 20);
   logger.info("loadDocentesFromSheet: result summary", {
