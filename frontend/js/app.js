@@ -32,6 +32,7 @@ const sheetImportForm = document.getElementById("sheet-import-form");
 const sheetUrlInput = document.getElementById("sheet-url");
 const sheetNameInput = document.getElementById("sheet-name");
 const loadCursosBtn = document.getElementById("load-cursos-btn");
+const saveAllBtn = document.getElementById("save-all-btn");
 const courseButtonsMsg = document.getElementById("course-buttons-msg");
 const courseButtons = document.getElementById("course-buttons");
 const selectedCourseLabel = document.getElementById("selected-course");
@@ -77,6 +78,22 @@ function setMsg(el, text, isError = false) {
   el.textContent = text;
   el.classList.toggle("error", isError);
   el.classList.toggle("success", !isError);
+}
+
+function appendPanelLog(text, isError = false) {
+  const line = String(text || "").trim();
+  if (!line) {
+    return;
+  }
+  if (!panelMsg.textContent.trim()) {
+    setMsg(panelMsg, line, isError);
+    return;
+  }
+  panelMsg.textContent = `${panelMsg.textContent}\n${line}`;
+  if (isError) {
+    panelMsg.classList.add("error");
+    panelMsg.classList.remove("success");
+  }
 }
 
 function updateSessionLayout(isLoggedIn) {
@@ -494,6 +511,69 @@ loadCursosBtn.addEventListener("click", async () => {
     setMsg(panelMsg, error.message || "No se pudo leer cursos desde la hoja", true);
     importReviewCursos.classList.add("is-hidden");
   }
+});
+
+saveAllBtn.addEventListener("click", async () => {
+  const pendingCursos = importCursosState.cursos.slice(importCursosState.index);
+  const pendingDocentes = importState.docentes.slice(importState.index);
+
+  if (!pendingCursos.length && !pendingDocentes.length) {
+    setMsg(panelMsg, "No hay datos pendientes para guardar", true);
+    return;
+  }
+
+  setMsg(panelMsg, "Iniciando guardado masivo...");
+  const saveImportedCurso = httpsCallable(functions, "saveImportedCurso");
+  const saveImportedDocente = httpsCallable(functions, "saveImportedDocente");
+
+  for (let i = 0; i < pendingCursos.length; i += 1) {
+    const curso = pendingCursos[i];
+    try {
+      await saveImportedCurso({
+        curso,
+        sheetUrl: importCursosState.sheetUrl,
+        sheetName: importCursosState.sheetName,
+        course: importCursosState.selectedCourse,
+      });
+      importCursosState.accepted += 1;
+      importCursosState.index += 1;
+      appendPanelLog(`Se guardo ${curso.curso} (CUPOF ${curso.cupof})`);
+    } catch (error) {
+      console.error(error);
+      appendPanelLog(
+        `Error al guardar curso ${curso.curso} (CUPOF ${curso.cupof}): ${error.message || "sin detalle"}`,
+        true
+      );
+    }
+  }
+
+  for (let i = 0; i < pendingDocentes.length; i += 1) {
+    const docente = pendingDocentes[i];
+    const docenteName = `${docente.apellido || ""} ${docente.nombre || ""}`.trim() || docente.cuil || "sin nombre";
+    try {
+      await saveImportedDocente({
+        docente,
+        sheetUrl: importState.sheetUrl,
+        sheetName: importState.sheetName,
+        course: importState.selectedCourse,
+      });
+      importState.accepted += 1;
+      importState.index += 1;
+      appendPanelLog(`Se guardo el docente ${docenteName}`);
+    } catch (error) {
+      console.error(error);
+      appendPanelLog(
+        `Error al guardar docente ${docenteName}: ${error.message || "sin detalle"}`,
+        true
+      );
+    }
+  }
+
+  appendPanelLog(
+    `Guardado masivo finalizado. Cursos guardados: ${importCursosState.accepted}. Docentes guardados: ${importState.accepted}.`
+  );
+  renderCurrentCurso();
+  renderCurrentDocente();
 });
 
 acceptDocenteBtn.addEventListener("click", async () => {

@@ -86,6 +86,7 @@ button {
   min-height: 24px;
   color: var(--muted);
   word-break: break-word;
+  white-space: pre-line;
 }
 
 .msg.error {

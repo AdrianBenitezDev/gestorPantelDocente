@@ -740,15 +740,31 @@ exports.saveImportedDocente = onCall(callableOptions, async (request) => {
   }
 
   const createdAt = admin.firestore.FieldValue.serverTimestamp();
-  const key = buildDocenteKey({
+  let key = buildDocenteKey({
     cuil,
     apellido,
     nombre,
     pid,
     keyHint: docente.keyHint,
   });
-  const docenteRef = db.collection("tenants").doc(tenantId).collection("docentes").doc(key);
-  const docenteSnap = await docenteRef.get();
+  let docenteRef = db.collection("tenants").doc(tenantId).collection("docentes").doc(key);
+  let docenteSnap = await docenteRef.get();
+
+  if (cuil) {
+    const byCuilSnap = await db
+      .collection("tenants")
+      .doc(tenantId)
+      .collection("docentes")
+      .where("cuil", "==", cuil)
+      .limit(1)
+      .get();
+    if (!byCuilSnap.empty) {
+      docenteRef = byCuilSnap.docs[0].ref;
+      docenteSnap = byCuilSnap.docs[0];
+      key = byCuilSnap.docs[0].id;
+    }
+  }
+
   const existingData = docenteSnap.exists ? docenteSnap.data() : {};
   const mergedCursos = mergeCursoRefs(existingData?.cursos, incomingCursoRefs);
 
@@ -846,6 +862,7 @@ exports.loadCursosFromSheet = onCall(callableOptions, async (request) => {
       const cupof = pickField(rowObj, ["cupof"]) || String(values[12] || "").trim();
       const materia =
         pickField(rowObj, ["espaciocurricular", "materia"]) || String(values[11] || "").trim();
+      const pid = pickField(rowObj, ["pid", "legajo", "id"]) || String(values[10] || "").trim();
       const turno = pickField(rowObj, ["turno"]) || String(values[18] || "").trim();
       const docenteCuil = pickField(rowObj, ["cuiltitular", "cuil", "dni", "documento"]) || "";
       const suplenteCuil = pickField(rowObj, ["cuilsuplente"]) || String(values[7] || "").trim();
@@ -883,6 +900,7 @@ exports.loadCursosFromSheet = onCall(callableOptions, async (request) => {
         curso: selectedCourse,
         cupof,
         materia,
+        pid,
         turno,
         diaHorario: {
           dias: diasHorario,
@@ -920,6 +938,7 @@ exports.saveImportedCurso = onCall(callableOptions, async (request) => {
   const cursoNombre = normalizeCourse(String(curso.curso || data.course || "").trim());
   const cupof = String(curso.cupof || "").trim();
   const materia = String(curso.materia || "").trim();
+  const pid = String(curso.pid || "").trim();
   const turno = String(curso.turno || "").trim();
   const docenteCuil = String(curso.docenteCuil || "").trim();
   const suplenteCuil = String(curso.suplenteCuil || "").trim();
@@ -943,12 +962,24 @@ exports.saveImportedCurso = onCall(callableOptions, async (request) => {
     .join("__")
     .replace(/[^a-zA-Z0-9_-]/g, "_");
 
-  const cursoRef = db.collection("tenants").doc(tenantId).collection("cursos").doc(cursoId);
-  await cursoRef.set(
+  const cursoRootRef = db.collection("tenants").doc(tenantId).collection("cursos").doc(cursoNombre);
+  await cursoRootRef.set(
+    {
+      curso: cursoNombre,
+      tenantId,
+      updatedAt: now,
+      createdAt: now,
+    },
+    { merge: true }
+  );
+
+  const cursoItemRef = cursoRootRef.collection("items").doc(cursoId);
+  await cursoItemRef.set(
     {
       curso: cursoNombre,
       cupof,
       materia,
+      pid,
       turno,
       diaHorario: {
         dias,
@@ -968,5 +999,5 @@ exports.saveImportedCurso = onCall(callableOptions, async (request) => {
     { merge: true }
   );
 
-  return { ok: true, tenantId, cursoId };
+  return { ok: true, tenantId, cursoId, cursoCollection: cursoNombre };
 });
