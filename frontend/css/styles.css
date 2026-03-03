@@ -234,3 +234,31 @@ button {
 .review-actions .google-btn {
   margin-top: 0;
 }
+
+.review-card {
+  margin: 10px 0;
+  padding: 12px;
+  background: #f6f8fc;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.review-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.review-grid label {
+  margin: 0;
+}
+
+.review-grid .full {
+  grid-column: 1 / -1;
+}
+
+.mini-title {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 2px 0 8px;
+}

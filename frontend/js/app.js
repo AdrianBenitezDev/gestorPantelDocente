@@ -48,6 +48,7 @@ const reviewCurso = document.getElementById("review-curso");
 const acceptCursoBtn = document.getElementById("accept-curso-btn");
 const skipCursoBtn = document.getElementById("skip-curso-btn");
 const cancelCursoBtn = document.getElementById("cancel-curso-btn");
+const bulkSaveWrap = document.getElementById("bulk-save-wrap");
 
 let importState = {
   tenantId: "",
@@ -80,6 +81,14 @@ function setMsg(el, text, isError = false) {
   el.classList.toggle("success", !isError);
 }
 
+function esc(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
 function appendPanelLog(text, isError = false) {
   const line = String(text || "").trim();
   if (!line) {
@@ -94,6 +103,122 @@ function appendPanelLog(text, isError = false) {
     panelMsg.classList.add("error");
     panelMsg.classList.remove("success");
   }
+}
+
+function toggleBulkSaveButton() {
+  const pendingDocentes = Math.max(importState.docentes.length - importState.index, 0);
+  const pendingCursos = Math.max(importCursosState.cursos.length - importCursosState.index, 0);
+  const visible = pendingDocentes > 0 || pendingCursos > 0;
+  bulkSaveWrap.classList.toggle("is-hidden", !visible);
+}
+
+function renderDocenteCard(docente) {
+  const cursoRefs = Array.isArray(docente?.cursoRefs)
+    ? docente.cursoRefs.map((item) => `${item.cupof}|${item.situacionRevista}`).join(", ")
+    : "";
+
+  reviewDocente.innerHTML = `
+    <div class="review-grid">
+      <label>Apellido <input id="docente-apellido" value="${esc(docente.apellido)}" /></label>
+      <label>Nombre <input id="docente-nombre" value="${esc(docente.nombre)}" /></label>
+      <label>CUIL <input id="docente-cuil" value="${esc(docente.cuil)}" /></label>
+      <label>Fecha Nac. <input id="docente-fecha" value="${esc(docente.fechaNacimiento)}" /></label>
+      <label>Telefono <input id="docente-telefono" value="${esc(docente.telefono)}" /></label>
+      <label>Correo <input id="docente-correo" value="${esc(docente.correo)}" /></label>
+      <label class="full">Domicilio <input id="docente-domicilio" value="${esc(docente.domicilio)}" /></label>
+      <label class="full">Curso refs (cupof|situacion, separadas por coma)
+        <input id="docente-cursorefs" value="${esc(cursoRefs)}" />
+      </label>
+    </div>
+  `;
+}
+
+function renderCursoCard(curso) {
+  const dias = Array.isArray(curso?.diaHorario?.dias) ? curso.diaHorario.dias : [];
+  const diasRows = (dias.length ? dias : [{ dia: "", horario: "" }])
+    .map((item, idx) => `
+      <div class="review-grid" data-dia-row="${idx}">
+        <label>Dia <input data-dia value="${esc(item.dia)}" /></label>
+        <label>Horario <input data-horario value="${esc(item.horario)}" /></label>
+      </div>
+    `)
+    .join("");
+
+  reviewCurso.innerHTML = `
+    <div class="review-grid">
+      <label>Curso <input id="curso-curso" value="${esc(curso.curso)}" /></label>
+      <label>PID <input id="curso-pid" value="${esc(curso.pid)}" /></label>
+      <label>CUPOF <input id="curso-cupof" value="${esc(curso.cupof)}" /></label>
+      <label>Materia <input id="curso-materia" value="${esc(curso.materia)}" /></label>
+      <label>Turno <input id="curso-turno" value="${esc(curso.turno)}" /></label>
+      <label>CUIL Docente <input id="curso-docentecuil" value="${esc(curso.docenteCuil)}" /></label>
+      <label>CUIL Suplente <input id="curso-suplentecuil" value="${esc(curso.suplenteCuil)}" /></label>
+      <label class="full">Aclaracion <input id="curso-aclaracion" value="${esc(curso?.diaHorario?.aclaracion || "")}" /></label>
+      <div class="full">
+        <p class="mini-title">Dias y horarios</p>
+        ${diasRows}
+      </div>
+    </div>
+  `;
+}
+
+function readEditedDocenteFromCard() {
+  const original = importState.docentes[importState.index];
+  if (!original || !reviewDocente.querySelector("#docente-apellido")) {
+    return original;
+  }
+
+  const refsRaw = String(reviewDocente.querySelector("#docente-cursorefs")?.value || "").trim();
+  const cursoRefs = refsRaw
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => {
+      const [cupof, situacionRevista] = item.split("|").map((v) => String(v || "").trim());
+      return { cupof, situacionRevista };
+    })
+    .filter((item) => item.cupof && item.situacionRevista);
+
+  return {
+    ...original,
+    apellido: reviewDocente.querySelector("#docente-apellido")?.value.trim() || "",
+    nombre: reviewDocente.querySelector("#docente-nombre")?.value.trim() || "",
+    cuil: reviewDocente.querySelector("#docente-cuil")?.value.trim() || "",
+    fechaNacimiento: reviewDocente.querySelector("#docente-fecha")?.value.trim() || "",
+    telefono: reviewDocente.querySelector("#docente-telefono")?.value.trim() || "",
+    correo: reviewDocente.querySelector("#docente-correo")?.value.trim() || "",
+    domicilio: reviewDocente.querySelector("#docente-domicilio")?.value.trim() || "",
+    cursoRefs,
+  };
+}
+
+function readEditedCursoFromCard() {
+  const original = importCursosState.cursos[importCursosState.index];
+  if (!original || !reviewCurso.querySelector("#curso-curso")) {
+    return original;
+  }
+
+  const dias = Array.from(reviewCurso.querySelectorAll("[data-dia-row]"))
+    .map((row) => ({
+      dia: row.querySelector("[data-dia]")?.value.trim() || "",
+      horario: row.querySelector("[data-horario]")?.value.trim() || "",
+    }))
+    .filter((item) => item.dia && item.horario);
+
+  return {
+    ...original,
+    curso: reviewCurso.querySelector("#curso-curso")?.value.trim() || "",
+    pid: reviewCurso.querySelector("#curso-pid")?.value.trim() || "",
+    cupof: reviewCurso.querySelector("#curso-cupof")?.value.trim() || "",
+    materia: reviewCurso.querySelector("#curso-materia")?.value.trim() || "",
+    turno: reviewCurso.querySelector("#curso-turno")?.value.trim() || "",
+    docenteCuil: reviewCurso.querySelector("#curso-docentecuil")?.value.trim() || "",
+    suplenteCuil: reviewCurso.querySelector("#curso-suplentecuil")?.value.trim() || "",
+    diaHorario: {
+      dias,
+      aclaracion: reviewCurso.querySelector("#curso-aclaracion")?.value.trim() || "",
+    },
+  };
 }
 
 function updateSessionLayout(isLoggedIn) {
@@ -118,12 +243,13 @@ function resetImportState() {
   importReview.classList.add("is-hidden");
   importReviewCursos.classList.add("is-hidden");
   reviewProgress.textContent = "";
-  reviewDocente.textContent = "";
+  reviewDocente.innerHTML = "";
   reviewCursoProgress.textContent = "";
-  reviewCurso.textContent = "";
+  reviewCurso.innerHTML = "";
   courseButtonsMsg.textContent = "";
   courseButtons.innerHTML = "";
   selectedCourseLabel.textContent = "Curso seleccionado: -";
+  bulkSaveWrap.classList.add("is-hidden");
   importCursosState = {
     tenantId: "",
     sheetUrl: "",
@@ -141,6 +267,7 @@ function renderCurrentDocente() {
   const total = importState.docentes.length;
   if (!total || importState.cancelled) {
     importReview.classList.add("is-hidden");
+    toggleBulkSaveButton();
     return;
   }
 
@@ -150,19 +277,22 @@ function renderCurrentDocente() {
       panelMsg,
       `Importacion finalizada. Guardados: ${importState.accepted}. Omitidos: ${importState.skipped}.`
     );
+    toggleBulkSaveButton();
     return;
   }
 
   const docente = importState.docentes[importState.index];
   importReview.classList.remove("is-hidden");
   reviewProgress.textContent = `Docente ${importState.index + 1} de ${total}`;
-  reviewDocente.textContent = JSON.stringify(docente, null, 2);
+  renderDocenteCard(docente);
+  toggleBulkSaveButton();
 }
 
 function renderCurrentCurso() {
   const total = importCursosState.cursos.length;
   if (!total || importCursosState.cancelled) {
     importReviewCursos.classList.add("is-hidden");
+    toggleBulkSaveButton();
     return;
   }
 
@@ -172,13 +302,15 @@ function renderCurrentCurso() {
       panelMsg,
       `Importacion de cursos finalizada. Guardados: ${importCursosState.accepted}. Omitidos: ${importCursosState.skipped}.`
     );
+    toggleBulkSaveButton();
     return;
   }
 
   const curso = importCursosState.cursos[importCursosState.index];
   importReviewCursos.classList.remove("is-hidden");
   reviewCursoProgress.textContent = `Curso ${importCursosState.index + 1} de ${total}`;
-  reviewCurso.textContent = JSON.stringify(curso, null, 2);
+  renderCursoCard(curso);
+  toggleBulkSaveButton();
 }
 
 async function checkTenantDataAndToggleImport(tenantId) {
@@ -434,6 +566,7 @@ sheetImportForm.addEventListener("submit", async (event) => {
       importState.skipped = 0;
       importState.cancelled = false;
       importReview.classList.add("is-hidden");
+      toggleBulkSaveButton();
       return;
     }
 
@@ -491,6 +624,7 @@ loadCursosBtn.addEventListener("click", async () => {
         .join(" ");
       setMsg(panelMsg, details || "No se encontraron cursos en la hoja indicada", true);
       importReviewCursos.classList.add("is-hidden");
+      toggleBulkSaveButton();
       return;
     }
 
@@ -510,10 +644,18 @@ loadCursosBtn.addEventListener("click", async () => {
     console.error(error);
     setMsg(panelMsg, error.message || "No se pudo leer cursos desde la hoja", true);
     importReviewCursos.classList.add("is-hidden");
+    toggleBulkSaveButton();
   }
 });
 
 saveAllBtn.addEventListener("click", async () => {
+  if (importState.docentes[importState.index]) {
+    importState.docentes[importState.index] = readEditedDocenteFromCard();
+  }
+  if (importCursosState.cursos[importCursosState.index]) {
+    importCursosState.cursos[importCursosState.index] = readEditedCursoFromCard();
+  }
+
   const pendingCursos = importCursosState.cursos.slice(importCursosState.index);
   const pendingDocentes = importState.docentes.slice(importState.index);
 
@@ -574,6 +716,7 @@ saveAllBtn.addEventListener("click", async () => {
   );
   renderCurrentCurso();
   renderCurrentDocente();
+  toggleBulkSaveButton();
 });
 
 acceptDocenteBtn.addEventListener("click", async () => {
@@ -583,9 +726,11 @@ acceptDocenteBtn.addEventListener("click", async () => {
   }
 
   try {
+    const editedDocente = readEditedDocenteFromCard();
+    importState.docentes[importState.index] = editedDocente;
     const saveImportedDocente = httpsCallable(functions, "saveImportedDocente");
     await saveImportedDocente({
-      docente,
+      docente: editedDocente,
       sheetUrl: importState.sheetUrl,
       sheetName: importState.sheetName,
       course: importState.selectedCourse,
@@ -611,6 +756,7 @@ skipDocenteBtn.addEventListener("click", () => {
 cancelDocenteBtn.addEventListener("click", () => {
   importState.cancelled = true;
   importReview.classList.add("is-hidden");
+  toggleBulkSaveButton();
   setMsg(
     panelMsg,
     `Importacion cancelada. Guardados: ${importState.accepted}. Omitidos: ${importState.skipped}.`
@@ -624,9 +770,11 @@ acceptCursoBtn.addEventListener("click", async () => {
   }
 
   try {
+    const editedCurso = readEditedCursoFromCard();
+    importCursosState.cursos[importCursosState.index] = editedCurso;
     const saveImportedCurso = httpsCallable(functions, "saveImportedCurso");
     await saveImportedCurso({
-      curso,
+      curso: editedCurso,
       sheetUrl: importCursosState.sheetUrl,
       sheetName: importCursosState.sheetName,
       course: importCursosState.selectedCourse,
@@ -652,6 +800,7 @@ skipCursoBtn.addEventListener("click", () => {
 cancelCursoBtn.addEventListener("click", () => {
   importCursosState.cancelled = true;
   importReviewCursos.classList.add("is-hidden");
+  toggleBulkSaveButton();
   setMsg(
     panelMsg,
     `Importacion de cursos cancelada. Guardados: ${importCursosState.accepted}. Omitidos: ${importCursosState.skipped}.`

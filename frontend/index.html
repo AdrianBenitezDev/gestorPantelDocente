@@ -54,14 +54,13 @@
           <div class="review-actions">
             <button type="submit">Cargar docentes</button>
             <button id="load-cursos-btn" type="button" class="google-btn">Cargar cursos</button>
-            <button id="save-all-btn" type="button">Guardar todo</button>
           </div>
         </form>
 
         <div id="import-review" class="card is-hidden">
           <h3>Revision de docentes</h3>
           <p id="review-progress" class="msg"></p>
-          <pre id="review-docente" class="review-docente"></pre>
+          <div id="review-docente" class="review-card"></div>
           <div class="review-actions">
             <button id="accept-docente-btn" type="button">Aceptar y guardar</button>
             <button id="skip-docente-btn" type="button" class="google-btn">Omitir</button>
@@ -72,12 +71,16 @@
         <div id="import-review-cursos" class="card is-hidden">
           <h3>Revision de cursos</h3>
           <p id="review-curso-progress" class="msg"></p>
-          <pre id="review-curso" class="review-docente"></pre>
+          <div id="review-curso" class="review-card"></div>
           <div class="review-actions">
             <button id="accept-curso-btn" type="button">Aceptar y guardar</button>
             <button id="skip-curso-btn" type="button" class="google-btn">Omitir</button>
             <button id="cancel-curso-btn" type="button" class="danger-btn">Cancelar</button>
           </div>
+        </div>
+
+        <div id="bulk-save-wrap" class="review-actions is-hidden">
+          <button id="save-all-btn" type="button">Guardar todo</button>
         </div>
       </div>
     </section>

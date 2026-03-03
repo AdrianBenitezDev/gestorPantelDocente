@@ -962,9 +962,8 @@ exports.saveImportedCurso = onCall(callableOptions, async (request) => {
   }
 
   const now = admin.firestore.FieldValue.serverTimestamp();
-  const daysKey = dias.map((item) => normalizeIdentityPart(item.dia)).join("-");
-  const cursoId = [cursoNombre, cupof, normalizeIdentityPart(materia), daysKey]
-    .join("__")
+  const safePid = pid || "sinpid";
+  const cursoId = `${cursoNombre}_${safePid}_${cupof}`
     .replace(/[^a-zA-Z0-9_-]/g, "_");
 
   const cursoRootRef = db.collection("tenants").doc(tenantId).collection("cursos").doc(cursoNombre);
