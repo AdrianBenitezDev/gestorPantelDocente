@@ -69,6 +69,8 @@ const acceptCursoBtn = document.getElementById("accept-curso-btn");
 const skipCursoBtn = document.getElementById("skip-curso-btn");
 const cancelCursoBtn = document.getElementById("cancel-curso-btn");
 const bulkSaveWrap = document.getElementById("bulk-save-wrap");
+const refreshFab = document.getElementById("refresh-fab");
+const refreshFabIcon = document.getElementById("refresh-fab-icon");
 
 let importState = {
   tenantId: "",
@@ -112,6 +114,7 @@ const DEFAULT_BUTTON_CONFIG = {
 };
 
 let buttonConfigState = clonePlain(DEFAULT_BUTTON_CONFIG);
+let refreshInProgress = false;
 
 function setMsg(el, text, isError = false) {
   el.textContent = text;
@@ -224,6 +227,57 @@ function clonePlain(value) {
   } catch (error) {
     return {};
   }
+}
+
+function setRefreshFabLoading(isLoading) {
+  refreshInProgress = isLoading;
+  if (!refreshFabIcon) {
+    return;
+  }
+  refreshFabIcon.classList.toggle("is-spinning", isLoading);
+}
+
+function openCacheDb() {
+  return new Promise((resolve, reject) => {
+    const request = window.indexedDB.open("gpd-cache", 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains("tenant_home")) {
+        db.createObjectStore("tenant_home", { keyPath: "tenantId" });
+      }
+      if (!db.objectStoreNames.contains("course_schedule")) {
+        db.createObjectStore("course_schedule", { keyPath: "id" });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function idbGet(storeName, key) {
+  const db = await openCacheDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readonly");
+    const store = tx.objectStore(storeName);
+    const request = store.get(key);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function idbSet(storeName, value) {
+  const db = await openCacheDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    const store = tx.objectStore(storeName);
+    const request = store.put(value);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function courseScheduleCacheId(tenantId, course) {
+  return `${tenantId}__${normalizeCourse(course)}`;
 }
 
 function flattenEntityFields(value, currentPath = "", output = []) {
@@ -436,6 +490,7 @@ function updateSessionLayout(isLoggedIn) {
   logoutBtn.classList.toggle("is-hidden", !isLoggedIn);
   panelSection.classList.toggle("is-hidden", !isLoggedIn);
   subBanner.classList.toggle("is-hidden", !isLoggedIn);
+  refreshFab.classList.toggle("is-hidden", !isLoggedIn);
   syncBannerLayout();
 }
 
@@ -739,6 +794,63 @@ async function upsertCourseButton(tenantId, courseName, turnValue) {
   );
 }
 
+async function loadTenantHomeCache(tenantId) {
+  try {
+    const cached = await idbGet("tenant_home", tenantId);
+    if (!cached) {
+      return false;
+    }
+    homeState.tenantId = tenantId;
+    homeState.docentesByCuil = new Map(Array.isArray(cached.docentesByCuil) ? cached.docentesByCuil : []);
+    renderCourseButtons(Array.isArray(cached.courses) ? cached.courses : []);
+    renderHomeCourseButtons(Array.isArray(cached.courseButtons) ? cached.courseButtons : []);
+    setMsg(homeMsg, "Mostrando datos locales...");
+    return true;
+  } catch (error) {
+    console.error("No se pudo leer cache local de tenant", error);
+    return false;
+  }
+}
+
+async function saveTenantHomeCache(tenantId, payload) {
+  try {
+    await idbSet("tenant_home", {
+      tenantId,
+      updatedAt: Date.now(),
+      ...payload,
+    });
+  } catch (error) {
+    console.error("No se pudo guardar cache local de tenant", error);
+  }
+}
+
+async function loadCourseScheduleCache(tenantId, course) {
+  try {
+    const cached = await idbGet("course_schedule", courseScheduleCacheId(tenantId, course));
+    if (!cached || !Array.isArray(cached.items)) {
+      return null;
+    }
+    return cached.items;
+  } catch (error) {
+    console.error("No se pudo leer cache local de horario", error);
+    return null;
+  }
+}
+
+async function saveCourseScheduleCache(tenantId, course, items) {
+  try {
+    await idbSet("course_schedule", {
+      id: courseScheduleCacheId(tenantId, course),
+      tenantId,
+      course: normalizeCourse(course),
+      items: Array.isArray(items) ? items : [],
+      updatedAt: Date.now(),
+    });
+  } catch (error) {
+    console.error("No se pudo guardar cache local de horario", error);
+  }
+}
+
 function setSelectedCourse(courseName) {
   importState.selectedCourse = courseName;
   selectedCourseLabel.textContent = `Curso seleccionado: ${courseName || "-"}`;
@@ -952,7 +1064,8 @@ function renderScheduleTable(curso, items) {
   setMsg(homeMsg, `Curso ${curso} cargado`);
 }
 
-async function loadScheduleForCourse(courseName) {
+async function loadScheduleForCourse(courseName, options = {}) {
+  const { preferCache = true } = options;
   if (!homeState.tenantId) {
     return;
   }
@@ -960,13 +1073,22 @@ async function loadScheduleForCourse(courseName) {
   homeState.selectedCourse = course;
   homeSelectedCourse.textContent = `Curso seleccionado: ${course}`;
   updateHomeCourseButtonSelection();
-  setMsg(homeMsg, `Cargando horario de ${course}...`);
+  if (!preferCache) {
+    setMsg(homeMsg, `Cargando horario de ${course}...`);
+  }
   setLoading(true, `Cargando horario ${course}...`);
 
   try {
+    if (preferCache) {
+      const cachedItems = await loadCourseScheduleCache(homeState.tenantId, course);
+      if (cachedItems && cachedItems.length) {
+        renderScheduleTable(course, cachedItems);
+      }
+    }
     const itemsSnap = await getDocs(collection(db, "tenants", homeState.tenantId, "cursos", course, "items"));
     const items = itemsSnap.docs.map((docSnap) => docSnap.data() || {});
     renderScheduleTable(course, items);
+    await saveCourseScheduleCache(homeState.tenantId, course, items);
   } catch (error) {
     console.error(error);
     setMsg(homeMsg, "No se pudo cargar el horario del curso", true);
@@ -978,6 +1100,7 @@ async function loadScheduleForCourse(courseName) {
 async function loadTenantCourses(tenantId) {
   setLoading(true, "Cargando cursos...");
   try {
+    await loadTenantHomeCache(tenantId);
     await loadButtonConfig(tenantId);
     const cursosSnap = await getDocs(collection(db, "tenants", tenantId, "cursos"));
     const rawCourses = cursosSnap.docs
@@ -1033,10 +1156,16 @@ async function loadTenantCourses(tenantId) {
 
     const courseButtonsFromDb = await loadCourseButtonsFromFirestore(tenantId);
     renderCourseButtons(unique);
-    renderHomeCourseButtons(courseButtonsFromDb.length ? courseButtonsFromDb : homeCourseEntries);
+    const buttonsToRender = courseButtonsFromDb.length ? courseButtonsFromDb : homeCourseEntries;
+    renderHomeCourseButtons(buttonsToRender);
     homeState.tenantId = tenantId;
     if (unique.length) {
       await buildDocentesByCuilMap(tenantId);
+      await saveTenantHomeCache(tenantId, {
+        courses: unique,
+        courseButtons: buttonsToRender,
+        docentesByCuil: Array.from(homeState.docentesByCuil.entries()),
+      });
       await loadScheduleForCourse(unique[0]);
     } else {
       courseScheduleWrap.classList.add("is-hidden");
@@ -1496,6 +1625,27 @@ cancelCursoBtn.addEventListener("click", () => {
     panelMsg,
     `Importacion de cursos cancelada. Guardados: ${importCursosState.accepted}. Omitidos: ${importCursosState.skipped}.`
   );
+});
+
+refreshFab.addEventListener("click", async () => {
+  if (refreshInProgress || !importState.tenantId) {
+    return;
+  }
+  setRefreshFabLoading(true);
+  setLoading(true, "Actualizando datos...");
+  try {
+    await loadTenantCourses(importState.tenantId);
+    if (homeState.selectedCourse) {
+      await loadScheduleForCourse(homeState.selectedCourse, { preferCache: false });
+    }
+    setMsg(homeMsg, "Datos actualizados");
+  } catch (error) {
+    console.error(error);
+    setMsg(homeMsg, "No se pudo actualizar", true);
+  } finally {
+    setRefreshFabLoading(false);
+    setLoading(false);
+  }
 });
 
 saveButtonConfigBtn.addEventListener("click", async () => {

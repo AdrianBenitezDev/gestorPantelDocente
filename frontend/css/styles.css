@@ -488,3 +488,26 @@ button {
   font-size: 12px;
   color: var(--muted);
 }
+
+.refresh-fab {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
+}
+
+.refresh-fab-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.refresh-fab-icon.is-spinning {
+  animation: spin 0.9s linear infinite;
+}
