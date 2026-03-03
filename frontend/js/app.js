@@ -113,6 +113,7 @@ let homeState = {
   selectedCourse: "",
   docentesByCuil: new Map(),
   docentesByCupof: new Map(),
+  docentesAll: [],
   currentItems: [],
   slotItems: new Map(),
   editingDocente: null,
@@ -772,6 +773,7 @@ function resetImportState() {
     selectedCourse: "",
     docentesByCuil: new Map(),
     docentesByCupof: new Map(),
+    docentesAll: [],
     currentItems: [],
     slotItems: new Map(),
     editingDocente: null,
@@ -1053,6 +1055,7 @@ async function loadTenantHomeCache(tenantId) {
     homeState.tenantId = tenantId;
     homeState.docentesByCuil = new Map(Array.isArray(cached.docentesByCuil) ? cached.docentesByCuil : []);
     homeState.docentesByCupof = new Map(Array.isArray(cached.docentesByCupof) ? cached.docentesByCupof : []);
+    homeState.docentesAll = Array.isArray(cached.docentesAll) ? cached.docentesAll : [];
     renderCourseButtons(Array.isArray(cached.courses) ? cached.courses : []);
     renderHomeCourseButtons(Array.isArray(cached.courseButtons) ? cached.courseButtons : []);
     setMsg(homeMsg, "Mostrando datos locales...");
@@ -1225,6 +1228,7 @@ async function buildDocentesByCuilMap(tenantId) {
   const docentesSnap = await getDocs(collection(db, "tenants", tenantId, "docentes"));
   const map = new Map();
   const cupofMap = new Map();
+  const docentesAll = [];
   docentesSnap.docs.forEach((docSnap) => {
     const data = docSnap.data() || {};
     const cuil = String(data.cuil || "").trim();
@@ -1252,9 +1256,11 @@ async function buildDocentesByCuilMap(tenantId) {
         data: clonePlain(data),
       });
     });
+    docentesAll.push({ id: docSnap.id, ...clonePlain(data) });
   });
   homeState.docentesByCuil = map;
   homeState.docentesByCupof = cupofMap;
+  homeState.docentesAll = docentesAll;
 }
 
 function renderScheduleTable(curso, items) {
@@ -1417,16 +1423,22 @@ function searchByPid(pid) {
     return;
   }
   const results = [];
-  homeState.currentItems.forEach((item) => {
-    if (String(item?.pid || "").trim().toUpperCase() !== target) {
+  homeState.docentesAll.forEach((docente) => {
+    if (String(docente?.pid || "").trim().toUpperCase() !== target) {
       return;
     }
-    const titularInfo = resolveTitularInfo(item);
+    const nombre = `${String(docente?.apellido || "").trim()} ${String(docente?.nombre || "").trim()}`.trim() || "-";
+    const cursoRefs = Array.isArray(docente?.cursoRefs) ? docente.cursoRefs : [];
+    const refsText = cursoRefs.length
+      ? cursoRefs
+        .map((ref) => `${String(ref?.curso || "-").trim()} / CUPOF ${String(ref?.cupof || "-").trim()} (${String(ref?.situacionRevista || "-").trim()})`)
+        .join(" | ")
+      : "Sin cursoRefs";
     results.push({
-      curso: homeState.selectedCourse || "-",
-      cupof: String(item?.cupof || "-").trim(),
-      materia: String(item?.materia || "-").trim(),
-      docente: titularInfo.name,
+      curso: refsText,
+      cupof: "-",
+      materia: "-",
+      docente: nombre,
     });
   });
   renderPidResults(target, results);
@@ -1610,6 +1622,7 @@ async function loadTenantCourses(tenantId) {
         courseButtons: buttonsToRender,
         docentesByCuil: Array.from(homeState.docentesByCuil.entries()),
         docentesByCupof: Array.from(homeState.docentesByCupof.entries()),
+        docentesAll: homeState.docentesAll,
       });
       await loadScheduleForCourse(unique[0]);
     } else {
