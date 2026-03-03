@@ -213,8 +213,37 @@ function normalizeDayColumn(day) {
   return "";
 }
 
+function normalizeHorarioRange(value) {
+  const compact = String(value || "").trim().replace(/\s+/g, " ");
+  if (!compact) {
+    return "";
+  }
+  const withDash = compact.replace(/\s*[-–—]\s*/g, " - ");
+  const rangeMatch = withDash.match(/^(\d{1,2}):(\d{2}) - (\d{1,2}):(\d{2})(.*)$/);
+  if (rangeMatch) {
+    const startHour = Number(rangeMatch[1]);
+    const startMin = Number(rangeMatch[2]);
+    const endHour = Number(rangeMatch[3]);
+    const endMin = Number(rangeMatch[4]);
+    const suffix = String(rangeMatch[5] || "").trim();
+    if (
+      Number.isFinite(startHour) &&
+      Number.isFinite(startMin) &&
+      Number.isFinite(endHour) &&
+      Number.isFinite(endMin)
+    ) {
+      const normalized =
+        `${String(startHour).padStart(2, "0")}:${String(startMin).padStart(2, "0")}` +
+        ` - ` +
+        `${String(endHour).padStart(2, "0")}:${String(endMin).padStart(2, "0")}`;
+      return suffix ? `${normalized} ${suffix}` : normalized;
+    }
+  }
+  return withDash;
+}
+
 function parseStartMinutes(rangeText) {
-  const text = String(rangeText || "").trim();
+  const text = normalizeHorarioRange(rangeText);
   const match = text.match(/(\d{1,2}):(\d{2})/);
   if (!match) {
     return Number.MAX_SAFE_INTEGER;
@@ -1036,7 +1065,7 @@ function renderScheduleTable(curso, items) {
     const dias = Array.isArray(item?.diaHorario?.dias) ? item.diaHorario.dias : [];
     dias.forEach((diaItem) => {
       const day = normalizeDayColumn(diaItem?.dia);
-      const range = String(diaItem?.horario || "").trim();
+      const range = normalizeHorarioRange(diaItem?.horario);
       if (!day || !range) {
         return;
       }

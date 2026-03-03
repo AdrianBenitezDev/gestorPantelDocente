@@ -265,6 +265,35 @@ function normalizeDayName(day) {
   return String(day || "").trim().toUpperCase();
 }
 
+function normalizeHorarioRange(value) {
+  const compact = String(value || "").trim().replace(/\s+/g, " ");
+  if (!compact) {
+    return "";
+  }
+  const withDash = compact.replace(/\s*[-–—]\s*/g, " - ");
+  const rangeMatch = withDash.match(/^(\d{1,2}):(\d{2}) - (\d{1,2}):(\d{2})(.*)$/);
+  if (rangeMatch) {
+    const startHour = Number(rangeMatch[1]);
+    const startMin = Number(rangeMatch[2]);
+    const endHour = Number(rangeMatch[3]);
+    const endMin = Number(rangeMatch[4]);
+    const suffix = String(rangeMatch[5] || "").trim();
+    if (
+      Number.isFinite(startHour) &&
+      Number.isFinite(startMin) &&
+      Number.isFinite(endHour) &&
+      Number.isFinite(endMin)
+    ) {
+      const normalized =
+        `${String(startHour).padStart(2, "0")}:${String(startMin).padStart(2, "0")}` +
+        ` - ` +
+        `${String(endHour).padStart(2, "0")}:${String(endMin).padStart(2, "0")}`;
+      return suffix ? `${normalized} ${suffix}` : normalized;
+    }
+  }
+  return withDash;
+}
+
 function buildCursoRefs(
   cupof,
   modulosTitular,
@@ -980,10 +1009,10 @@ exports.loadCursosFromSheet = onCall(callableOptions, async (request) => {
           }
           return {
             dia: normalizeDayName(key),
-            horario: String(cellValue).trim(),
+            horario: normalizeHorarioRange(cellValue),
           };
         })
-        .filter(Boolean);
+        .filter((item) => item && item.horario);
 
       if (!diasHorario.length) {
         return [];
@@ -1039,7 +1068,7 @@ exports.saveImportedCurso = onCall(callableOptions, async (request) => {
     ? diaHorario.dias
       .map((item) => ({
         dia: normalizeDayName(item?.dia || ""),
-        horario: String(item?.horario || "").trim(),
+        horario: normalizeHorarioRange(item?.horario),
       }))
       .filter((item) => item.dia && item.horario)
     : [];
