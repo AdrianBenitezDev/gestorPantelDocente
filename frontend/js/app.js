@@ -125,14 +125,11 @@ function syncBannerLayout() {
     return;
   }
   const topHeight = topBanner.getBoundingClientRect().height || 72;
-  subBanner.style.top = `${Math.ceil(topHeight)}px`;
-  const subVisible = !subBanner.classList.contains("is-hidden");
-  const subHeight = subVisible ? (subBanner.getBoundingClientRect().height || 48) : 0;
-  const stickyTop = Math.ceil(topHeight + subHeight + 8);
+  const stickyTop = Math.ceil(topHeight + 8);
   const tableMaxHeight = Math.max(260, Math.floor(window.innerHeight - stickyTop - 140));
   document.documentElement.style.setProperty("--sticky-top", `${stickyTop}px`);
   document.documentElement.style.setProperty("--table-max-height", `${tableMaxHeight}px`);
-  appRoot.style.marginTop = `${Math.ceil(topHeight + subHeight + 16)}px`;
+  appRoot.style.marginTop = `${Math.ceil(topHeight + 16)}px`;
 }
 
 function setLoading(isLoading, text = "Cargando...") {
@@ -551,15 +548,6 @@ function normalizeTurn(value) {
   return "S";
 }
 
-function turnLabel(value) {
-  const turn = normalizeTurn(value);
-  if (turn === "M") return "Manana";
-  if (turn === "T") return "Tarde";
-  if (turn === "V") return "Vespertino";
-  if (turn === "N") return "Noche";
-  return "Sin turno";
-}
-
 function setSelectedCourse(courseName) {
   importState.selectedCourse = courseName;
   selectedCourseLabel.textContent = `Curso seleccionado: ${courseName || "-"}`;
@@ -643,11 +631,6 @@ function renderHomeCourseButtons(courses) {
 
     const row = document.createElement("div");
     row.className = "course-turn-row";
-
-    const label = document.createElement("div");
-    label.className = "turn-label";
-    label.textContent = turnLabel(turn);
-    row.appendChild(label);
 
     const buttonsWrap = document.createElement("div");
     buttonsWrap.className = "turn-buttons";

@@ -7,7 +7,7 @@
   --accent: #1f6feb;
   --error: #b42318;
   --success: #107c41;
-  --sticky-top: 132px;
+  --sticky-top: 88px;
   --table-max-height: calc(100vh - 280px);
 }
 
@@ -22,7 +22,7 @@ body {
 
 .app {
   max-width: 1280px;
-  margin: 128px auto 20px;
+  margin: 96px auto 20px;
   padding: 18px;
 }
 
@@ -108,14 +108,14 @@ button {
   top: 0;
   left: 0;
   right: 0;
-  height: 72px;
-  padding: 10px 18px;
+  min-height: 72px;
+  padding: 8px 14px;
   background: #ffffff;
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
   z-index: 40;
 }
 
@@ -146,7 +146,7 @@ button {
 .user-block {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
 .user-meta {
@@ -155,7 +155,7 @@ button {
   column-gap: 8px;
   row-gap: 2px;
   align-items: center;
-  min-width: 190px;
+  min-width: 170px;
 }
 
 .user-icon {
@@ -183,30 +183,21 @@ button {
 
 @media (max-width: 740px) {
   .app {
-    margin-top: 184px;
+    margin-top: 122px;
   }
 
   .top-banner {
-    height: auto;
-    flex-direction: column;
-    align-items: stretch;
+    min-height: 72px;
+    align-items: center;
+    flex-wrap: wrap;
   }
 
   .user-block {
-    justify-content: space-between;
+    justify-content: flex-end;
   }
 
   .row-form {
     grid-template-columns: 1fr;
-  }
-
-  .sub-banner {
-    top: 116px;
-    height: auto;
-    min-height: 56px;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 6px;
   }
 }
 
@@ -248,9 +239,8 @@ button {
 
 .panel-nav {
   display: flex;
-  gap: 10px;
+  gap: 6px;
   margin: 0;
-  margin-left: auto;
 }
 
 .panel-nav button.active-tab {
@@ -260,18 +250,16 @@ button {
 }
 
 .sub-banner {
-  position: fixed;
-  top: 72px;
-  left: 0;
-  right: 0;
-  height: 48px;
-  padding: 8px 24px;
-  background: #f8fbff;
-  border-bottom: 1px solid var(--border);
+  position: static;
+  height: auto;
+  padding: 0;
+  background: transparent;
+  border-bottom: 0;
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  z-index: 30;
+  gap: 8px;
+  margin-left: auto;
 }
 
 .loading-indicator {
@@ -280,7 +268,7 @@ button {
   gap: 8px;
   color: var(--muted);
   font-size: 13px;
-  margin-right: auto;
+  margin-right: 2px;
 }
 
 .spinner {
@@ -357,37 +345,34 @@ button {
   top: var(--sticky-top);
   z-index: 3;
   display: grid;
-  gap: 10px;
-  margin: 6px 0 10px;
+  gap: 0;
+  margin: 4px 0 8px;
 }
 
 .course-turn-row {
-  display: grid;
-  grid-template-columns: 90px 1fr;
-  gap: 10px;
-  align-items: start;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: #f7faff;
+  display: block;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .turn-label {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.6px;
-  color: #334a7d;
-  padding-top: 8px;
+  display: none;
 }
 
 .turn-buttons {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 
 .course-btn {
-  min-width: 88px;
+  min-width: 62px;
+  min-height: 30px;
+  padding: 5px 8px;
+  font-size: 12px;
+  border-radius: 6px;
 }
 
 .course-btn.turn-m {
