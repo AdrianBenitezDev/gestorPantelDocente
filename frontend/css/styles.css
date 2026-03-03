@@ -311,7 +311,7 @@ button {
   border: 1px solid var(--border);
   padding: 8px;
   vertical-align: top;
-  text-align: left;
+  text-align: center;
   font-size: 13px;
 }
 
@@ -339,6 +339,7 @@ button {
   border-radius: 8px;
   padding: 6px;
   background: #fafcff;
+  text-align: center;
 }
 
 .schedule-slot:last-child {
@@ -400,6 +401,11 @@ button {
   font-weight: 600;
 }
 
+.schedule-slot .meta.horario {
+  margin-top: 4px;
+  font-weight: 600;
+}
+
 .schedule-slot.is-match {
   outline: 2px solid #f59e0b;
   outline-offset: 1px;
@@ -437,7 +443,9 @@ button {
 }
 
 .course-turn-row {
-  display: block;
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  align-items: center;
   padding: 2px 0;
   border: 0;
   border-radius: 0;
@@ -445,7 +453,10 @@ button {
 }
 
 .turn-label {
-  display: none;
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
 }
 
 .turn-buttons {
@@ -508,6 +519,11 @@ button {
   border-color: #1d3a8a;
 }
 
+.course-btn.turn-c {
+  background: #0f766e;
+  border-color: #0f766e;
+}
+
 .course-btn.turn-s {
   background: #4a5568;
   border-color: #4a5568;
@@ -537,6 +553,25 @@ button {
   animation: spin 0.8s linear infinite;
 }
 
+.home-command-actions button.is-loading {
+  position: relative;
+  padding-right: 22px;
+}
+
+.home-command-actions button.is-loading::after {
+  content: "";
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin-top: -5px;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
 .docente-editor-modal {
   position: fixed;
   inset: 0;
@@ -552,15 +587,35 @@ button {
   width: min(780px, 100%);
   max-height: 84vh;
   overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   background: #fff;
   border-radius: 12px;
   border: 1px solid var(--border);
   padding: 12px;
 }
 
+.docente-field-row {
+  display: grid;
+  gap: 6px;
+}
+
+.docente-field-actions {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 6px;
+  align-items: center;
+}
+
 @media (max-width: 900px) {
   .home-toolbar {
     grid-template-columns: 1fr;
+  }
+
+  .course-turn-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
   }
 
   .home-commands {
@@ -569,6 +624,10 @@ button {
 
   .home-command-actions {
     justify-content: flex-start;
+  }
+
+  .docente-field-actions {
+    grid-template-columns: 1fr;
   }
 }
 

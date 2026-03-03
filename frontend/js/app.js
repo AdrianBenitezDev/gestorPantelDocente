@@ -120,11 +120,12 @@ let homeState = {
   loadingCourseButton: "",
 };
 
-const TURN_ORDER = ["M", "T", "V", "N", "S"];
+const TURN_ORDER = ["M", "T", "V", "C", "N", "S"];
 const DEFAULT_BUTTON_CONFIG = {
   M: { label: "Manana", color: "#0f6ab8" },
   T: { label: "Tarde", color: "#bf5f00" },
   V: { label: "Vespertino", color: "#6f42c1" },
+  C: { label: "Contraturno", color: "#0f766e" },
   N: { label: "Noche", color: "#1d3a8a" },
   S: { label: "Sin turno", color: "#4a5568" },
 };
@@ -320,9 +321,9 @@ function findDocenteBySlot(item, preferNonSuplente = true) {
   const working = preferNonSuplente
     ? candidates.filter((candidate) => normalizeSituacionRevista(candidate?.situacionRevista) !== "S")
     : candidates.filter((candidate) => normalizeSituacionRevista(candidate?.situacionRevista) === "S");
-  const list = working.length ? working : candidates;
+  const list = working.length ? working : preferNonSuplente ? [] : candidates;
 
-  if (titularCuil) {
+  if (titularCuil && titularCuil !== suplenteCuil) {
     const byTitularCuil = list.find((candidate) => String(candidate?.cuil || "").trim() === titularCuil);
     if (byTitularCuil) {
       return byTitularCuil;
@@ -352,7 +353,7 @@ function resolveTitularInfo(item) {
   }
   const direct = docenteDisplayNameByCuil(item?.docenteCuil);
   return {
-    name: direct,
+    name: direct && direct !== resolveSuplenteInfo(item).name ? direct : "-",
     situacionRevista: direct === "-" ? "" : "TI",
     docente: null,
   };
@@ -426,6 +427,14 @@ function setRefreshFabLoading(isLoading) {
     return;
   }
   refreshFabIcon.classList.toggle("is-spinning", isLoading);
+}
+
+function setButtonBusy(button, isBusy) {
+  if (!button) {
+    return;
+  }
+  button.disabled = isBusy;
+  button.classList.toggle("is-loading", isBusy);
 }
 
 async function registerCurrentSession(user, tenantId, profile = {}) {
@@ -863,13 +872,14 @@ function normalizeTurn(value) {
   if (raw.startsWith("M")) return "M";
   if (raw.startsWith("T")) return "T";
   if (raw.startsWith("V")) return "V";
+  if (raw.startsWith("C")) return "C";
   if (raw.startsWith("N")) return "N";
   return "S";
 }
 
 function normalizeRenderableTurn(value) {
   const raw = String(value || "").trim().toUpperCase();
-  if (raw === "M" || raw === "T" || raw === "V") {
+  if (raw === "M" || raw === "T" || raw === "V" || raw === "C") {
     return raw;
   }
   return "";
@@ -1164,6 +1174,7 @@ function renderHomeCourseButtons(courses) {
     ["M", []],
     ["T", []],
     ["V", []],
+    ["C", []],
     ["N", []],
     ["S", []],
   ]);
@@ -1180,7 +1191,16 @@ function renderHomeCourseButtons(courses) {
     });
   });
 
-  ["M", "T", "V", "N", "S"].forEach((turn) => {
+  const turnLabels = {
+    M: "Manana",
+    T: "Tarde",
+    V: "Vespertino",
+    C: "Contraturno",
+    N: "Noche",
+    S: "Sin turno",
+  };
+
+  ["M", "T", "V", "C", "N", "S"].forEach((turn) => {
     const items = byTurn.get(turn) || [];
     if (!items.length) {
       return;
@@ -1188,6 +1208,10 @@ function renderHomeCourseButtons(courses) {
 
     const row = document.createElement("div");
     row.className = "course-turn-row";
+    const label = document.createElement("div");
+    label.className = "turn-label";
+    label.textContent = turnLabels[turn] || turn;
+    row.appendChild(label);
 
     const buttonsWrap = document.createElement("div");
     buttonsWrap.className = "turn-buttons";
@@ -1330,11 +1354,13 @@ function renderScheduleTable(curso, items) {
                 ? `<span class="meta ${suplenteClass}">Suplente: ${esc(suplenteInfo.name)}</span>`
                 : "";
               const cupof = esc(item.cupof || "-");
+              const horario = esc(range);
               return `
                 <div class="schedule-slot" data-slot-id="${esc(slotId)}">
                   <span class="title">${materia}</span>
                   <span class="meta docente-main ${titularClass}">${titular}</span>
                   ${suplenteHtml}
+                  <span class="meta horario">Horario: ${horario}</span>
                   <span class="meta cupof">CUPOF: ${cupof}</span>
                 </div>
               `;
@@ -1458,9 +1484,13 @@ function renderDocenteEditorForm(data) {
     .map(([key, label]) => {
       const value = esc(data?.[key] || "");
       return `
-        <label>
-          ${label}
-          <input type="text" data-docente-key="${key}" value="${value}" />
+        <label class="docente-field-row">
+          <span>${label}</span>
+          <div class="docente-field-actions">
+            <input type="text" data-docente-key="${key}" value="${value}" />
+            <button type="button" class="google-btn field-copy-btn" data-docente-field="${key}">Copiar</button>
+            <button type="button" class="google-btn field-paste-btn" data-docente-field="${key}">Pegar</button>
+          </div>
         </label>
       `;
     })
@@ -2172,15 +2202,26 @@ homeSearchClearBtn.addEventListener("click", () => {
 });
 
 homeSearchBtn.addEventListener("click", () => {
-  applySuplenteSearch(homeSearchInput.value);
+  setButtonBusy(homeSearchBtn, true);
+  try {
+    applySuplenteSearch(homeSearchInput.value);
+  } finally {
+    setTimeout(() => setButtonBusy(homeSearchBtn, false), 220);
+  }
 });
 
 homeSearchPidBtn.addEventListener("click", () => {
+  setButtonBusy(homeSearchPidBtn, true);
   const value = window.prompt("Ingresa el PID a consultar", "");
   if (value === null) {
+    setButtonBusy(homeSearchPidBtn, false);
     return;
   }
-  searchByPid(value);
+  try {
+    searchByPid(value);
+  } finally {
+    setTimeout(() => setButtonBusy(homeSearchPidBtn, false), 220);
+  }
 });
 
 homeSearchInput.addEventListener("keydown", (event) => {
@@ -2207,6 +2248,41 @@ docenteCancelBtn.addEventListener("click", () => {
 docenteEditorModal.addEventListener("click", (event) => {
   if (event.target === docenteEditorModal) {
     closeDocenteEditor();
+  }
+});
+
+docenteEditorForm.addEventListener("click", async (event) => {
+  const copyBtn = event.target.closest(".field-copy-btn");
+  if (copyBtn) {
+    const key = copyBtn.dataset.docenteField;
+    const input = docenteEditorForm.querySelector(`[data-docente-key="${key}"]`);
+    if (!input) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(String(input.value || ""));
+      setMsg(homeMsg, `Campo ${key} copiado`);
+    } catch (error) {
+      console.error(error);
+      setMsg(homeMsg, `No se pudo copiar ${key}`, true);
+    }
+    return;
+  }
+
+  const pasteBtn = event.target.closest(".field-paste-btn");
+  if (pasteBtn) {
+    const key = pasteBtn.dataset.docenteField;
+    const input = docenteEditorForm.querySelector(`[data-docente-key="${key}"]`);
+    if (!input) {
+      return;
+    }
+    try {
+      const text = await navigator.clipboard.readText();
+      input.value = String(text || "");
+    } catch (error) {
+      console.error(error);
+      setMsg(homeMsg, `No se pudo pegar ${key}`, true);
+    }
   }
 });
 
