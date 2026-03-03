@@ -1582,6 +1582,7 @@ saveAllBtn.addEventListener("click", async () => {
 
   const pendingCursos = importCursosState.cursos.slice(importCursosState.index);
   const pendingDocentes = importState.docentes.slice(importState.index);
+  const totalDocentesToSave = pendingDocentes.length;
 
   if (!pendingCursos.length && !pendingDocentes.length) {
     setMsg(panelMsg, "No hay datos pendientes para guardar", true);
@@ -1617,6 +1618,7 @@ saveAllBtn.addEventListener("click", async () => {
 
     for (let i = 0; i < pendingDocentes.length; i += 1) {
       const docente = pendingDocentes[i];
+      const docenteIndex = i + 1;
       const docenteName = `${docente.apellido || ""} ${docente.nombre || ""}`.trim() || docente.cuil || "sin nombre";
       try {
         await saveImportedDocente({
@@ -1627,11 +1629,11 @@ saveAllBtn.addEventListener("click", async () => {
         });
         importState.accepted += 1;
         importState.index += 1;
-        appendPanelLog(`Se guardo el docente ${docenteName}`);
+        appendPanelLog(`[${docenteIndex}/${totalDocentesToSave}] Se guardo el docente ${docenteName}`);
       } catch (error) {
         console.error(error);
         appendPanelLog(
-          `Error al guardar docente ${docenteName}: ${error.message || "sin detalle"}`,
+          `[${docenteIndex}/${totalDocentesToSave}] Error al guardar docente ${docenteName}: ${error.message || "sin detalle"}`,
           true
         );
       }

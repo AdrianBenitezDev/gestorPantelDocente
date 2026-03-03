@@ -117,20 +117,35 @@ function pickFieldContaining(data, fragments) {
   return "";
 }
 
-function pickTitularCuil(data) {
-  const direct = pickField(data, ["cuiltitular", "cuil", "dni", "documento"]);
+function pickTitularCuil(data, values = []) {
+  const direct = pickField(data, [
+    "cuil",
+    "cuiltitular",
+    "cuiltitular",
+    "cuildocente",
+    "dni",
+    "documento",
+  ]);
   if (direct) {
     return direct;
   }
+  const byColumn = String(values[14] || "").trim();
+  if (byColumn) {
+    return byColumn;
+  }
   const keys = Object.keys(data || {});
   for (const key of keys) {
-    if (!String(key || "").includes("cuil")) {
+    const normalizedKey = String(key || "");
+    if (!normalizedKey.includes("cuil")) {
       continue;
     }
-    if (String(key || "").includes("suplente")) {
+    if (normalizedKey.includes("suplente")) {
       continue;
     }
-    const value = String(data[key] || "").trim();
+    if (normalizedKey.includes("correo")) {
+      continue;
+    }
+    const value = String(data[normalizedKey] || "").trim();
     if (value) {
       return value;
     }
@@ -742,7 +757,7 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
         pickFieldContaining(rowObj, ["apellidoynombre", "docente"]) ||
         (hasHeaders ? "" : String(values[13] || "").trim());
       const titularParsed = parseFullName(titularFullName);
-      const titularCuil = pickTitularCuil(rowObj);
+      const titularCuil = pickTitularCuil(rowObj, values);
       const fechaNacimiento = pickField(rowObj, [
         "fechanacimiento",
         "fecha_nacimiento",
@@ -1036,7 +1051,7 @@ exports.loadCursosFromSheet = onCall(callableOptions, async (request) => {
         pickField(rowObj, ["espaciocurricular", "materia"]) || String(values[11] || "").trim();
       const pid = pickField(rowObj, ["pid", "legajo", "id"]) || String(values[10] || "").trim();
       const turno = pickField(rowObj, ["turno"]) || String(values[18] || "").trim();
-      const docenteCuil = pickTitularCuil(rowObj);
+      const docenteCuil = pickTitularCuil(rowObj, values);
       const suplenteCuil = pickField(rowObj, ["cuilsuplente"]) || String(values[7] || "").trim();
 
       if (!cupof || !materia) {
