@@ -27,6 +27,7 @@ const logoutBtn = document.getElementById("logout-btn");
 const googleLoginBtn = document.getElementById("google-login-btn");
 const panelSection = document.getElementById("panel-section");
 const panelMsg = document.getElementById("panel-msg");
+const mainTitle = document.getElementById("main-title");
 const topBanner = document.querySelector(".top-banner");
 const subBanner = document.getElementById("sub-banner");
 const appRoot = document.querySelector(".app");
@@ -111,6 +112,12 @@ function setPanelView(view) {
   settingsTabBtn.classList.toggle("google-btn", isHome);
   homeTabBtn.classList.toggle("active-tab", isHome);
   settingsTabBtn.classList.toggle("active-tab", !isHome);
+  if (mainTitle) {
+    mainTitle.textContent = isHome ? "Inicio" : "Configuracion";
+  }
+  if (panelMsg) {
+    panelMsg.classList.toggle("is-hidden", isHome);
+  }
 }
 
 function syncBannerLayout() {
@@ -121,6 +128,10 @@ function syncBannerLayout() {
   subBanner.style.top = `${Math.ceil(topHeight)}px`;
   const subVisible = !subBanner.classList.contains("is-hidden");
   const subHeight = subVisible ? (subBanner.getBoundingClientRect().height || 48) : 0;
+  const stickyTop = Math.ceil(topHeight + subHeight + 8);
+  const tableMaxHeight = Math.max(260, Math.floor(window.innerHeight - stickyTop - 140));
+  document.documentElement.style.setProperty("--sticky-top", `${stickyTop}px`);
+  document.documentElement.style.setProperty("--table-max-height", `${tableMaxHeight}px`);
   appRoot.style.marginTop = `${Math.ceil(topHeight + subHeight + 16)}px`;
 }
 
@@ -531,6 +542,24 @@ function normalizeCourse(value) {
   return String(value || "").trim().toUpperCase();
 }
 
+function normalizeTurn(value) {
+  const raw = String(value || "").trim().toUpperCase();
+  if (raw.startsWith("M")) return "M";
+  if (raw.startsWith("T")) return "T";
+  if (raw.startsWith("V")) return "V";
+  if (raw.startsWith("N")) return "N";
+  return "S";
+}
+
+function turnLabel(value) {
+  const turn = normalizeTurn(value);
+  if (turn === "M") return "Manana";
+  if (turn === "T") return "Tarde";
+  if (turn === "V") return "Vespertino";
+  if (turn === "N") return "Noche";
+  return "Sin turno";
+}
+
 function setSelectedCourse(courseName) {
   importState.selectedCourse = courseName;
   selectedCourseLabel.textContent = `Curso seleccionado: ${courseName || "-"}`;
@@ -566,6 +595,15 @@ function renderCourseButtons(courses) {
   setSelectedCourse(preferred);
 }
 
+function updateHomeCourseButtonSelection() {
+  const selected = normalizeCourse(homeState.selectedCourse);
+  const buttons = homeCourseButtons.querySelectorAll(".course-btn");
+  buttons.forEach((button) => {
+    const isSelected = normalizeCourse(button.dataset.course || "") === selected;
+    button.classList.toggle("active-course", isSelected);
+  });
+}
+
 function renderHomeCourseButtons(courses) {
   homeCourseButtons.innerHTML = "";
   homeState.courses = courses;
@@ -577,13 +615,60 @@ function renderHomeCourseButtons(courses) {
     return;
   }
 
-  courses.forEach((courseName) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = courseName;
-    button.addEventListener("click", () => loadScheduleForCourse(courseName));
-    homeCourseButtons.appendChild(button);
+  const byTurn = new Map([
+    ["M", []],
+    ["T", []],
+    ["V", []],
+    ["N", []],
+    ["S", []],
+  ]);
+
+  courses.forEach((entry) => {
+    const course = normalizeCourse(entry?.course || entry);
+    if (!course) {
+      return;
+    }
+    const turn = normalizeTurn(entry?.turno);
+    byTurn.get(turn).push({
+      course,
+      turn,
+    });
   });
+
+  ["M", "T", "V", "N", "S"].forEach((turn) => {
+    const items = byTurn.get(turn) || [];
+    if (!items.length) {
+      return;
+    }
+
+    const row = document.createElement("div");
+    row.className = "course-turn-row";
+
+    const label = document.createElement("div");
+    label.className = "turn-label";
+    label.textContent = turnLabel(turn);
+    row.appendChild(label);
+
+    const buttonsWrap = document.createElement("div");
+    buttonsWrap.className = "turn-buttons";
+
+    items
+      .sort((a, b) => a.course.localeCompare(b.course))
+      .forEach((item) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `course-btn turn-${item.turn.toLowerCase()}`;
+        button.dataset.course = item.course;
+        button.textContent = item.course;
+        button.addEventListener("click", () => loadScheduleForCourse(item.course));
+        buttonsWrap.appendChild(button);
+      });
+
+    row.appendChild(buttonsWrap);
+    homeCourseButtons.appendChild(row);
+  });
+
+  updateHomeCourseButtonSelection();
 }
 
 async function buildDocentesByCuilMap(tenantId) {
@@ -699,6 +784,7 @@ async function loadScheduleForCourse(courseName) {
   const course = normalizeCourse(courseName);
   homeState.selectedCourse = course;
   homeSelectedCourse.textContent = `Curso seleccionado: ${course}`;
+  updateHomeCourseButtonSelection();
   setMsg(homeMsg, `Cargando horario de ${course}...`);
   setLoading(true, `Cargando horario ${course}...`);
 
@@ -718,7 +804,7 @@ async function loadTenantCourses(tenantId) {
   setLoading(true, "Cargando cursos...");
   try {
     const cursosSnap = await getDocs(collection(db, "tenants", tenantId, "cursos"));
-    const courses = cursosSnap.docs
+    const rawCourses = cursosSnap.docs
       .map((docSnap) => {
         const data = docSnap.data() || {};
         return (
@@ -731,9 +817,46 @@ async function loadTenantCourses(tenantId) {
       })
       .map((value) => String(value || "").trim())
       .filter(Boolean);
-    const unique = Array.from(new Set(courses.map((value) => normalizeCourse(value)))).filter(Boolean);
+    const unique = Array.from(new Set(rawCourses.map((value) => normalizeCourse(value)))).filter(Boolean);
+
+    const rootTurnByCourse = new Map();
+    cursosSnap.docs.forEach((docSnap) => {
+      const data = docSnap.data() || {};
+      const course = normalizeCourse(
+        data.nombre ||
+          data.curso ||
+          data.codigo ||
+          data.id ||
+          docSnap.id
+      );
+      const turn = normalizeTurn(data.turno);
+      if (course && turn !== "S") {
+        rootTurnByCourse.set(course, turn);
+      }
+    });
+
+    const homeCourseEntries = await Promise.all(
+      unique.map(async (course) => {
+        let turn = rootTurnByCourse.get(course) || "S";
+        if (turn === "S") {
+          try {
+            const firstItem = await getDocs(
+              query(collection(db, "tenants", tenantId, "cursos", course, "items"), limit(1))
+            );
+            if (!firstItem.empty) {
+              const firstData = firstItem.docs[0].data() || {};
+              turn = normalizeTurn(firstData.turno);
+            }
+          } catch (error) {
+            console.error("No se pudo resolver turno de curso", course, error);
+          }
+        }
+        return { course, turno: turn };
+      })
+    );
+
     renderCourseButtons(unique);
-    renderHomeCourseButtons(unique);
+    renderHomeCourseButtons(homeCourseEntries);
     homeState.tenantId = tenantId;
     if (unique.length) {
       await buildDocentesByCuilMap(tenantId);

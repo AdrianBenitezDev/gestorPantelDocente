@@ -7,6 +7,8 @@
   --accent: #1f6feb;
   --error: #b42318;
   --success: #107c41;
+  --sticky-top: 132px;
+  --table-max-height: calc(100vh - 280px);
 }
 
 * { box-sizing: border-box; }
@@ -19,13 +21,13 @@ body {
 }
 
 .app {
-  max-width: 960px;
-  margin: 136px auto 28px;
+  max-width: 1280px;
+  margin: 128px auto 20px;
   padding: 18px;
 }
 
 .header {
-  margin-bottom: 14px;
+  margin-bottom: 8px;
 }
 
 .subtitle {
@@ -37,8 +39,8 @@ body {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 14px;
-  margin-bottom: 12px;
+  padding: 12px;
+  margin-bottom: 10px;
 }
 
 h1, h2 {
@@ -248,6 +250,7 @@ button {
   display: flex;
   gap: 10px;
   margin: 0;
+  margin-left: auto;
 }
 
 .panel-nav button.active-tab {
@@ -262,12 +265,12 @@ button {
   left: 0;
   right: 0;
   height: 48px;
-  padding: 8px 18px;
+  padding: 8px 24px;
   background: #f8fbff;
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   z-index: 30;
 }
 
@@ -277,6 +280,7 @@ button {
   gap: 8px;
   color: var(--muted);
   font-size: 13px;
+  margin-right: auto;
 }
 
 .spinner {
@@ -296,6 +300,10 @@ button {
 
 .schedule-table-wrap {
   overflow-x: auto;
+  overflow-y: auto;
+  max-height: var(--table-max-height);
+  border: 1px solid var(--border);
+  border-radius: 8px;
 }
 
 .schedule-table {
@@ -316,6 +324,9 @@ button {
 
 .schedule-table thead th {
   background: #eef3ff;
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 .schedule-slot {
@@ -339,6 +350,74 @@ button {
   color: var(--muted);
   font-size: 12px;
   display: block;
+}
+
+.home-course-groups {
+  position: sticky;
+  top: var(--sticky-top);
+  z-index: 3;
+  display: grid;
+  gap: 10px;
+  margin: 6px 0 10px;
+}
+
+.course-turn-row {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #f7faff;
+}
+
+.turn-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  color: #334a7d;
+  padding-top: 8px;
+}
+
+.turn-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.course-btn {
+  min-width: 88px;
+}
+
+.course-btn.turn-m {
+  background: #0f6ab8;
+  border-color: #0f6ab8;
+}
+
+.course-btn.turn-t {
+  background: #bf5f00;
+  border-color: #bf5f00;
+}
+
+.course-btn.turn-v {
+  background: #6f42c1;
+  border-color: #6f42c1;
+}
+
+.course-btn.turn-n {
+  background: #1d3a8a;
+  border-color: #1d3a8a;
+}
+
+.course-btn.turn-s {
+  background: #4a5568;
+  border-color: #4a5568;
+}
+
+.course-btn.active-course {
+  outline: 2px solid #0a254a;
+  outline-offset: 1px;
 }
 
 .review-card {
