@@ -89,6 +89,77 @@ function esc(value) {
     .replaceAll('"', "&quot;");
 }
 
+function stringifyFieldValue(value) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+  if (typeof value === "object") {
+    try {
+      return JSON.stringify(value);
+    } catch (error) {
+      return "";
+    }
+  }
+  return String(value);
+}
+
+function parseFieldValue(rawValue, originalValue, keyName) {
+  const raw = String(rawValue || "").trim();
+  if (typeof originalValue === "number") {
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) {
+      throw new Error(`El campo ${keyName} debe ser numerico`);
+    }
+    return parsed;
+  }
+  if (typeof originalValue === "boolean") {
+    return raw.toLowerCase() === "true";
+  }
+  if (originalValue && typeof originalValue === "object") {
+    if (!raw) {
+      return Array.isArray(originalValue) ? [] : {};
+    }
+    try {
+      return JSON.parse(raw);
+    } catch (error) {
+      throw new Error(`El campo ${keyName} debe contener JSON valido`);
+    }
+  }
+  return raw;
+}
+
+function renderEditableCard(container, entity) {
+  const entries = Object.entries(entity || {});
+  container.innerHTML = `
+    <div class="review-grid">
+      ${entries
+        .map(([key, value]) => {
+          const isLong = String(stringifyFieldValue(value)).length > 80;
+          return `
+            <label class="${isLong ? "full" : ""}">
+              <span class="mini-title">${esc(key)}</span>
+              <input data-card-key="${esc(key)}" value="${esc(stringifyFieldValue(value))}" />
+            </label>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
+function readEditedObjectFromCard(container, originalEntity) {
+  const result = { ...originalEntity };
+  const inputs = container.querySelectorAll("[data-card-key]");
+  inputs.forEach((inputEl) => {
+    const key = inputEl.getAttribute("data-card-key");
+    if (!key) {
+      return;
+    }
+    result[key] = parseFieldValue(inputEl.value, originalEntity[key], key);
+  });
+  return result;
+}
+
 function appendPanelLog(text, isError = false) {
   const line = String(text || "").trim();
   if (!line) {
@@ -113,112 +184,27 @@ function toggleBulkSaveButton() {
 }
 
 function renderDocenteCard(docente) {
-  const cursoRefs = Array.isArray(docente?.cursoRefs)
-    ? docente.cursoRefs.map((item) => `${item.cupof}|${item.situacionRevista}`).join(", ")
-    : "";
-
-  reviewDocente.innerHTML = `
-    <div class="review-grid">
-      <label>Apellido <input id="docente-apellido" value="${esc(docente.apellido)}" /></label>
-      <label>Nombre <input id="docente-nombre" value="${esc(docente.nombre)}" /></label>
-      <label>CUIL <input id="docente-cuil" value="${esc(docente.cuil)}" /></label>
-      <label>Fecha Nac. <input id="docente-fecha" value="${esc(docente.fechaNacimiento)}" /></label>
-      <label>Telefono <input id="docente-telefono" value="${esc(docente.telefono)}" /></label>
-      <label>Correo <input id="docente-correo" value="${esc(docente.correo)}" /></label>
-      <label class="full">Domicilio <input id="docente-domicilio" value="${esc(docente.domicilio)}" /></label>
-      <label class="full">Curso refs (cupof|situacion, separadas por coma)
-        <input id="docente-cursorefs" value="${esc(cursoRefs)}" />
-      </label>
-    </div>
-  `;
+  renderEditableCard(reviewDocente, docente);
 }
 
 function renderCursoCard(curso) {
-  const dias = Array.isArray(curso?.diaHorario?.dias) ? curso.diaHorario.dias : [];
-  const diasRows = (dias.length ? dias : [{ dia: "", horario: "" }])
-    .map((item, idx) => `
-      <div class="review-grid" data-dia-row="${idx}">
-        <label>Dia <input data-dia value="${esc(item.dia)}" /></label>
-        <label>Horario <input data-horario value="${esc(item.horario)}" /></label>
-      </div>
-    `)
-    .join("");
-
-  reviewCurso.innerHTML = `
-    <div class="review-grid">
-      <label>Curso <input id="curso-curso" value="${esc(curso.curso)}" /></label>
-      <label>PID <input id="curso-pid" value="${esc(curso.pid)}" /></label>
-      <label>CUPOF <input id="curso-cupof" value="${esc(curso.cupof)}" /></label>
-      <label>Materia <input id="curso-materia" value="${esc(curso.materia)}" /></label>
-      <label>Turno <input id="curso-turno" value="${esc(curso.turno)}" /></label>
-      <label>CUIL Docente <input id="curso-docentecuil" value="${esc(curso.docenteCuil)}" /></label>
-      <label>CUIL Suplente <input id="curso-suplentecuil" value="${esc(curso.suplenteCuil)}" /></label>
-      <label class="full">Aclaracion <input id="curso-aclaracion" value="${esc(curso?.diaHorario?.aclaracion || "")}" /></label>
-      <div class="full">
-        <p class="mini-title">Dias y horarios</p>
-        ${diasRows}
-      </div>
-    </div>
-  `;
+  renderEditableCard(reviewCurso, curso);
 }
 
 function readEditedDocenteFromCard() {
   const original = importState.docentes[importState.index];
-  if (!original || !reviewDocente.querySelector("#docente-apellido")) {
+  if (!original || !reviewDocente.querySelector("[data-card-key]")) {
     return original;
   }
-
-  const refsRaw = String(reviewDocente.querySelector("#docente-cursorefs")?.value || "").trim();
-  const cursoRefs = refsRaw
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .map((item) => {
-      const [cupof, situacionRevista] = item.split("|").map((v) => String(v || "").trim());
-      return { cupof, situacionRevista };
-    })
-    .filter((item) => item.cupof && item.situacionRevista);
-
-  return {
-    ...original,
-    apellido: reviewDocente.querySelector("#docente-apellido")?.value.trim() || "",
-    nombre: reviewDocente.querySelector("#docente-nombre")?.value.trim() || "",
-    cuil: reviewDocente.querySelector("#docente-cuil")?.value.trim() || "",
-    fechaNacimiento: reviewDocente.querySelector("#docente-fecha")?.value.trim() || "",
-    telefono: reviewDocente.querySelector("#docente-telefono")?.value.trim() || "",
-    correo: reviewDocente.querySelector("#docente-correo")?.value.trim() || "",
-    domicilio: reviewDocente.querySelector("#docente-domicilio")?.value.trim() || "",
-    cursoRefs,
-  };
+  return readEditedObjectFromCard(reviewDocente, original);
 }
 
 function readEditedCursoFromCard() {
   const original = importCursosState.cursos[importCursosState.index];
-  if (!original || !reviewCurso.querySelector("#curso-curso")) {
+  if (!original || !reviewCurso.querySelector("[data-card-key]")) {
     return original;
   }
-
-  const dias = Array.from(reviewCurso.querySelectorAll("[data-dia-row]"))
-    .map((row) => ({
-      dia: row.querySelector("[data-dia]")?.value.trim() || "",
-      horario: row.querySelector("[data-horario]")?.value.trim() || "",
-    }))
-    .filter((item) => item.dia && item.horario);
-
-  return {
-    ...original,
-    curso: reviewCurso.querySelector("#curso-curso")?.value.trim() || "",
-    pid: reviewCurso.querySelector("#curso-pid")?.value.trim() || "",
-    cupof: reviewCurso.querySelector("#curso-cupof")?.value.trim() || "",
-    materia: reviewCurso.querySelector("#curso-materia")?.value.trim() || "",
-    turno: reviewCurso.querySelector("#curso-turno")?.value.trim() || "",
-    docenteCuil: reviewCurso.querySelector("#curso-docentecuil")?.value.trim() || "",
-    suplenteCuil: reviewCurso.querySelector("#curso-suplentecuil")?.value.trim() || "",
-    diaHorario: {
-      dias,
-      aclaracion: reviewCurso.querySelector("#curso-aclaracion")?.value.trim() || "",
-    },
-  };
+  return readEditedObjectFromCard(reviewCurso, original);
 }
 
 function updateSessionLayout(isLoggedIn) {
@@ -534,18 +520,12 @@ sheetImportForm.addEventListener("submit", async (event) => {
     setMsg(panelMsg, "Completa URL y nombre de hoja", true);
     return;
   }
-  if (!importState.selectedCourse) {
-    setMsg(panelMsg, "Selecciona un curso para iniciar la carga", true);
-    return;
-  }
-
   try {
-    setMsg(panelMsg, `Extrayendo docentes del curso ${importState.selectedCourse} desde Google Sheets...`);
+    setMsg(panelMsg, "Extrayendo docentes de toda la hoja desde Google Sheets...");
     const loadDocentesFromSheet = httpsCallable(functions, "loadDocentesFromSheet");
     const result = await loadDocentesFromSheet({
       sheetUrl,
       sheetName,
-      course: importState.selectedCourse,
     });
     const docentes = result.data?.docentes || [];
 
@@ -553,7 +533,7 @@ sheetImportForm.addEventListener("submit", async (event) => {
       const detectedCourses = result.data?.detectedCourses || [];
       const debug = result.data?.debug || {};
       const details = [
-        `No se encontraron docentes para el curso ${importState.selectedCourse}.`,
+        "No se encontraron docentes en la hoja actual.",
         detectedCourses.length ? `Cursos detectados en hoja: ${detectedCourses.join(", ")}` : "",
         debug.hasHeaders === false ? "No se detectaron encabezados validos en la primera fila." : "",
       ]
@@ -599,25 +579,19 @@ loadCursosBtn.addEventListener("click", async () => {
     setMsg(panelMsg, "Completa URL y nombre de hoja", true);
     return;
   }
-  if (!importState.selectedCourse) {
-    setMsg(panelMsg, "Selecciona un curso para iniciar la carga", true);
-    return;
-  }
-
   try {
-    setMsg(panelMsg, `Extrayendo cursos del ${importState.selectedCourse} desde Google Sheets...`);
+    setMsg(panelMsg, "Extrayendo cursos de toda la hoja desde Google Sheets...");
     const loadCursosFromSheet = httpsCallable(functions, "loadCursosFromSheet");
     const result = await loadCursosFromSheet({
       sheetUrl,
       sheetName,
-      course: importState.selectedCourse,
     });
     const cursos = result.data?.cursos || [];
 
     if (!cursos.length) {
       const detectedCourses = result.data?.detectedCourses || [];
       const details = [
-        `No se encontraron cursos para ${importState.selectedCourse}.`,
+        "No se encontraron cursos en la hoja actual.",
         detectedCourses.length ? `Cursos detectados: ${detectedCourses.join(", ")}` : "",
       ]
         .filter(Boolean)

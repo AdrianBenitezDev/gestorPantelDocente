@@ -498,7 +498,7 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
   const data = request.data || {};
   const sheetUrl = assertString(data.sheetUrl, "sheetUrl", 20, 500);
   const sheetName = assertString(data.sheetName, "sheetName", 1, 120);
-  const selectedCourse = normalizeCourse(assertString(data.course, "course", 1, 30));
+  const selectedCourse = normalizeCourse(String(data.course || "").trim());
   const sheetId = parseSheetId(sheetUrl);
 
   if (!sheetId) {
@@ -569,7 +569,7 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
       if (detectedCourse) {
         detectedCoursesSet.add(detectedCourse);
       }
-      if (detectedCourse !== selectedCourse) {
+      if (selectedCourse && detectedCourse !== selectedCourse) {
         rejectionStats.byCourse += 1;
         return [];
       }
@@ -693,7 +693,7 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
 
   return {
     ok: true,
-    course: selectedCourse,
+    course: selectedCourse || "",
     detectedCourses,
     debug: {
       rowsCount: rows.length,
@@ -811,7 +811,7 @@ exports.loadCursosFromSheet = onCall(callableOptions, async (request) => {
   const data = request.data || {};
   const sheetUrl = assertString(data.sheetUrl, "sheetUrl", 20, 500);
   const sheetName = assertString(data.sheetName, "sheetName", 1, 120);
-  const selectedCourse = normalizeCourse(assertString(data.course, "course", 1, 30));
+  const selectedCourse = normalizeCourse(String(data.course || "").trim());
   const sheetId = parseSheetId(sheetUrl);
 
   if (!sheetId) {
@@ -860,7 +860,7 @@ exports.loadCursosFromSheet = onCall(callableOptions, async (request) => {
       if (detectedCourse) {
         detectedCoursesSet.add(detectedCourse);
       }
-      if (detectedCourse !== selectedCourse) {
+      if (selectedCourse && detectedCourse !== selectedCourse) {
         return [];
       }
 
@@ -902,7 +902,7 @@ exports.loadCursosFromSheet = onCall(callableOptions, async (request) => {
       }
 
       return [{
-        curso: selectedCourse,
+        curso: detectedCourse || selectedCourse || "",
         cupof,
         materia,
         pid,
@@ -922,7 +922,7 @@ exports.loadCursosFromSheet = onCall(callableOptions, async (request) => {
 
   return {
     ok: true,
-    course: selectedCourse,
+    course: selectedCourse || "",
     detectedCourses,
     cursos,
     total: cursos.length,
