@@ -250,7 +250,36 @@ function toggleBulkSaveButton() {
 }
 
 function renderDocenteCard(docente) {
+  const refs = Array.isArray(docente?.cursoRefs) ? docente.cursoRefs : [];
+  const refsHtml = refs.length
+    ? refs
+      .map((item) => {
+        const cupof = esc(item?.cupof || "-");
+        const curso = esc(item?.curso || "-");
+        const materia = esc(item?.materia || "-");
+        const situacion = esc(item?.situacionRevista || "-");
+        return `
+          <div class="card-chip">
+            <strong>CUPOF ${cupof}</strong>
+            <span>Curso: ${curso}</span>
+            <span>Materia: ${materia}</span>
+            <span>Revista: ${situacion}</span>
+          </div>
+        `;
+      })
+      .join("")
+    : '<p class="msg">Sin cursoRefs detectados</p>';
+
   renderEditableCard(reviewDocente, docente);
+  reviewDocente.insertAdjacentHTML(
+    "afterbegin",
+    `
+      <div class="full">
+        <p class="mini-title">Asignaciones detectadas</p>
+        <div class="card-chip-list">${refsHtml}</div>
+      </div>
+    `
+  );
 }
 
 function renderCursoCard(curso) {

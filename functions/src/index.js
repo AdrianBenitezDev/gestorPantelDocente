@@ -117,6 +117,27 @@ function pickFieldContaining(data, fragments) {
   return "";
 }
 
+function pickTitularCuil(data) {
+  const direct = pickField(data, ["cuiltitular", "cuil", "dni", "documento"]);
+  if (direct) {
+    return direct;
+  }
+  const keys = Object.keys(data || {});
+  for (const key of keys) {
+    if (!String(key || "").includes("cuil")) {
+      continue;
+    }
+    if (String(key || "").includes("suplente")) {
+      continue;
+    }
+    const value = String(data[key] || "").trim();
+    if (value) {
+      return value;
+    }
+  }
+  return "";
+}
+
 function splitCursos(value) {
   return String(value || "")
     .split(/[;,|]/)
@@ -244,20 +265,29 @@ function normalizeDayName(day) {
   return String(day || "").trim().toUpperCase();
 }
 
-function buildCursoRefs(cupof, modulosTitular, modulosTitularInterino, modulosProvisional) {
+function buildCursoRefs(
+  cupof,
+  modulosTitular,
+  modulosTitularInterino,
+  modulosProvisional,
+  curso,
+  materia
+) {
   const refs = [];
   const cupofValue = String(cupof || "").trim();
+  const cursoValue = normalizeCourse(curso);
+  const materiaValue = String(materia || "").trim();
   if (!cupofValue) {
     return refs;
   }
   if (modulosTitular > 0) {
-    refs.push({ cupof: cupofValue, situacionRevista: "T" });
+    refs.push({ cupof: cupofValue, situacionRevista: "T", curso: cursoValue, materia: materiaValue });
   }
   if (modulosTitularInterino > 0) {
-    refs.push({ cupof: cupofValue, situacionRevista: "TI" });
+    refs.push({ cupof: cupofValue, situacionRevista: "TI", curso: cursoValue, materia: materiaValue });
   }
   if (modulosProvisional > 0) {
-    refs.push({ cupof: cupofValue, situacionRevista: "P" });
+    refs.push({ cupof: cupofValue, situacionRevista: "P", curso: cursoValue, materia: materiaValue });
   }
   return refs;
 }
@@ -268,10 +298,12 @@ function mergeCursoRefs(existing, incoming) {
   all.forEach((item) => {
     const cupof = String(item?.cupof || "").trim();
     const situacionRevista = String(item?.situacionRevista || "").trim().toUpperCase();
+    const curso = normalizeCourse(item?.curso || "");
+    const materia = String(item?.materia || "").trim();
     if (!cupof || !situacionRevista || !["T", "TI", "P"].includes(situacionRevista)) {
       return;
     }
-    map.set(`${cupof}__${situacionRevista}`, { cupof, situacionRevista });
+    map.set(`${cupof}__${situacionRevista}`, { cupof, situacionRevista, curso, materia });
   });
   return Array.from(map.values());
 }
@@ -631,8 +663,7 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
         pickFieldContaining(rowObj, ["apellidoynombre", "docente"]) ||
         (hasHeaders ? "" : String(values[13] || "").trim());
       const titularParsed = parseFullName(titularFullName);
-      const titularCuil =
-        pickField(rowObj, ["cuiltitular", "cuil", "dni", "documento"]) || "";
+      const titularCuil = pickTitularCuil(rowObj);
       const fechaNacimiento = pickField(rowObj, [
         "fechanacimiento",
         "fecha_nacimiento",
@@ -704,7 +735,9 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
               cupof,
               modulosTitular,
               modulosTitularInterino,
-              modulosProvisional
+              modulosProvisional,
+              detectedCourse,
+              espacioCurricular
             ),
             telefono: variant.telefono,
             correo: variant.correo,
@@ -784,7 +817,9 @@ exports.saveImportedDocente = onCall(callableOptions, async (request) => {
     docente.cupof,
     modulosTitular,
     modulosTitularInterino,
-    modulosProvisional
+    modulosProvisional,
+    course,
+    String(docente.espacioCurricular || docente.materia || "")
   );
   const incomingCursoRefs = cursosFromPayload.length ? cursosFromPayload : fallbackCursoRefs;
 
@@ -922,7 +957,7 @@ exports.loadCursosFromSheet = onCall(callableOptions, async (request) => {
         pickField(rowObj, ["espaciocurricular", "materia"]) || String(values[11] || "").trim();
       const pid = pickField(rowObj, ["pid", "legajo", "id"]) || String(values[10] || "").trim();
       const turno = pickField(rowObj, ["turno"]) || String(values[18] || "").trim();
-      const docenteCuil = pickField(rowObj, ["cuiltitular", "cuil", "dni", "documento"]) || "";
+      const docenteCuil = pickTitularCuil(rowObj);
       const suplenteCuil = pickField(rowObj, ["cuilsuplente"]) || String(values[7] || "").trim();
 
       if (!cupof || !materia) {
