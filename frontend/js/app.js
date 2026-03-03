@@ -31,7 +31,6 @@ const tenantEmptyImport = document.getElementById("tenant-empty-import");
 const sheetImportForm = document.getElementById("sheet-import-form");
 const sheetUrlInput = document.getElementById("sheet-url");
 const sheetNameInput = document.getElementById("sheet-name");
-const scheduleConfigInput = document.getElementById("schedule-config");
 const loadCursosBtn = document.getElementById("load-cursos-btn");
 const courseButtonsMsg = document.getElementById("course-buttons-msg");
 const courseButtons = document.getElementById("course-buttons");
@@ -72,7 +71,6 @@ let importCursosState = {
   skipped: 0,
   cancelled: false,
   selectedCourse: "",
-  configuracion: {},
 };
 
 function setMsg(el, text, isError = false) {
@@ -119,7 +117,6 @@ function resetImportState() {
     skipped: 0,
     cancelled: false,
     selectedCourse: "",
-    configuracion: {},
   };
 }
 
@@ -165,22 +162,6 @@ function renderCurrentCurso() {
   importReviewCursos.classList.remove("is-hidden");
   reviewCursoProgress.textContent = `Curso ${importCursosState.index + 1} de ${total}`;
   reviewCurso.textContent = JSON.stringify(curso, null, 2);
-}
-
-function parseScheduleConfigOrThrow() {
-  const raw = String(scheduleConfigInput?.value || "").trim();
-  if (!raw) {
-    return {};
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") {
-      throw new Error("Formato JSON invalido");
-    }
-    return parsed;
-  } catch (error) {
-    throw new Error("La configuracion de horarios no es un JSON valido");
-  }
 }
 
 async function checkTenantDataAndToggleImport(tenantId) {
@@ -473,14 +454,6 @@ loadCursosBtn.addEventListener("click", async () => {
     return;
   }
 
-  let configuracion = {};
-  try {
-    configuracion = parseScheduleConfigOrThrow();
-  } catch (error) {
-    setMsg(panelMsg, error.message, true);
-    return;
-  }
-
   try {
     setMsg(panelMsg, `Extrayendo cursos del ${importState.selectedCourse} desde Google Sheets...`);
     const loadCursosFromSheet = httpsCallable(functions, "loadCursosFromSheet");
@@ -488,7 +461,6 @@ loadCursosBtn.addEventListener("click", async () => {
       sheetUrl,
       sheetName,
       course: importState.selectedCourse,
-      configuracion,
     });
     const cursos = result.data?.cursos || [];
 
@@ -514,7 +486,6 @@ loadCursosBtn.addEventListener("click", async () => {
     importCursosState.skipped = 0;
     importCursosState.cancelled = false;
     importCursosState.selectedCourse = importState.selectedCourse;
-    importCursosState.configuracion = configuracion;
 
     setMsg(panelMsg, `Se cargaron ${cursos.length} cursos para revisar.`);
     renderCurrentCurso();
@@ -579,7 +550,6 @@ acceptCursoBtn.addEventListener("click", async () => {
       sheetUrl: importCursosState.sheetUrl,
       sheetName: importCursosState.sheetName,
       course: importCursosState.selectedCourse,
-      configuracion: importCursosState.configuracion,
     });
     importCursosState.accepted += 1;
     importCursosState.index += 1;

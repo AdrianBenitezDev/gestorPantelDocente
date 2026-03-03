@@ -244,127 +244,6 @@ function normalizeDayName(day) {
   return String(day || "").trim().toUpperCase();
 }
 
-function parseTimeToMinutes(value) {
-  const match = String(value || "").trim().match(/^(\d{1,2}):(\d{2})$/);
-  if (!match) {
-    return null;
-  }
-  const hours = Number(match[1]);
-  const minutes = Number(match[2]);
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
-    return null;
-  }
-  return hours * 60 + minutes;
-}
-
-function parseSlotRange(rangeText) {
-  const match = String(rangeText || "")
-    .trim()
-    .match(/(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})/);
-  if (!match) {
-    return null;
-  }
-  const start = parseTimeToMinutes(match[1]);
-  const end = parseTimeToMinutes(match[2]);
-  if (start === null || end === null || end <= start) {
-    return null;
-  }
-  return { start, end };
-}
-
-function parseTurnoConfig(configuracion) {
-  const horarioTurnoTarde = configuracion?.horarioTurnoTarde || {};
-  const entries = Object.entries(horarioTurnoTarde);
-  const ordinalMap = {
-    primera: 1,
-    segunda: 2,
-    tercera: 3,
-    cuarta: 4,
-    quinta: 5,
-    sexta: 6,
-    septima: 7,
-    octava: 8,
-  };
-
-  return entries
-    .map(([label, rangeText]) => {
-      const slotRange = parseSlotRange(rangeText);
-      if (!slotRange) {
-        return null;
-      }
-      const index = ordinalMap[normalizeHeader(label)] || null;
-      if (!index) {
-        return null;
-      }
-      return {
-        index,
-        label,
-        start: slotRange.start,
-        end: slotRange.end,
-      };
-    })
-    .filter(Boolean)
-    .sort((a, b) => a.index - b.index);
-}
-
-function parseHorarioIndexesFromText(rawText, turnoSlots) {
-  const text = String(rawText || "").trim();
-  if (!text) {
-    return [];
-  }
-
-  const matchByNumber = Array.from(text.matchAll(/(^|[^0-9])([1-9]|10|11|12)(?=$|[^0-9])/g))
-    .map((m) => Number(m[2]))
-    .filter((n) => Number.isFinite(n));
-  if (matchByNumber.length && !text.includes(":")) {
-    return Array.from(new Set(matchByNumber)).sort((a, b) => a - b);
-  }
-
-  const timeRanges = Array.from(text.matchAll(/(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})/g))
-    .map((m) => {
-      const start = parseTimeToMinutes(m[1]);
-      const end = parseTimeToMinutes(m[2]);
-      if (start === null || end === null || end <= start) {
-        return null;
-      }
-      return { start, end };
-    })
-    .filter(Boolean);
-
-  if (!timeRanges.length || !turnoSlots.length) {
-    return [];
-  }
-
-  const indexes = new Set();
-  timeRanges.forEach((range) => {
-    turnoSlots.forEach((slot) => {
-      const overlaps = range.start < slot.end && range.end > slot.start;
-      if (overlaps) {
-        indexes.add(slot.index);
-      }
-    });
-  });
-
-  return Array.from(indexes).sort((a, b) => a - b);
-}
-
-function buildDiaHorario(day, value, turnoSlots) {
-  const rawText = String(value || "").trim();
-  if (!rawText) {
-    return null;
-  }
-
-  const aclaracionMatch = rawText.match(/\(([^)]+)\)/);
-  const aclaracion = aclaracionMatch ? String(aclaracionMatch[1] || "").trim() : "";
-  const horario = parseHorarioIndexesFromText(rawText, turnoSlots);
-
-  return {
-    dia: normalizeDayName(day),
-    horario,
-    aclaracion,
-  };
-}
-
 function buildCursoRefs(cupof, modulosTitular, modulosTitularInterino, modulosProvisional) {
   const refs = [];
   const cupofValue = String(cupof || "").trim();
@@ -912,10 +791,6 @@ exports.loadCursosFromSheet = onCall(callableOptions, async (request) => {
   const sheetUrl = assertString(data.sheetUrl, "sheetUrl", 20, 500);
   const sheetName = assertString(data.sheetName, "sheetName", 1, 120);
   const selectedCourse = normalizeCourse(assertString(data.course, "course", 1, 30));
-  const configuracion = data.configuracion && typeof data.configuracion === "object"
-    ? data.configuracion
-    : {};
-  const turnoSlots = parseTurnoConfig(configuracion);
   const sheetId = parseSheetId(sheetUrl);
 
   if (!sheetId) {
@@ -987,24 +862,35 @@ exports.loadCursosFromSheet = onCall(callableOptions, async (request) => {
         { key: "viernes", fallback: String(values[5] || "").trim() },
       ];
 
-      return dias
+      const diasHorario = dias
         .map(({ key, fallback }) => {
           const cellValue = pickField(rowObj, [key]) || fallback;
-          const diaHorario = buildDiaHorario(key, cellValue, turnoSlots);
-          if (!diaHorario) {
+          if (!cellValue) {
             return null;
           }
           return {
-            curso: selectedCourse,
-            cupof,
-            materia,
-            turno,
-            diaHorario,
-            docenteCuil,
-            suplenteCuil,
+            dia: normalizeDayName(key),
+            horario: String(cellValue).trim(),
           };
         })
         .filter(Boolean);
+
+      if (!diasHorario.length) {
+        return [];
+      }
+
+      return [{
+        curso: selectedCourse,
+        cupof,
+        materia,
+        turno,
+        diaHorario: {
+          dias: diasHorario,
+          aclaracion: "",
+        },
+        docenteCuil,
+        suplenteCuil,
+      }];
     })
     .filter(Boolean)
     .slice(0, 1000);
@@ -1037,19 +923,23 @@ exports.saveImportedCurso = onCall(callableOptions, async (request) => {
   const turno = String(curso.turno || "").trim();
   const docenteCuil = String(curso.docenteCuil || "").trim();
   const suplenteCuil = String(curso.suplenteCuil || "").trim();
-  const dia = normalizeDayName(diaHorario.dia || "");
-  const horario = Array.isArray(diaHorario.horario)
-    ? diaHorario.horario.map((n) => Number(n)).filter((n) => Number.isFinite(n))
+  const dias = Array.isArray(diaHorario.dias)
+    ? diaHorario.dias
+      .map((item) => ({
+        dia: normalizeDayName(item?.dia || ""),
+        horario: String(item?.horario || "").trim(),
+      }))
+      .filter((item) => item.dia && item.horario)
     : [];
   const aclaracion = String(diaHorario.aclaracion || "").trim();
 
-  if (!cursoNombre || !cupof || !materia || !dia) {
+  if (!cursoNombre || !cupof || !materia || !dias.length) {
     throw new HttpsError("invalid-argument", "Curso incompleto para guardar");
   }
 
   const now = admin.firestore.FieldValue.serverTimestamp();
-  const horarioKey = horario.length ? horario.join("-") : "sin_horario";
-  const cursoId = [cursoNombre, cupof, normalizeIdentityPart(materia), normalizeIdentityPart(dia), horarioKey]
+  const daysKey = dias.map((item) => normalizeIdentityPart(item.dia)).join("-");
+  const cursoId = [cursoNombre, cupof, normalizeIdentityPart(materia), daysKey]
     .join("__")
     .replace(/[^a-zA-Z0-9_-]/g, "_");
 
@@ -1061,8 +951,7 @@ exports.saveImportedCurso = onCall(callableOptions, async (request) => {
       materia,
       turno,
       diaHorario: {
-        dia,
-        horario,
+        dias,
         aclaracion,
       },
       docenteCuil,
@@ -1075,18 +964,6 @@ exports.saveImportedCurso = onCall(callableOptions, async (request) => {
       },
       updatedAt: now,
       createdAt: now,
-    },
-    { merge: true }
-  );
-
-  const configuracion = data.configuracion && typeof data.configuracion === "object"
-    ? data.configuracion
-    : {};
-  await db.collection("tenants").doc(tenantId).collection("configuracion").doc("horarios").set(
-    {
-      ...configuracion,
-      updatedAt: now,
-      updatedBy: uid,
     },
     { merge: true }
   );

@@ -51,16 +51,6 @@
         <form id="sheet-import-form" class="grid-form">
           <label>URL Google Sheet <input id="sheet-url" type="url" placeholder="https://docs.google.com/spreadsheets/d/..." value="https://docs.google.com/spreadsheets/d/1sePsT0xdSgO-J4-ty84b0VSUz8LzE474nsTOvAWhOLQ/edit?usp=sharing" required /></label>
           <label>Nombre de hoja <input id="sheet-name" placeholder="POFA" value="POFA" required /></label>
-          <label>Configuracion horarios (JSON)
-            <textarea id="schedule-config" rows="6">{
-  "horarioTurnoTarde": {
-    "primera": "13:00 - 14:00",
-    "segunda": "14:00 - 15:00",
-    "tercera": "15:20 - 16:20",
-    "cuarta": "16:20 - 17:20"
-  }
-}</textarea>
-          </label>
           <div class="review-actions">
             <button type="submit">Cargar docentes</button>
             <button id="load-cursos-btn" type="button" class="google-btn">Cargar cursos</button>
