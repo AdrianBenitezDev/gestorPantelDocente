@@ -41,6 +41,16 @@ const homeSelectedCourse = document.getElementById("home-selected-course");
 const courseScheduleWrap = document.getElementById("course-schedule-wrap");
 const courseScheduleTitle = document.getElementById("course-schedule-title");
 const courseScheduleTable = document.getElementById("course-schedule-table");
+const homeSearchInput = document.getElementById("home-search-input");
+const homeSearchClearBtn = document.getElementById("home-search-clear-btn");
+const homeSearchBtn = document.getElementById("home-search-btn");
+const homeSearchPidBtn = document.getElementById("home-search-pid-btn");
+const homeCommandResults = document.getElementById("home-command-results");
+const docenteEditorModal = document.getElementById("docente-editor-modal");
+const docenteEditorForm = document.getElementById("docente-editor-form");
+const docenteCopyBtn = document.getElementById("docente-copy-btn");
+const docenteSaveBtn = document.getElementById("docente-save-btn");
+const docenteCancelBtn = document.getElementById("docente-cancel-btn");
 const loadingIndicator = document.getElementById("loading-indicator");
 const loadingText = document.getElementById("loading-text");
 const tenantEmptyImport = document.getElementById("tenant-empty-import");
@@ -103,6 +113,10 @@ let homeState = {
   selectedCourse: "",
   docentesByCuil: new Map(),
   docentesByCupof: new Map(),
+  currentItems: [],
+  slotItems: new Map(),
+  editingDocente: null,
+  loadingCourseButton: "",
 };
 
 const TURN_ORDER = ["M", "T", "V", "N", "S"];
@@ -271,6 +285,15 @@ function normalizeSituacionRevista(value) {
   return String(value || "").trim().toUpperCase();
 }
 
+function situacionToClass(situacion) {
+  const s = normalizeSituacionRevista(situacion);
+  if (s === "T") return "sit-t";
+  if (s === "P") return "sit-p";
+  if (s === "TI") return "sit-ti";
+  if (s === "S") return "sit-s";
+  return "";
+}
+
 function extractDocenteRefs(data) {
   const refs = [];
   if (Array.isArray(data?.cursoRefs)) {
@@ -288,46 +311,74 @@ function extractDocenteRefs(data) {
   return refs;
 }
 
-function resolveTitularDisplay(item) {
+function findDocenteBySlot(item, preferNonSuplente = true) {
   const cupof = String(item?.cupof || "").trim();
   const candidates = cupof ? homeState.docentesByCupof.get(cupof) || [] : [];
   const titularCuil = String(item?.docenteCuil || "").trim();
   const suplenteCuil = String(item?.suplenteCuil || "").trim();
+  const working = preferNonSuplente
+    ? candidates.filter((candidate) => normalizeSituacionRevista(candidate?.situacionRevista) !== "S")
+    : candidates.filter((candidate) => normalizeSituacionRevista(candidate?.situacionRevista) === "S");
+  const list = working.length ? working : candidates;
 
-  const noSuplentes = candidates.filter(
-    (candidate) => normalizeSituacionRevista(candidate?.situacionRevista) !== "S"
-  );
-
-  const directNoSuplente = noSuplentes.find(
-    (candidate) => String(candidate?.cuil || "").trim() === titularCuil && titularCuil
-  );
-  if (directNoSuplente?.name) {
-    return directNoSuplente.name;
+  if (titularCuil) {
+    const byTitularCuil = list.find((candidate) => String(candidate?.cuil || "").trim() === titularCuil);
+    if (byTitularCuil) {
+      return byTitularCuil;
+    }
   }
 
-  const firstNoSuplente = noSuplentes.find(
-    (candidate) => String(candidate?.cuil || "").trim() !== suplenteCuil
-  ) || noSuplentes[0];
-  if (firstNoSuplente?.name) {
-    return firstNoSuplente.name;
+  if (preferNonSuplente) {
+    const withoutSuplente = list.find(
+      (candidate) => String(candidate?.cuil || "").trim() !== suplenteCuil
+    );
+    if (withoutSuplente) {
+      return withoutSuplente;
+    }
   }
 
-  const direct = docenteDisplayNameByCuil(titularCuil);
-  if (direct !== "-") {
-    return direct;
-  }
-
-  const fallback = candidates.find((candidate) => candidate?.name);
-  return String(fallback?.name || "").trim() || "-";
+  return list[0] || null;
 }
 
-function resolveSuplenteDisplay(item) {
+function resolveTitularInfo(item) {
+  const docente = findDocenteBySlot(item, true);
+  if (docente) {
+    return {
+      name: String(docente.name || "-").trim() || "-",
+      situacionRevista: normalizeSituacionRevista(docente.situacionRevista || "TI"),
+      docente,
+    };
+  }
+  const direct = docenteDisplayNameByCuil(item?.docenteCuil);
+  return {
+    name: direct,
+    situacionRevista: direct === "-" ? "" : "TI",
+    docente: null,
+  };
+}
+
+function resolveSuplenteInfo(item) {
   const suplenteCuil = String(item?.suplenteCuil || "").trim();
+  const byCupof = findDocenteBySlot(item, false);
+  if (byCupof) {
+    return {
+      name: String(byCupof.name || "").trim(),
+      situacionRevista: normalizeSituacionRevista(byCupof.situacionRevista || "S"),
+      docente: byCupof,
+    };
+  }
   if (!suplenteCuil || suplenteCuil === "sin datos") {
-    return "";
+    return { name: "", situacionRevista: "", docente: null };
   }
   const display = docenteDisplayNameByCuil(suplenteCuil);
-  return display === "-" ? "" : display;
+  if (!display || display === "-") {
+    return { name: "", situacionRevista: "", docente: null };
+  }
+  return {
+    name: display,
+    situacionRevista: "S",
+    docente: null,
+  };
 }
 
 function esc(value) {
@@ -721,6 +772,10 @@ function resetImportState() {
     selectedCourse: "",
     docentesByCuil: new Map(),
     docentesByCupof: new Map(),
+    currentItems: [],
+    slotItems: new Map(),
+    editingDocente: null,
+    loadingCourseButton: "",
   };
   buttonConfigState = clonePlain(DEFAULT_BUTTON_CONFIG);
   renderButtonConfigEditor();
@@ -730,6 +785,13 @@ function resetImportState() {
   courseScheduleWrap.classList.add("is-hidden");
   courseScheduleTable.innerHTML = "";
   setMsg(homeMsg, "");
+  if (homeCommandResults) {
+    homeCommandResults.textContent = "";
+  }
+  if (homeSearchInput) {
+    homeSearchInput.value = "";
+  }
+  closeDocenteEditor();
   setLoading(false);
 }
 
@@ -1136,7 +1198,19 @@ function renderHomeCourseButtons(courses) {
         button.dataset.course = item.course;
         button.textContent = item.course;
         applyTurnButtonStyle(button, item.turn);
-        button.addEventListener("click", () => loadScheduleForCourse(item.course));
+        button.addEventListener("click", async () => {
+          if (homeState.loadingCourseButton) {
+            return;
+          }
+          homeState.loadingCourseButton = item.course;
+          button.classList.add("is-loading");
+          try {
+            await loadScheduleForCourse(item.course, { preferCache: false });
+          } finally {
+            homeState.loadingCourseButton = "";
+            button.classList.remove("is-loading");
+          }
+        });
         buttonsWrap.appendChild(button);
       });
 
@@ -1171,9 +1245,11 @@ async function buildDocentesByCuilMap(tenantId) {
         cupofMap.set(cupof, []);
       }
       cupofMap.get(cupof).push({
+        id: docSnap.id,
         cuil,
         name: fullName,
         situacionRevista: normalizeSituacionRevista(ref?.situacionRevista),
+        data: clonePlain(data),
       });
     });
   });
@@ -1185,6 +1261,9 @@ function renderScheduleTable(curso, items) {
   const days = ["LUNES", "MARTES", "MIERCOLES", "JUEVES", "VIERNES"];
   const slots = new Map();
   const allRanges = new Set();
+  let slotIndex = 0;
+  homeState.currentItems = Array.isArray(items) ? items : [];
+  homeState.slotItems = new Map();
 
   items.forEach((item) => {
     const dias = Array.isArray(item?.diaHorario?.dias) ? item.diaHorario.dias : [];
@@ -1226,26 +1305,36 @@ function renderScheduleTable(curso, items) {
           if (!dayItems.length) {
             return "<td></td>";
           }
+          let firstSlotId = "";
           const slotHtml = dayItems
             .map((item) => {
+              const slotId = `${curso}_${day}_${range}_${slotIndex}`;
+              slotIndex += 1;
+              homeState.slotItems.set(slotId, item);
+              if (!firstSlotId) {
+                firstSlotId = slotId;
+              }
               const materia = esc(item.materia || "-");
-              const titular = esc(resolveTitularDisplay(item));
-              const suplente = resolveSuplenteDisplay(item);
-              const suplenteHtml = suplente
-                ? `<span class="meta">Suplente: ${esc(suplente)}</span>`
+              const titularInfo = resolveTitularInfo(item);
+              const suplenteInfo = resolveSuplenteInfo(item);
+              const titularClass = situacionToClass(titularInfo.situacionRevista);
+              const suplenteClass = situacionToClass(suplenteInfo.situacionRevista);
+              const titular = esc(titularInfo.name);
+              const suplenteHtml = suplenteInfo.name
+                ? `<span class="meta ${suplenteClass}">Suplente: ${esc(suplenteInfo.name)}</span>`
                 : "";
               const cupof = esc(item.cupof || "-");
               return `
-                <div class="schedule-slot">
+                <div class="schedule-slot" data-slot-id="${esc(slotId)}">
                   <span class="title">${materia}</span>
-                  <span class="meta docente-main">${titular}</span>
+                  <span class="meta docente-main ${titularClass}">${titular}</span>
                   ${suplenteHtml}
                   <span class="meta cupof">CUPOF: ${cupof}</span>
                 </div>
               `;
             })
             .join("");
-          return `<td>${slotHtml}</td>`;
+          return `<td data-slot-id="${esc(firstSlotId)}">${slotHtml}</td>`;
         })
         .join("");
 
@@ -1273,6 +1362,150 @@ function renderScheduleTable(curso, items) {
   `;
   courseScheduleWrap.classList.remove("is-hidden");
   setMsg(homeMsg, `Curso ${curso} cargado`);
+}
+
+function clearSlotMatches() {
+  const slots = courseScheduleTable.querySelectorAll(".schedule-slot");
+  slots.forEach((slot) => slot.classList.remove("is-match"));
+}
+
+function applySuplenteSearch(term) {
+  const query = String(term || "").trim().toLowerCase();
+  clearSlotMatches();
+  if (!query || query.length < 3) {
+    homeCommandResults.textContent = "";
+    return;
+  }
+  let matches = 0;
+  const slots = courseScheduleTable.querySelectorAll(".schedule-slot");
+  slots.forEach((slot) => {
+    const slotId = slot.dataset.slotId || "";
+    const item = homeState.slotItems.get(slotId);
+    if (!item) {
+      return;
+    }
+    const suplenteInfo = resolveSuplenteInfo(item);
+    const name = String(suplenteInfo.name || "").toLowerCase();
+    if (name.includes(query)) {
+      slot.classList.add("is-match");
+      matches += 1;
+    }
+  });
+  homeCommandResults.textContent = matches
+    ? `Coincidencias de suplente: ${matches}`
+    : "Sin coincidencias para suplente";
+}
+
+function renderPidResults(pid, results) {
+  if (!results.length) {
+    homeCommandResults.textContent = `Sin resultados para PID ${pid}`;
+    return;
+  }
+  const lines = results
+    .map((entry) => {
+      const docente = entry.docente || "-";
+      return `${entry.curso} | CUPOF ${entry.cupof} | ${entry.materia} | ${docente}`;
+    })
+    .join("\n");
+  homeCommandResults.textContent = `PID ${pid} (${results.length})\n${lines}`;
+}
+
+function searchByPid(pid) {
+  const target = String(pid || "").trim().toUpperCase();
+  if (!target) {
+    homeCommandResults.textContent = "PID vacio";
+    return;
+  }
+  const results = [];
+  homeState.currentItems.forEach((item) => {
+    if (String(item?.pid || "").trim().toUpperCase() !== target) {
+      return;
+    }
+    const titularInfo = resolveTitularInfo(item);
+    results.push({
+      curso: homeState.selectedCourse || "-",
+      cupof: String(item?.cupof || "-").trim(),
+      materia: String(item?.materia || "-").trim(),
+      docente: titularInfo.name,
+    });
+  });
+  renderPidResults(target, results);
+}
+
+function renderDocenteEditorForm(data) {
+  const fields = [
+    ["apellido", "Apellido"],
+    ["nombre", "Nombre"],
+    ["cuil", "CUIL"],
+    ["fechaNacimiento", "Fecha Nacimiento"],
+    ["telefono", "Telefono"],
+    ["correo", "Correo"],
+    ["domicilio", "Domicilio"],
+  ];
+  const html = fields
+    .map(([key, label]) => {
+      const value = esc(data?.[key] || "");
+      return `
+        <label>
+          ${label}
+          <input type="text" data-docente-key="${key}" value="${value}" />
+        </label>
+      `;
+    })
+    .join("");
+  docenteEditorForm.innerHTML = html;
+}
+
+function getEditableDocenteFromSlot(item) {
+  const titularInfo = resolveTitularInfo(item);
+  if (titularInfo?.docente?.id) {
+    return titularInfo.docente;
+  }
+  const suplenteInfo = resolveSuplenteInfo(item);
+  if (suplenteInfo?.docente?.id) {
+    return suplenteInfo.docente;
+  }
+  return null;
+}
+
+function openDocenteEditorBySlot(slotId) {
+  const item = homeState.slotItems.get(slotId);
+  if (!item) {
+    return;
+  }
+  const editable = getEditableDocenteFromSlot(item);
+  if (!editable || !editable.id) {
+    setMsg(homeMsg, "No se encontro un docente editable para este horario", true);
+    return;
+  }
+  homeState.editingDocente = clonePlain(editable);
+  renderDocenteEditorForm(homeState.editingDocente.data || {});
+  docenteEditorModal.classList.remove("is-hidden");
+}
+
+function closeDocenteEditor() {
+  homeState.editingDocente = null;
+  docenteEditorModal.classList.add("is-hidden");
+}
+
+async function saveDocenteEditorChanges() {
+  const editing = homeState.editingDocente;
+  if (!editing?.id || !homeState.tenantId) {
+    closeDocenteEditor();
+    return;
+  }
+  const updates = {};
+  const fields = docenteEditorForm.querySelectorAll("[data-docente-key]");
+  fields.forEach((input) => {
+    const key = input.dataset.docenteKey;
+    updates[key] = String(input.value || "").trim();
+  });
+  await setDoc(doc(db, "tenants", homeState.tenantId, "docentes", editing.id), updates, { merge: true });
+  await buildDocentesByCuilMap(homeState.tenantId);
+  if (homeState.selectedCourse) {
+    await loadScheduleForCourse(homeState.selectedCourse, { preferCache: false });
+  }
+  closeDocenteEditor();
 }
 
 async function loadScheduleForCourse(courseName, options = {}) {
@@ -1907,6 +2140,90 @@ homeTabBtn.addEventListener("click", () => {
 
 settingsTabBtn.addEventListener("click", () => {
   setPanelView("settings");
+});
+
+homeSearchInput.addEventListener("input", () => {
+  const value = String(homeSearchInput.value || "");
+  if (value.trim().length >= 3) {
+    applySuplenteSearch(value);
+    return;
+  }
+  clearSlotMatches();
+  homeCommandResults.textContent = "";
+});
+
+homeSearchClearBtn.addEventListener("click", () => {
+  homeSearchInput.value = "";
+  clearSlotMatches();
+  homeCommandResults.textContent = "";
+});
+
+homeSearchBtn.addEventListener("click", () => {
+  applySuplenteSearch(homeSearchInput.value);
+});
+
+homeSearchPidBtn.addEventListener("click", () => {
+  const value = window.prompt("Ingresa el PID a consultar", "");
+  if (value === null) {
+    return;
+  }
+  searchByPid(value);
+});
+
+homeSearchInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    applySuplenteSearch(homeSearchInput.value);
+  }
+});
+
+courseScheduleTable.addEventListener("click", (event) => {
+  const slot = event.target.closest(".schedule-slot");
+  const cell = event.target.closest("td");
+  const slotId = String(slot?.dataset.slotId || cell?.dataset.slotId || "").trim();
+  if (!slotId) {
+    return;
+  }
+  openDocenteEditorBySlot(slotId);
+});
+
+docenteCancelBtn.addEventListener("click", () => {
+  closeDocenteEditor();
+});
+
+docenteEditorModal.addEventListener("click", (event) => {
+  if (event.target === docenteEditorModal) {
+    closeDocenteEditor();
+  }
+});
+
+docenteCopyBtn.addEventListener("click", async () => {
+  const editing = homeState.editingDocente;
+  if (!editing) {
+    return;
+  }
+  const payload = {};
+  const fields = docenteEditorForm.querySelectorAll("[data-docente-key]");
+  fields.forEach((input) => {
+    payload[input.dataset.docenteKey] = String(input.value || "").trim();
+  });
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+    setMsg(homeMsg, "Datos copiados al portapapeles");
+  } catch (error) {
+    console.error(error);
+    setMsg(homeMsg, "No se pudo copiar", true);
+  }
+});
+
+docenteSaveBtn.addEventListener("click", async () => {
+  try {
+    await saveDocenteEditorChanges();
+    setMsg(homeMsg, "Docente actualizado");
+  } catch (error) {
+    console.error(error);
+    setMsg(homeMsg, "No se pudo guardar cambios del docente", true);
+  }
 });
 
 window.addEventListener("resize", () => {

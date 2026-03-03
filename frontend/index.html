@@ -53,11 +53,36 @@
     <section id="panel-section" class="card is-hidden">
       <section id="home-section" class="is-hidden">
         <p id="home-msg" class="msg"></p>
-        <div id="home-course-buttons" class="home-course-groups"></div>
+        <div class="home-toolbar">
+          <div id="home-course-buttons" class="home-course-groups"></div>
+          <div class="home-commands">
+            <label class="home-search-label">
+              Buscar suplente
+              <input id="home-search-input" type="text" placeholder="Nombre del suplente..." />
+            </label>
+            <div class="home-command-actions">
+              <button id="home-search-clear-btn" type="button" class="google-btn">Borrar</button>
+              <button id="home-search-btn" type="button">Buscar</button>
+              <button id="home-search-pid-btn" type="button" class="google-btn">Buscar por PID</button>
+            </div>
+            <div id="home-command-results" class="msg"></div>
+          </div>
+        </div>
         <p id="home-selected-course" class="msg">Curso seleccionado: -</p>
         <div id="course-schedule-wrap" class="card is-hidden">
           <h3 id="course-schedule-title">Horario</h3>
           <div id="course-schedule-table"></div>
+        </div>
+        <div id="docente-editor-modal" class="docente-editor-modal is-hidden">
+          <div class="docente-editor-card">
+            <h3>Docente</h3>
+            <div id="docente-editor-form" class="review-grid"></div>
+            <div class="review-actions">
+              <button id="docente-copy-btn" type="button" class="google-btn">Copiar</button>
+              <button id="docente-save-btn" type="button">Guardar</button>
+              <button id="docente-cancel-btn" type="button" class="danger-btn">Cancelar</button>
+            </div>
+          </div>
         </div>
       </section>
 
