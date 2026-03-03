@@ -355,6 +355,11 @@ button {
   display: block;
 }
 
+.schedule-slot .meta.docente-main {
+  color: var(--text);
+  font-weight: 600;
+}
+
 .schedule-slot .meta.cupof {
   margin-top: 4px;
   padding-top: 4px;

@@ -267,24 +267,57 @@ function docenteDisplayNameByCuil(cuil) {
   return fromMap || key;
 }
 
+function normalizeSituacionRevista(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function extractDocenteRefs(data) {
+  const refs = [];
+  if (Array.isArray(data?.cursoRefs)) {
+    refs.push(...data.cursoRefs);
+  }
+  if (Array.isArray(data?.curso)) {
+    refs.push(...data.curso);
+  } else if (data?.curso && typeof data.curso === "object") {
+    refs.push(data.curso);
+  }
+  if (Array.isArray(data?.cursos)) {
+    const objectCursos = data.cursos.filter((item) => item && typeof item === "object");
+    refs.push(...objectCursos);
+  }
+  return refs;
+}
+
 function resolveTitularDisplay(item) {
+  const cupof = String(item?.cupof || "").trim();
+  const candidates = cupof ? homeState.docentesByCupof.get(cupof) || [] : [];
   const titularCuil = String(item?.docenteCuil || "").trim();
+  const suplenteCuil = String(item?.suplenteCuil || "").trim();
+
+  const noSuplentes = candidates.filter(
+    (candidate) => normalizeSituacionRevista(candidate?.situacionRevista) !== "S"
+  );
+
+  const directNoSuplente = noSuplentes.find(
+    (candidate) => String(candidate?.cuil || "").trim() === titularCuil && titularCuil
+  );
+  if (directNoSuplente?.name) {
+    return directNoSuplente.name;
+  }
+
+  const firstNoSuplente = noSuplentes.find(
+    (candidate) => String(candidate?.cuil || "").trim() !== suplenteCuil
+  ) || noSuplentes[0];
+  if (firstNoSuplente?.name) {
+    return firstNoSuplente.name;
+  }
+
   const direct = docenteDisplayNameByCuil(titularCuil);
   if (direct !== "-") {
     return direct;
   }
 
-  const cupof = String(item?.cupof || "").trim();
-  if (!cupof) {
-    return "-";
-  }
-
-  const candidates = homeState.docentesByCupof.get(cupof) || [];
-  const suplenteCuil = String(item?.suplenteCuil || "").trim();
-  const fallback = candidates.find((candidate) => {
-    const candidateCuil = String(candidate?.cuil || "").trim();
-    return candidateCuil && candidateCuil !== "sin datos" && candidateCuil !== suplenteCuil;
-  });
+  const fallback = candidates.find((candidate) => candidate?.name);
   return String(fallback?.name || "").trim() || "-";
 }
 
@@ -1128,7 +1161,7 @@ async function buildDocentesByCuilMap(tenantId) {
       map.set(cuil, fullName);
     }
 
-    const refs = Array.isArray(data.cursoRefs) ? data.cursoRefs : [];
+    const refs = extractDocenteRefs(data);
     refs.forEach((ref) => {
       const cupof = String(ref?.cupof || "").trim();
       if (!cupof || !fullName || fullName === "-") {
@@ -1137,7 +1170,11 @@ async function buildDocentesByCuilMap(tenantId) {
       if (!cupofMap.has(cupof)) {
         cupofMap.set(cupof, []);
       }
-      cupofMap.get(cupof).push({ cuil, name: fullName });
+      cupofMap.get(cupof).push({
+        cuil,
+        name: fullName,
+        situacionRevista: normalizeSituacionRevista(ref?.situacionRevista),
+      });
     });
   });
   homeState.docentesByCuil = map;
@@ -1201,7 +1238,7 @@ function renderScheduleTable(curso, items) {
               return `
                 <div class="schedule-slot">
                   <span class="title">${materia}</span>
-                  <span class="meta">Titular: ${titular}</span>
+                  <span class="meta docente-main">${titular}</span>
                   ${suplenteHtml}
                   <span class="meta cupof">CUPOF: ${cupof}</span>
                 </div>
