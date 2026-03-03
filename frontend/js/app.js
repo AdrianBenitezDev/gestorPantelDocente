@@ -27,6 +27,16 @@ const logoutBtn = document.getElementById("logout-btn");
 const googleLoginBtn = document.getElementById("google-login-btn");
 const panelSection = document.getElementById("panel-section");
 const panelMsg = document.getElementById("panel-msg");
+const homeTabBtn = document.getElementById("home-tab-btn");
+const settingsTabBtn = document.getElementById("settings-tab-btn");
+const homeSection = document.getElementById("home-section");
+const settingsSection = document.getElementById("settings-section");
+const homeMsg = document.getElementById("home-msg");
+const homeCourseButtons = document.getElementById("home-course-buttons");
+const homeSelectedCourse = document.getElementById("home-selected-course");
+const courseScheduleWrap = document.getElementById("course-schedule-wrap");
+const courseScheduleTitle = document.getElementById("course-schedule-title");
+const courseScheduleTable = document.getElementById("course-schedule-table");
 const tenantEmptyImport = document.getElementById("tenant-empty-import");
 const sheetImportForm = document.getElementById("sheet-import-form");
 const sheetUrlInput = document.getElementById("sheet-url");
@@ -75,10 +85,58 @@ let importCursosState = {
   selectedCourse: "",
 };
 
+let homeState = {
+  tenantId: "",
+  courses: [],
+  selectedCourse: "",
+  docentesByCuil: new Map(),
+};
+
 function setMsg(el, text, isError = false) {
   el.textContent = text;
   el.classList.toggle("error", isError);
   el.classList.toggle("success", !isError);
+}
+
+function setPanelView(view) {
+  const isHome = view === "home";
+  homeSection.classList.toggle("is-hidden", !isHome);
+  settingsSection.classList.toggle("is-hidden", isHome);
+  homeTabBtn.classList.toggle("google-btn", !isHome);
+  settingsTabBtn.classList.toggle("google-btn", isHome);
+}
+
+function normalizeDayColumn(day) {
+  const value = String(day || "").trim().toUpperCase();
+  if (value.startsWith("LUN")) return "LUNES";
+  if (value.startsWith("MAR")) return "MARTES";
+  if (value.startsWith("MIE")) return "MIERCOLES";
+  if (value.startsWith("JUE")) return "JUEVES";
+  if (value.startsWith("VIE")) return "VIERNES";
+  return "";
+}
+
+function parseStartMinutes(rangeText) {
+  const text = String(rangeText || "").trim();
+  const match = text.match(/(\d{1,2}):(\d{2})/);
+  if (!match) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+  return hours * 60 + minutes;
+}
+
+function docenteDisplayNameByCuil(cuil) {
+  const key = String(cuil || "").trim();
+  if (!key || key === "sin datos") {
+    return "-";
+  }
+  const fromMap = homeState.docentesByCuil.get(key);
+  return fromMap || key;
 }
 
 function esc(value) {
@@ -364,6 +422,17 @@ function resetImportState() {
     cancelled: false,
     selectedCourse: "",
   };
+  homeState = {
+    tenantId: "",
+    courses: [],
+    selectedCourse: "",
+    docentesByCuil: new Map(),
+  };
+  homeCourseButtons.innerHTML = "";
+  homeSelectedCourse.textContent = "Curso seleccionado: -";
+  courseScheduleWrap.classList.add("is-hidden");
+  courseScheduleTable.innerHTML = "";
+  setMsg(homeMsg, "");
 }
 
 function renderCurrentDocente() {
@@ -468,6 +537,151 @@ function renderCourseButtons(courses) {
   setSelectedCourse(preferred);
 }
 
+function renderHomeCourseButtons(courses) {
+  homeCourseButtons.innerHTML = "";
+  homeState.courses = courses;
+
+  if (!courses.length) {
+    homeSelectedCourse.textContent = "Curso seleccionado: -";
+    courseScheduleWrap.classList.add("is-hidden");
+    setMsg(homeMsg, "No hay cursos guardados todavia", true);
+    return;
+  }
+
+  courses.forEach((courseName) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = courseName;
+    button.addEventListener("click", () => loadScheduleForCourse(courseName));
+    homeCourseButtons.appendChild(button);
+  });
+}
+
+async function buildDocentesByCuilMap(tenantId) {
+  const docentesSnap = await getDocs(collection(db, "tenants", tenantId, "docentes"));
+  const map = new Map();
+  docentesSnap.docs.forEach((docSnap) => {
+    const data = docSnap.data() || {};
+    const cuil = String(data.cuil || "").trim();
+    if (!cuil || cuil === "sin datos") {
+      return;
+    }
+    const apellido = String(data.apellido || "").trim();
+    const nombre = String(data.nombre || "").trim();
+    const fullName = `${apellido} ${nombre}`.trim() || cuil;
+    map.set(cuil, fullName);
+  });
+  homeState.docentesByCuil = map;
+}
+
+function renderScheduleTable(curso, items) {
+  const days = ["LUNES", "MARTES", "MIERCOLES", "JUEVES", "VIERNES"];
+  const slots = new Map();
+  const allRanges = new Set();
+
+  items.forEach((item) => {
+    const dias = Array.isArray(item?.diaHorario?.dias) ? item.diaHorario.dias : [];
+    dias.forEach((diaItem) => {
+      const day = normalizeDayColumn(diaItem?.dia);
+      const range = String(diaItem?.horario || "").trim();
+      if (!day || !range) {
+        return;
+      }
+      allRanges.add(range);
+      const key = `${day}__${range}`;
+      if (!slots.has(key)) {
+        slots.set(key, []);
+      }
+      slots.get(key).push(item);
+    });
+  });
+
+  const ranges = Array.from(allRanges).sort((a, b) => {
+    const byTime = parseStartMinutes(a) - parseStartMinutes(b);
+    if (byTime !== 0) {
+      return byTime;
+    }
+    return a.localeCompare(b);
+  });
+
+  if (!ranges.length) {
+    courseScheduleWrap.classList.add("is-hidden");
+    setMsg(homeMsg, `El curso ${curso} no tiene horarios cargados`, true);
+    return;
+  }
+
+  const rowsHtml = ranges
+    .map((range) => {
+      const dayCells = days
+        .map((day) => {
+          const key = `${day}__${range}`;
+          const dayItems = slots.get(key) || [];
+          if (!dayItems.length) {
+            return "<td></td>";
+          }
+          const slotHtml = dayItems
+            .map((item) => {
+              const materia = esc(item.materia || "-");
+              const titular = esc(docenteDisplayNameByCuil(item.docenteCuil));
+              const suplente = esc(docenteDisplayNameByCuil(item.suplenteCuil));
+              return `
+                <div class="schedule-slot">
+                  <span class="title">${materia}</span>
+                  <span class="meta">Titular: ${titular}</span>
+                  <span class="meta">Suplente: ${suplente}</span>
+                </div>
+              `;
+            })
+            .join("");
+          return `<td>${slotHtml}</td>`;
+        })
+        .join("");
+
+      return `<tr><th>${esc(range)}</th>${dayCells}</tr>`;
+    })
+    .join("");
+
+  courseScheduleTitle.textContent = `Horario del curso ${curso}`;
+  courseScheduleTable.innerHTML = `
+    <div class="schedule-table-wrap">
+      <table class="schedule-table">
+        <thead>
+          <tr>
+            <th>Horario</th>
+            <th>Lunes</th>
+            <th>Martes</th>
+            <th>Miercoles</th>
+            <th>Jueves</th>
+            <th>Viernes</th>
+          </tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>
+  `;
+  courseScheduleWrap.classList.remove("is-hidden");
+  setMsg(homeMsg, `Curso ${curso} cargado`);
+}
+
+async function loadScheduleForCourse(courseName) {
+  if (!homeState.tenantId) {
+    return;
+  }
+  const course = normalizeCourse(courseName);
+  homeState.selectedCourse = course;
+  homeSelectedCourse.textContent = `Curso seleccionado: ${course}`;
+  setMsg(homeMsg, `Cargando horario de ${course}...`);
+
+  try {
+    const itemsSnap = await getDocs(collection(db, "tenants", homeState.tenantId, "cursos", course, "items"));
+    const items = itemsSnap.docs.map((docSnap) => docSnap.data() || {});
+    renderScheduleTable(course, items);
+  } catch (error) {
+    console.error(error);
+    setMsg(homeMsg, "No se pudo cargar el horario del curso", true);
+  }
+}
+
 async function loadTenantCourses(tenantId) {
   const cursosSnap = await getDocs(collection(db, "tenants", tenantId, "cursos"));
   const courses = cursosSnap.docs
@@ -483,8 +697,16 @@ async function loadTenantCourses(tenantId) {
     })
     .map((value) => String(value || "").trim())
     .filter(Boolean);
-
-  renderCourseButtons(Array.from(new Set(courses)));
+  const unique = Array.from(new Set(courses.map((value) => normalizeCourse(value)))).filter(Boolean);
+  renderCourseButtons(unique);
+  renderHomeCourseButtons(unique);
+  homeState.tenantId = tenantId;
+  if (unique.length) {
+    await buildDocentesByCuilMap(tenantId);
+    await loadScheduleForCourse(unique[0]);
+  } else {
+    courseScheduleWrap.classList.add("is-hidden");
+  }
 }
 
 async function resolveTenantIdForUser(uid, currentTenantId) {
@@ -910,6 +1132,14 @@ cancelCursoBtn.addEventListener("click", () => {
   );
 });
 
+homeTabBtn.addEventListener("click", () => {
+  setPanelView("home");
+});
+
+settingsTabBtn.addEventListener("click", () => {
+  setPanelView("settings");
+});
+
 logoutBtn.addEventListener("click", async () => {
   try {
     await signOut(auth);
@@ -925,6 +1155,7 @@ logoutBtn.addEventListener("click", async () => {
 onAuthStateChanged(auth, (user) => {
   if (!user) {
     updateSessionLayout(false);
+    setPanelView("home");
     userName.textContent = "Sin sesion";
     userEmail.textContent = "-";
     tenantEmptyImport.classList.add("is-hidden");
@@ -932,6 +1163,7 @@ onAuthStateChanged(auth, (user) => {
     return;
   }
   updateSessionLayout(true);
+  setPanelView("home");
   userName.textContent = user.displayName || user.email || "Usuario";
   userEmail.textContent = user.email || "-";
 

@@ -44,6 +44,23 @@
       <h2>Panel</h2>
       <p id="panel-msg" class="msg"></p>
 
+      <div class="panel-nav">
+        <button id="home-tab-btn" type="button">Inicio</button>
+        <button id="settings-tab-btn" type="button" class="google-btn">Configuracion</button>
+      </div>
+
+      <section id="home-section" class="is-hidden">
+        <h3>Inicio</h3>
+        <p id="home-msg" class="msg"></p>
+        <div id="home-course-buttons" class="review-actions"></div>
+        <p id="home-selected-course" class="msg">Curso seleccionado: -</p>
+        <div id="course-schedule-wrap" class="card is-hidden">
+          <h3 id="course-schedule-title">Horario</h3>
+          <div id="course-schedule-table"></div>
+        </div>
+      </section>
+
+      <section id="settings-section" class="is-hidden">
       <div id="tenant-empty-import" class="is-hidden">
         <h3>Importar docentes desde Google Sheets</h3>
         <p id="course-buttons-msg" class="msg"></p>
@@ -84,6 +101,7 @@
           <button id="save-all-btn" type="button">Guardar todo</button>
         </div>
       </div>
+      </section>
     </section>
   </main>
 

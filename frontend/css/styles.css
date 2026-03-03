@@ -235,6 +235,59 @@ button {
   margin-top: 0;
 }
 
+.panel-nav {
+  display: flex;
+  gap: 10px;
+  margin: 10px 0 14px;
+}
+
+.schedule-table-wrap {
+  overflow-x: auto;
+}
+
+.schedule-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 760px;
+  background: #fff;
+}
+
+.schedule-table th,
+.schedule-table td {
+  border: 1px solid var(--border);
+  padding: 8px;
+  vertical-align: top;
+  text-align: left;
+  font-size: 13px;
+}
+
+.schedule-table thead th {
+  background: #eef3ff;
+}
+
+.schedule-slot {
+  margin-bottom: 8px;
+  border: 1px solid #dbe3f5;
+  border-radius: 8px;
+  padding: 6px;
+  background: #fafcff;
+}
+
+.schedule-slot:last-child {
+  margin-bottom: 0;
+}
+
+.schedule-slot .title {
+  font-weight: 600;
+  display: block;
+}
+
+.schedule-slot .meta {
+  color: var(--muted);
+  font-size: 12px;
+  display: block;
+}
+
 .review-card {
   margin: 10px 0;
   padding: 12px;
