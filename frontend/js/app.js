@@ -115,6 +115,9 @@ const DEFAULT_BUTTON_CONFIG = {
 
 let buttonConfigState = clonePlain(DEFAULT_BUTTON_CONFIG);
 let refreshInProgress = false;
+let bannerAutoHideEnabled = false;
+let bannerLastScrollY = 0;
+let bannerHiddenByScroll = false;
 
 function setMsg(el, text, isError = false) {
   el.textContent = text;
@@ -142,12 +145,54 @@ function syncBannerLayout() {
   if (!topBanner || !subBanner || !appRoot) {
     return;
   }
-  const topHeight = topBanner.getBoundingClientRect().height || 72;
+  const isHidden = topBanner.classList.contains("banner-hidden");
+  const topHeight = isHidden ? 0 : topBanner.getBoundingClientRect().height || 72;
   const stickyTop = Math.ceil(topHeight + 8);
   const tableMaxHeight = Math.max(260, Math.floor(window.innerHeight - stickyTop - 140));
   document.documentElement.style.setProperty("--sticky-top", `${stickyTop}px`);
   document.documentElement.style.setProperty("--table-max-height", `${tableMaxHeight}px`);
   appRoot.style.marginTop = `${Math.ceil(topHeight + 16)}px`;
+}
+
+function setBannerHiddenByScroll(hidden) {
+  if (!topBanner) {
+    return;
+  }
+  if (bannerHiddenByScroll === hidden) {
+    return;
+  }
+  bannerHiddenByScroll = hidden;
+  topBanner.classList.toggle("banner-hidden", hidden);
+  syncBannerLayout();
+}
+
+function handleBannerAutoHideScroll() {
+  if (!bannerAutoHideEnabled) {
+    return;
+  }
+
+  const currentY = Math.max(0, window.scrollY || 0);
+  const delta = currentY - bannerLastScrollY;
+  const absDelta = Math.abs(delta);
+
+  if (currentY <= 24) {
+    setBannerHiddenByScroll(false);
+    bannerLastScrollY = currentY;
+    return;
+  }
+
+  if (absDelta < 8) {
+    bannerLastScrollY = currentY;
+    return;
+  }
+
+  if (delta > 0 && currentY > 80) {
+    setBannerHiddenByScroll(true);
+  } else if (delta < 0) {
+    setBannerHiddenByScroll(false);
+  }
+
+  bannerLastScrollY = currentY;
 }
 
 function setLoading(isLoading, text = "Cargando...") {
@@ -491,6 +536,13 @@ function updateSessionLayout(isLoggedIn) {
   panelSection.classList.toggle("is-hidden", !isLoggedIn);
   subBanner.classList.toggle("is-hidden", !isLoggedIn);
   refreshFab.classList.toggle("is-hidden", !isLoggedIn);
+  bannerAutoHideEnabled = isLoggedIn;
+  bannerLastScrollY = Math.max(0, window.scrollY || 0);
+  if (!isLoggedIn) {
+    setBannerHiddenByScroll(false);
+  } else {
+    handleBannerAutoHideScroll();
+  }
   syncBannerLayout();
 }
 
@@ -1697,6 +1749,10 @@ settingsTabBtn.addEventListener("click", () => {
 
 window.addEventListener("resize", () => {
   syncBannerLayout();
+});
+
+window.addEventListener("scroll", () => {
+  handleBannerAutoHideScroll();
 });
 
 logoutBtn.addEventListener("click", async () => {
