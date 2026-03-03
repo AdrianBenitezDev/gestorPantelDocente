@@ -311,10 +311,20 @@ button {
 }
 
 .schedule-table thead th {
-  background: #eef3ff;
+  background: #ffe9d6;
+  color: #8a2c0a;
   position: sticky;
   top: 0;
   z-index: 2;
+}
+
+#course-schedule-wrap {
+  padding: 10px;
+}
+
+#course-schedule-title {
+  margin: 0;
+  color: #7c3aed;
 }
 
 .schedule-slot {
