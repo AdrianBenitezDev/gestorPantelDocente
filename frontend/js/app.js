@@ -31,6 +31,8 @@ const tenantEmptyImport = document.getElementById("tenant-empty-import");
 const sheetImportForm = document.getElementById("sheet-import-form");
 const sheetUrlInput = document.getElementById("sheet-url");
 const sheetNameInput = document.getElementById("sheet-name");
+const scheduleConfigInput = document.getElementById("schedule-config");
+const loadCursosBtn = document.getElementById("load-cursos-btn");
 const courseButtonsMsg = document.getElementById("course-buttons-msg");
 const courseButtons = document.getElementById("course-buttons");
 const selectedCourseLabel = document.getElementById("selected-course");
@@ -40,6 +42,12 @@ const reviewDocente = document.getElementById("review-docente");
 const acceptDocenteBtn = document.getElementById("accept-docente-btn");
 const skipDocenteBtn = document.getElementById("skip-docente-btn");
 const cancelDocenteBtn = document.getElementById("cancel-docente-btn");
+const importReviewCursos = document.getElementById("import-review-cursos");
+const reviewCursoProgress = document.getElementById("review-curso-progress");
+const reviewCurso = document.getElementById("review-curso");
+const acceptCursoBtn = document.getElementById("accept-curso-btn");
+const skipCursoBtn = document.getElementById("skip-curso-btn");
+const cancelCursoBtn = document.getElementById("cancel-curso-btn");
 
 let importState = {
   tenantId: "",
@@ -52,6 +60,19 @@ let importState = {
   cancelled: false,
   selectedCourse: "",
   courses: [],
+};
+
+let importCursosState = {
+  tenantId: "",
+  sheetUrl: "",
+  sheetName: "",
+  cursos: [],
+  index: 0,
+  accepted: 0,
+  skipped: 0,
+  cancelled: false,
+  selectedCourse: "",
+  configuracion: {},
 };
 
 function setMsg(el, text, isError = false) {
@@ -80,11 +101,26 @@ function resetImportState() {
     courses: [],
   };
   importReview.classList.add("is-hidden");
+  importReviewCursos.classList.add("is-hidden");
   reviewProgress.textContent = "";
   reviewDocente.textContent = "";
+  reviewCursoProgress.textContent = "";
+  reviewCurso.textContent = "";
   courseButtonsMsg.textContent = "";
   courseButtons.innerHTML = "";
   selectedCourseLabel.textContent = "Curso seleccionado: -";
+  importCursosState = {
+    tenantId: "",
+    sheetUrl: "",
+    sheetName: "",
+    cursos: [],
+    index: 0,
+    accepted: 0,
+    skipped: 0,
+    cancelled: false,
+    selectedCourse: "",
+    configuracion: {},
+  };
 }
 
 function renderCurrentDocente() {
@@ -107,6 +143,44 @@ function renderCurrentDocente() {
   importReview.classList.remove("is-hidden");
   reviewProgress.textContent = `Docente ${importState.index + 1} de ${total}`;
   reviewDocente.textContent = JSON.stringify(docente, null, 2);
+}
+
+function renderCurrentCurso() {
+  const total = importCursosState.cursos.length;
+  if (!total || importCursosState.cancelled) {
+    importReviewCursos.classList.add("is-hidden");
+    return;
+  }
+
+  if (importCursosState.index >= total) {
+    importReviewCursos.classList.add("is-hidden");
+    setMsg(
+      panelMsg,
+      `Importacion de cursos finalizada. Guardados: ${importCursosState.accepted}. Omitidos: ${importCursosState.skipped}.`
+    );
+    return;
+  }
+
+  const curso = importCursosState.cursos[importCursosState.index];
+  importReviewCursos.classList.remove("is-hidden");
+  reviewCursoProgress.textContent = `Curso ${importCursosState.index + 1} de ${total}`;
+  reviewCurso.textContent = JSON.stringify(curso, null, 2);
+}
+
+function parseScheduleConfigOrThrow() {
+  const raw = String(scheduleConfigInput?.value || "").trim();
+  if (!raw) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error("Formato JSON invalido");
+    }
+    return parsed;
+  } catch (error) {
+    throw new Error("La configuracion de horarios no es un JSON valido");
+  }
 }
 
 async function checkTenantDataAndToggleImport(tenantId) {
@@ -382,6 +456,75 @@ sheetImportForm.addEventListener("submit", async (event) => {
   }
 });
 
+loadCursosBtn.addEventListener("click", async () => {
+  if (!importState.tenantId) {
+    setMsg(panelMsg, "No se encontro tenantId para este usuario", true);
+    return;
+  }
+
+  const sheetUrl = sheetUrlInput.value.trim();
+  const sheetName = sheetNameInput.value.trim();
+  if (!sheetUrl || !sheetName) {
+    setMsg(panelMsg, "Completa URL y nombre de hoja", true);
+    return;
+  }
+  if (!importState.selectedCourse) {
+    setMsg(panelMsg, "Selecciona un curso para iniciar la carga", true);
+    return;
+  }
+
+  let configuracion = {};
+  try {
+    configuracion = parseScheduleConfigOrThrow();
+  } catch (error) {
+    setMsg(panelMsg, error.message, true);
+    return;
+  }
+
+  try {
+    setMsg(panelMsg, `Extrayendo cursos del ${importState.selectedCourse} desde Google Sheets...`);
+    const loadCursosFromSheet = httpsCallable(functions, "loadCursosFromSheet");
+    const result = await loadCursosFromSheet({
+      sheetUrl,
+      sheetName,
+      course: importState.selectedCourse,
+      configuracion,
+    });
+    const cursos = result.data?.cursos || [];
+
+    if (!cursos.length) {
+      const detectedCourses = result.data?.detectedCourses || [];
+      const details = [
+        `No se encontraron cursos para ${importState.selectedCourse}.`,
+        detectedCourses.length ? `Cursos detectados: ${detectedCourses.join(", ")}` : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      setMsg(panelMsg, details || "No se encontraron cursos en la hoja indicada", true);
+      importReviewCursos.classList.add("is-hidden");
+      return;
+    }
+
+    importCursosState.tenantId = importState.tenantId;
+    importCursosState.sheetUrl = sheetUrl;
+    importCursosState.sheetName = sheetName;
+    importCursosState.cursos = cursos;
+    importCursosState.index = 0;
+    importCursosState.accepted = 0;
+    importCursosState.skipped = 0;
+    importCursosState.cancelled = false;
+    importCursosState.selectedCourse = importState.selectedCourse;
+    importCursosState.configuracion = configuracion;
+
+    setMsg(panelMsg, `Se cargaron ${cursos.length} cursos para revisar.`);
+    renderCurrentCurso();
+  } catch (error) {
+    console.error(error);
+    setMsg(panelMsg, error.message || "No se pudo leer cursos desde la hoja", true);
+    importReviewCursos.classList.add("is-hidden");
+  }
+});
+
 acceptDocenteBtn.addEventListener("click", async () => {
   const docente = importState.docentes[importState.index];
   if (!docente) {
@@ -420,6 +563,48 @@ cancelDocenteBtn.addEventListener("click", () => {
   setMsg(
     panelMsg,
     `Importacion cancelada. Guardados: ${importState.accepted}. Omitidos: ${importState.skipped}.`
+  );
+});
+
+acceptCursoBtn.addEventListener("click", async () => {
+  const curso = importCursosState.cursos[importCursosState.index];
+  if (!curso) {
+    return;
+  }
+
+  try {
+    const saveImportedCurso = httpsCallable(functions, "saveImportedCurso");
+    await saveImportedCurso({
+      curso,
+      sheetUrl: importCursosState.sheetUrl,
+      sheetName: importCursosState.sheetName,
+      course: importCursosState.selectedCourse,
+      configuracion: importCursosState.configuracion,
+    });
+    importCursosState.accepted += 1;
+    importCursosState.index += 1;
+    renderCurrentCurso();
+  } catch (error) {
+    console.error(error);
+    setMsg(panelMsg, error.message || "No se pudo guardar el curso", true);
+  }
+});
+
+skipCursoBtn.addEventListener("click", () => {
+  if (!importCursosState.cursos[importCursosState.index]) {
+    return;
+  }
+  importCursosState.skipped += 1;
+  importCursosState.index += 1;
+  renderCurrentCurso();
+});
+
+cancelCursoBtn.addEventListener("click", () => {
+  importCursosState.cancelled = true;
+  importReviewCursos.classList.add("is-hidden");
+  setMsg(
+    panelMsg,
+    `Importacion de cursos cancelada. Guardados: ${importCursosState.accepted}. Omitidos: ${importCursosState.skipped}.`
   );
 });
 

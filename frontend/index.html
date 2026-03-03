@@ -51,7 +51,20 @@
         <form id="sheet-import-form" class="grid-form">
           <label>URL Google Sheet <input id="sheet-url" type="url" placeholder="https://docs.google.com/spreadsheets/d/..." value="https://docs.google.com/spreadsheets/d/1sePsT0xdSgO-J4-ty84b0VSUz8LzE474nsTOvAWhOLQ/edit?usp=sharing" required /></label>
           <label>Nombre de hoja <input id="sheet-name" placeholder="POFA" value="POFA" required /></label>
-          <button type="submit">Cargar docentes</button>
+          <label>Configuracion horarios (JSON)
+            <textarea id="schedule-config" rows="6">{
+  "horarioTurnoTarde": {
+    "primera": "13:00 - 14:00",
+    "segunda": "14:00 - 15:00",
+    "tercera": "15:20 - 16:20",
+    "cuarta": "16:20 - 17:20"
+  }
+}</textarea>
+          </label>
+          <div class="review-actions">
+            <button type="submit">Cargar docentes</button>
+            <button id="load-cursos-btn" type="button" class="google-btn">Cargar cursos</button>
+          </div>
         </form>
 
         <div id="import-review" class="card is-hidden">
@@ -62,6 +75,17 @@
             <button id="accept-docente-btn" type="button">Aceptar y guardar</button>
             <button id="skip-docente-btn" type="button" class="google-btn">Omitir</button>
             <button id="cancel-docente-btn" type="button" class="danger-btn">Cancelar</button>
+          </div>
+        </div>
+
+        <div id="import-review-cursos" class="card is-hidden">
+          <h3>Revision de cursos</h3>
+          <p id="review-curso-progress" class="msg"></p>
+          <pre id="review-curso" class="review-docente"></pre>
+          <div class="review-actions">
+            <button id="accept-curso-btn" type="button">Aceptar y guardar</button>
+            <button id="skip-curso-btn" type="button" class="google-btn">Omitir</button>
+            <button id="cancel-curso-btn" type="button" class="danger-btn">Cancelar</button>
           </div>
         </div>
       </div>

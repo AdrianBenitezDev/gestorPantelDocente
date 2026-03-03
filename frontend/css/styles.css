@@ -71,6 +71,14 @@ input {
   min-height: 40px;
 }
 
+textarea {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  min-height: 120px;
+  font-family: Consolas, "Courier New", monospace;
+}
+
 button {
   border: 1px solid var(--accent);
   background: var(--accent);
@@ -228,4 +236,8 @@ button {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.review-actions .google-btn {
+  margin-top: 0;
 }

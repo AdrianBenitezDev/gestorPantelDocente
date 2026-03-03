@@ -224,6 +224,147 @@ function parseModuleCount(value) {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
+function normalizeDayName(day) {
+  const normalized = normalizeHeader(day);
+  if (normalized === "miercoles") {
+    return "MIERCOLES";
+  }
+  if (normalized === "lunes") {
+    return "LUNES";
+  }
+  if (normalized === "martes") {
+    return "MARTES";
+  }
+  if (normalized === "jueves") {
+    return "JUEVES";
+  }
+  if (normalized === "viernes") {
+    return "VIERNES";
+  }
+  return String(day || "").trim().toUpperCase();
+}
+
+function parseTimeToMinutes(value) {
+  const match = String(value || "").trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) {
+    return null;
+  }
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return null;
+  }
+  return hours * 60 + minutes;
+}
+
+function parseSlotRange(rangeText) {
+  const match = String(rangeText || "")
+    .trim()
+    .match(/(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})/);
+  if (!match) {
+    return null;
+  }
+  const start = parseTimeToMinutes(match[1]);
+  const end = parseTimeToMinutes(match[2]);
+  if (start === null || end === null || end <= start) {
+    return null;
+  }
+  return { start, end };
+}
+
+function parseTurnoConfig(configuracion) {
+  const horarioTurnoTarde = configuracion?.horarioTurnoTarde || {};
+  const entries = Object.entries(horarioTurnoTarde);
+  const ordinalMap = {
+    primera: 1,
+    segunda: 2,
+    tercera: 3,
+    cuarta: 4,
+    quinta: 5,
+    sexta: 6,
+    septima: 7,
+    octava: 8,
+  };
+
+  return entries
+    .map(([label, rangeText]) => {
+      const slotRange = parseSlotRange(rangeText);
+      if (!slotRange) {
+        return null;
+      }
+      const index = ordinalMap[normalizeHeader(label)] || null;
+      if (!index) {
+        return null;
+      }
+      return {
+        index,
+        label,
+        start: slotRange.start,
+        end: slotRange.end,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.index - b.index);
+}
+
+function parseHorarioIndexesFromText(rawText, turnoSlots) {
+  const text = String(rawText || "").trim();
+  if (!text) {
+    return [];
+  }
+
+  const matchByNumber = Array.from(text.matchAll(/(^|[^0-9])([1-9]|10|11|12)(?=$|[^0-9])/g))
+    .map((m) => Number(m[2]))
+    .filter((n) => Number.isFinite(n));
+  if (matchByNumber.length && !text.includes(":")) {
+    return Array.from(new Set(matchByNumber)).sort((a, b) => a - b);
+  }
+
+  const timeRanges = Array.from(text.matchAll(/(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})/g))
+    .map((m) => {
+      const start = parseTimeToMinutes(m[1]);
+      const end = parseTimeToMinutes(m[2]);
+      if (start === null || end === null || end <= start) {
+        return null;
+      }
+      return { start, end };
+    })
+    .filter(Boolean);
+
+  if (!timeRanges.length || !turnoSlots.length) {
+    return [];
+  }
+
+  const indexes = new Set();
+  timeRanges.forEach((range) => {
+    turnoSlots.forEach((slot) => {
+      const overlaps = range.start < slot.end && range.end > slot.start;
+      if (overlaps) {
+        indexes.add(slot.index);
+      }
+    });
+  });
+
+  return Array.from(indexes).sort((a, b) => a - b);
+}
+
+function buildDiaHorario(day, value, turnoSlots) {
+  const rawText = String(value || "").trim();
+  if (!rawText) {
+    return null;
+  }
+
+  const aclaracionMatch = rawText.match(/\(([^)]+)\)/);
+  const aclaracion = aclaracionMatch ? String(aclaracionMatch[1] || "").trim() : "";
+  const horario = parseHorarioIndexesFromText(rawText, turnoSlots);
+
+  return {
+    dia: normalizeDayName(day),
+    horario,
+    aclaracion,
+  };
+}
+
 function buildCursoRefs(cupof, modulosTitular, modulosTitularInterino, modulosProvisional) {
   const refs = [];
   const cupofValue = String(cupof || "").trim();
@@ -757,4 +898,198 @@ exports.saveImportedDocente = onCall(callableOptions, async (request) => {
   );
 
   return { ok: true, tenantId, docenteId: key };
+});
+
+exports.loadCursosFromSheet = onCall(callableOptions, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Auth required");
+  }
+
+  const uid = request.auth.uid;
+  await getUserTenantId(uid);
+
+  const data = request.data || {};
+  const sheetUrl = assertString(data.sheetUrl, "sheetUrl", 20, 500);
+  const sheetName = assertString(data.sheetName, "sheetName", 1, 120);
+  const selectedCourse = normalizeCourse(assertString(data.course, "course", 1, 30));
+  const configuracion = data.configuracion && typeof data.configuracion === "object"
+    ? data.configuracion
+    : {};
+  const turnoSlots = parseTurnoConfig(configuracion);
+  const sheetId = parseSheetId(sheetUrl);
+
+  if (!sheetId) {
+    throw new HttpsError("invalid-argument", "Invalid Google Sheets URL");
+  }
+
+  const endpoint =
+    `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+
+  let csvText = "";
+  try {
+    const response = await fetch(endpoint);
+    if (!response.ok) {
+      throw new Error(`Sheets request failed with status ${response.status}`);
+    }
+    csvText = await response.text();
+  } catch (err) {
+    logger.error("loadCursosFromSheet fetch failed", err);
+    throw new HttpsError(
+      "failed-precondition",
+      "Could not read sheet. Verify URL, sheet name, and sharing permissions."
+    );
+  }
+
+  const rows = parseCsv(csvText);
+  if (!rows.length) {
+    return { ok: true, cursos: [], total: 0 };
+  }
+
+  const headerRowIndex = findHeaderRowIndex(rows);
+  const hasHeaders = headerRowIndex >= 0;
+  const headers = hasHeaders ? rows[headerRowIndex].map((header) => normalizeHeader(header)) : [];
+  const dataRows = hasHeaders ? rows.slice(headerRowIndex + 1) : rows;
+  const detectedCoursesSet = new Set();
+
+  const cursos = dataRows
+    .flatMap((values) => {
+      const rowObj = {};
+      if (hasHeaders) {
+        headers.forEach((header, idx) => {
+          rowObj[header] = String(values[idx] || "").trim();
+        });
+      }
+
+      const detectedCourse = pickCourseValue(rowObj, values);
+      if (detectedCourse) {
+        detectedCoursesSet.add(detectedCourse);
+      }
+      if (detectedCourse !== selectedCourse) {
+        return [];
+      }
+
+      const cupof = pickField(rowObj, ["cupof"]) || String(values[12] || "").trim();
+      const materia =
+        pickField(rowObj, ["espaciocurricular", "materia"]) || String(values[11] || "").trim();
+      const turno = pickField(rowObj, ["turno"]) || String(values[18] || "").trim();
+      const docenteCuil = pickField(rowObj, ["cuiltitular", "cuil", "dni", "documento"]) || "";
+      const suplenteCuil = pickField(rowObj, ["cuilsuplente"]) || String(values[7] || "").trim();
+
+      if (!cupof || !materia) {
+        return [];
+      }
+
+      const dias = [
+        { key: "lunes", fallback: String(values[1] || "").trim() },
+        { key: "martes", fallback: String(values[2] || "").trim() },
+        { key: "miercoles", fallback: String(values[3] || "").trim() },
+        { key: "jueves", fallback: String(values[4] || "").trim() },
+        { key: "viernes", fallback: String(values[5] || "").trim() },
+      ];
+
+      return dias
+        .map(({ key, fallback }) => {
+          const cellValue = pickField(rowObj, [key]) || fallback;
+          const diaHorario = buildDiaHorario(key, cellValue, turnoSlots);
+          if (!diaHorario) {
+            return null;
+          }
+          return {
+            curso: selectedCourse,
+            cupof,
+            materia,
+            turno,
+            diaHorario,
+            docenteCuil,
+            suplenteCuil,
+          };
+        })
+        .filter(Boolean);
+    })
+    .filter(Boolean)
+    .slice(0, 1000);
+
+  const detectedCourses = Array.from(detectedCoursesSet).slice(0, 20);
+
+  return {
+    ok: true,
+    course: selectedCourse,
+    detectedCourses,
+    cursos,
+    total: cursos.length,
+  };
+});
+
+exports.saveImportedCurso = onCall(callableOptions, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Auth required");
+  }
+
+  const uid = request.auth.uid;
+  const tenantId = await getUserTenantId(uid);
+  const data = request.data || {};
+  const curso = data.curso || {};
+  const diaHorario = curso.diaHorario || {};
+
+  const cursoNombre = normalizeCourse(String(curso.curso || data.course || "").trim());
+  const cupof = String(curso.cupof || "").trim();
+  const materia = String(curso.materia || "").trim();
+  const turno = String(curso.turno || "").trim();
+  const docenteCuil = String(curso.docenteCuil || "").trim();
+  const suplenteCuil = String(curso.suplenteCuil || "").trim();
+  const dia = normalizeDayName(diaHorario.dia || "");
+  const horario = Array.isArray(diaHorario.horario)
+    ? diaHorario.horario.map((n) => Number(n)).filter((n) => Number.isFinite(n))
+    : [];
+  const aclaracion = String(diaHorario.aclaracion || "").trim();
+
+  if (!cursoNombre || !cupof || !materia || !dia) {
+    throw new HttpsError("invalid-argument", "Curso incompleto para guardar");
+  }
+
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const horarioKey = horario.length ? horario.join("-") : "sin_horario";
+  const cursoId = [cursoNombre, cupof, normalizeIdentityPart(materia), normalizeIdentityPart(dia), horarioKey]
+    .join("__")
+    .replace(/[^a-zA-Z0-9_-]/g, "_");
+
+  const cursoRef = db.collection("tenants").doc(tenantId).collection("cursos").doc(cursoId);
+  await cursoRef.set(
+    {
+      curso: cursoNombre,
+      cupof,
+      materia,
+      turno,
+      diaHorario: {
+        dia,
+        horario,
+        aclaracion,
+      },
+      docenteCuil,
+      suplenteCuil,
+      tenantId,
+      source: {
+        sheetUrl: String(data.sheetUrl || ""),
+        sheetName: String(data.sheetName || ""),
+        importedBy: uid,
+      },
+      updatedAt: now,
+      createdAt: now,
+    },
+    { merge: true }
+  );
+
+  const configuracion = data.configuracion && typeof data.configuracion === "object"
+    ? data.configuracion
+    : {};
+  await db.collection("tenants").doc(tenantId).collection("configuracion").doc("horarios").set(
+    {
+      ...configuracion,
+      updatedAt: now,
+      updatedBy: uid,
+    },
+    { merge: true }
+  );
+
+  return { ok: true, tenantId, cursoId };
 });
