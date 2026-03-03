@@ -1355,12 +1355,15 @@ function renderScheduleTable(curso, items) {
                 : "";
               const cupof = esc(item.cupof || "-");
               const horario = esc(range);
+              const horarioHtml = normalizeTurn(item.turno) === "C"
+                ? `<span class="meta horario">Horario: ${horario}</span>`
+                : "";
               return `
                 <div class="schedule-slot" data-slot-id="${esc(slotId)}">
                   <span class="title">${materia}</span>
                   <span class="meta docente-main ${titularClass}">${titular}</span>
                   ${suplenteHtml}
-                  <span class="meta horario">Horario: ${horario}</span>
+                  ${horarioHtml}
                   <span class="meta cupof">CUPOF: ${cupof}</span>
                 </div>
               `;
