@@ -355,6 +355,13 @@ button {
   display: block;
 }
 
+.schedule-slot .meta.cupof {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px dashed #d6dff1;
+  font-weight: 600;
+}
+
 .home-course-groups {
   position: sticky;
   top: var(--sticky-top);

@@ -102,6 +102,7 @@ let homeState = {
   courses: [],
   selectedCourse: "",
   docentesByCuil: new Map(),
+  docentesByCupof: new Map(),
 };
 
 const TURN_ORDER = ["M", "T", "V", "N", "S"];
@@ -264,6 +265,36 @@ function docenteDisplayNameByCuil(cuil) {
   }
   const fromMap = homeState.docentesByCuil.get(key);
   return fromMap || key;
+}
+
+function resolveTitularDisplay(item) {
+  const titularCuil = String(item?.docenteCuil || "").trim();
+  const direct = docenteDisplayNameByCuil(titularCuil);
+  if (direct !== "-") {
+    return direct;
+  }
+
+  const cupof = String(item?.cupof || "").trim();
+  if (!cupof) {
+    return "-";
+  }
+
+  const candidates = homeState.docentesByCupof.get(cupof) || [];
+  const suplenteCuil = String(item?.suplenteCuil || "").trim();
+  const fallback = candidates.find((candidate) => {
+    const candidateCuil = String(candidate?.cuil || "").trim();
+    return candidateCuil && candidateCuil !== "sin datos" && candidateCuil !== suplenteCuil;
+  });
+  return String(fallback?.name || "").trim() || "-";
+}
+
+function resolveSuplenteDisplay(item) {
+  const suplenteCuil = String(item?.suplenteCuil || "").trim();
+  if (!suplenteCuil || suplenteCuil === "sin datos") {
+    return "";
+  }
+  const display = docenteDisplayNameByCuil(suplenteCuil);
+  return display === "-" ? "" : display;
 }
 
 function esc(value) {
@@ -656,6 +687,7 @@ function resetImportState() {
     courses: [],
     selectedCourse: "",
     docentesByCuil: new Map(),
+    docentesByCupof: new Map(),
   };
   buttonConfigState = clonePlain(DEFAULT_BUTTON_CONFIG);
   renderButtonConfigEditor();
@@ -925,6 +957,7 @@ async function loadTenantHomeCache(tenantId) {
     }
     homeState.tenantId = tenantId;
     homeState.docentesByCuil = new Map(Array.isArray(cached.docentesByCuil) ? cached.docentesByCuil : []);
+    homeState.docentesByCupof = new Map(Array.isArray(cached.docentesByCupof) ? cached.docentesByCupof : []);
     renderCourseButtons(Array.isArray(cached.courses) ? cached.courses : []);
     renderHomeCourseButtons(Array.isArray(cached.courseButtons) ? cached.courseButtons : []);
     setMsg(homeMsg, "Mostrando datos locales...");
@@ -1084,18 +1117,31 @@ function renderHomeCourseButtons(courses) {
 async function buildDocentesByCuilMap(tenantId) {
   const docentesSnap = await getDocs(collection(db, "tenants", tenantId, "docentes"));
   const map = new Map();
+  const cupofMap = new Map();
   docentesSnap.docs.forEach((docSnap) => {
     const data = docSnap.data() || {};
     const cuil = String(data.cuil || "").trim();
-    if (!cuil || cuil === "sin datos") {
-      return;
-    }
     const apellido = String(data.apellido || "").trim();
     const nombre = String(data.nombre || "").trim();
-    const fullName = `${apellido} ${nombre}`.trim() || cuil;
-    map.set(cuil, fullName);
+    const fullName = `${apellido} ${nombre}`.trim() || cuil || "-";
+    if (cuil && cuil !== "sin datos") {
+      map.set(cuil, fullName);
+    }
+
+    const refs = Array.isArray(data.cursoRefs) ? data.cursoRefs : [];
+    refs.forEach((ref) => {
+      const cupof = String(ref?.cupof || "").trim();
+      if (!cupof || !fullName || fullName === "-") {
+        return;
+      }
+      if (!cupofMap.has(cupof)) {
+        cupofMap.set(cupof, []);
+      }
+      cupofMap.get(cupof).push({ cuil, name: fullName });
+    });
   });
   homeState.docentesByCuil = map;
+  homeState.docentesByCupof = cupofMap;
 }
 
 function renderScheduleTable(curso, items) {
@@ -1146,13 +1192,18 @@ function renderScheduleTable(curso, items) {
           const slotHtml = dayItems
             .map((item) => {
               const materia = esc(item.materia || "-");
-              const titular = esc(docenteDisplayNameByCuil(item.docenteCuil));
-              const suplente = esc(docenteDisplayNameByCuil(item.suplenteCuil));
+              const titular = esc(resolveTitularDisplay(item));
+              const suplente = resolveSuplenteDisplay(item);
+              const suplenteHtml = suplente
+                ? `<span class="meta">Suplente: ${esc(suplente)}</span>`
+                : "";
+              const cupof = esc(item.cupof || "-");
               return `
                 <div class="schedule-slot">
                   <span class="title">${materia}</span>
                   <span class="meta">Titular: ${titular}</span>
-                  <span class="meta">Suplente: ${suplente}</span>
+                  ${suplenteHtml}
+                  <span class="meta cupof">CUPOF: ${cupof}</span>
                 </div>
               `;
             })
@@ -1288,6 +1339,7 @@ async function loadTenantCourses(tenantId) {
         courses: unique,
         courseButtons: buttonsToRender,
         docentesByCuil: Array.from(homeState.docentesByCuil.entries()),
+        docentesByCupof: Array.from(homeState.docentesByCupof.entries()),
       });
       await loadScheduleForCourse(unique[0]);
     } else {
