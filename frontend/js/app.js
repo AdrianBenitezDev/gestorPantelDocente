@@ -1290,17 +1290,24 @@ async function buildDocentesByCuilMap(tenantId) {
 function renderScheduleTable(curso, items) {
   const days = ["LUNES", "MARTES", "MIERCOLES", "JUEVES", "VIERNES"];
   const slots = new Map();
+  const contracturnoByDay = new Map();
+  days.forEach((day) => contracturnoByDay.set(day, []));
   const allRanges = new Set();
   let slotIndex = 0;
   homeState.currentItems = Array.isArray(items) ? items : [];
   homeState.slotItems = new Map();
 
   items.forEach((item) => {
+    const isContracturno = normalizeTurn(item?.turno) === "C";
     const dias = Array.isArray(item?.diaHorario?.dias) ? item.diaHorario.dias : [];
     dias.forEach((diaItem) => {
       const day = normalizeDayColumn(diaItem?.dia);
       const range = normalizeHorarioRange(diaItem?.horario);
       if (!day || !range) {
+        return;
+      }
+      if (isContracturno) {
+        contracturnoByDay.get(day)?.push({ item, range });
         return;
       }
       allRanges.add(range);
@@ -1320,7 +1327,9 @@ function renderScheduleTable(curso, items) {
     return a.localeCompare(b);
   });
 
-  if (!ranges.length) {
+  const hasContracturno = days.some((day) => (contracturnoByDay.get(day) || []).length > 0);
+
+  if (!ranges.length && !hasContracturno) {
     courseScheduleWrap.classList.add("is-hidden");
     setMsg(homeMsg, `El curso ${curso} no tiene horarios cargados`, true);
     return;
@@ -1354,16 +1363,11 @@ function renderScheduleTable(curso, items) {
                 ? `<span class="meta ${suplenteClass}">Suplente: ${esc(suplenteInfo.name)}</span>`
                 : "";
               const cupof = esc(item.cupof || "-");
-              const horario = esc(range);
-              const horarioHtml = normalizeTurn(item.turno) === "C"
-                ? `<span class="meta horario">Horario: ${horario}</span>`
-                : "";
               return `
                 <div class="schedule-slot" data-slot-id="${esc(slotId)}">
                   <span class="title">${materia}</span>
                   <span class="meta docente-main ${titularClass}">${titular}</span>
                   ${suplenteHtml}
-                  ${horarioHtml}
                   <span class="meta cupof">CUPOF: ${cupof}</span>
                 </div>
               `;
@@ -1376,6 +1380,53 @@ function renderScheduleTable(curso, items) {
       return `<tr><th>${esc(range)}</th>${dayCells}</tr>`;
     })
     .join("");
+
+  let contracturnoRowHtml = "";
+  if (hasContracturno) {
+    const contracturnoCells = days
+      .map((day) => {
+        const entries = (contracturnoByDay.get(day) || []).sort(
+          (a, b) => parseStartMinutes(a.range) - parseStartMinutes(b.range)
+        );
+        if (!entries.length) {
+          return "<td></td>";
+        }
+        let firstSlotId = "";
+        const slotHtml = entries
+          .map(({ item, range }) => {
+            const slotId = `${curso}_${day}_CONTRATURNO_${slotIndex}`;
+            slotIndex += 1;
+            homeState.slotItems.set(slotId, item);
+            if (!firstSlotId) {
+              firstSlotId = slotId;
+            }
+            const materia = esc(item.materia || "-");
+            const titularInfo = resolveTitularInfo(item);
+            const suplenteInfo = resolveSuplenteInfo(item);
+            const titularClass = situacionToClass(titularInfo.situacionRevista);
+            const suplenteClass = situacionToClass(suplenteInfo.situacionRevista);
+            const titular = esc(titularInfo.name);
+            const suplenteHtml = suplenteInfo.name
+              ? `<span class="meta ${suplenteClass}">Suplente: ${esc(suplenteInfo.name)}</span>`
+              : "";
+            const cupof = esc(item.cupof || "-");
+            const horario = esc(range);
+            return `
+              <div class="schedule-slot" data-slot-id="${esc(slotId)}">
+                <span class="title">${materia}</span>
+                <span class="meta docente-main ${titularClass}">${titular}</span>
+                ${suplenteHtml}
+                <span class="meta horario">Horario: ${horario}</span>
+                <span class="meta cupof">CUPOF: ${cupof}</span>
+              </div>
+            `;
+          })
+          .join("");
+        return `<td data-slot-id="${esc(firstSlotId)}">${slotHtml}</td>`;
+      })
+      .join("");
+    contracturnoRowHtml = `<tr><th>Contraturno</th>${contracturnoCells}</tr>`;
+  }
 
   courseScheduleTitle.textContent = `Horario del curso ${curso}`;
   courseScheduleTable.innerHTML = `
@@ -1391,7 +1442,7 @@ function renderScheduleTable(curso, items) {
             <th>Viernes</th>
           </tr>
         </thead>
-        <tbody>${rowsHtml}</tbody>
+        <tbody>${rowsHtml}${contracturnoRowHtml}</tbody>
       </table>
     </div>
   `;
