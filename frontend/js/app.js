@@ -321,7 +321,7 @@ function findDocenteBySlot(item, preferNonSuplente = true) {
   const working = preferNonSuplente
     ? candidates.filter((candidate) => normalizeSituacionRevista(candidate?.situacionRevista) !== "S")
     : candidates.filter((candidate) => normalizeSituacionRevista(candidate?.situacionRevista) === "S");
-  const list = working.length ? working : preferNonSuplente ? [] : candidates;
+  const list = working.length ? working : [];
 
   if (titularCuil && titularCuil !== suplenteCuil) {
     const byTitularCuil = list.find((candidate) => String(candidate?.cuil || "").trim() === titularCuil);
@@ -372,15 +372,24 @@ function resolveSuplenteInfo(item) {
   if (!suplenteCuil || suplenteCuil === "sin datos") {
     return { name: "", situacionRevista: "", docente: null };
   }
-  const display = docenteDisplayNameByCuil(suplenteCuil);
-  if (!display || display === "-") {
-    return { name: "", situacionRevista: "", docente: null };
+  const directS = homeState.docentesAll.find((docente) => {
+    const cuil = String(docente?.cuil || "").trim();
+    if (!cuil || cuil !== suplenteCuil) {
+      return false;
+    }
+    const refs = extractDocenteRefs(docente);
+    const cupof = String(item?.cupof || "").trim();
+    return refs.some((ref) => String(ref?.cupof || "").trim() === cupof && normalizeSituacionRevista(ref?.situacionRevista) === "S");
+  });
+  if (directS) {
+    const name = `${String(directS.apellido || "").trim()} ${String(directS.nombre || "").trim()}`.trim();
+    return {
+      name: name || "-",
+      situacionRevista: "S",
+      docente: { id: directS.id, data: clonePlain(directS) },
+    };
   }
-  return {
-    name: display,
-    situacionRevista: "S",
-    docente: null,
-  };
+  return { name: "", situacionRevista: "", docente: null };
 }
 
 function esc(value) {
@@ -1232,7 +1241,7 @@ function renderHomeCourseButtons(courses) {
           homeState.loadingCourseButton = item.course;
           button.classList.add("is-loading");
           try {
-            await loadScheduleForCourse(item.course, { preferCache: false });
+            await loadScheduleForCourse(item.course, { preferCache: true, forceRefresh: false });
           } finally {
             homeState.loadingCourseButton = "";
             button.classList.remove("is-loading");
@@ -1605,7 +1614,7 @@ async function saveDocenteEditorChanges() {
 }
 
 async function loadScheduleForCourse(courseName, options = {}) {
-  const { preferCache = true } = options;
+  const { preferCache = true, forceRefresh = false } = options;
   if (!homeState.tenantId) {
     return;
   }
@@ -1619,11 +1628,19 @@ async function loadScheduleForCourse(courseName, options = {}) {
   setLoading(true, `Cargando horario ${course}...`);
 
   try {
+    let usedCache = false;
     if (preferCache) {
       const cachedItems = await loadCourseScheduleCache(homeState.tenantId, course);
       if (cachedItems && cachedItems.length) {
         renderScheduleTable(course, cachedItems);
+        usedCache = true;
+        if (!forceRefresh) {
+          return;
+        }
       }
+    }
+    if (usedCache && !forceRefresh) {
+      return;
     }
     const itemsSnap = await getDocs(collection(db, "tenants", homeState.tenantId, "cursos", course, "items"));
     const items = itemsSnap.docs.map((docSnap) => docSnap.data() || {});
@@ -1637,11 +1654,22 @@ async function loadScheduleForCourse(courseName, options = {}) {
   }
 }
 
-async function loadTenantCourses(tenantId) {
+async function loadTenantCourses(tenantId, options = {}) {
+  const { forceRefresh = false } = options;
   setLoading(true, "Cargando cursos...");
   try {
-    await loadTenantHomeCache(tenantId);
+    const hasCache = await loadTenantHomeCache(tenantId);
     await loadButtonConfig(tenantId);
+    if (hasCache && !forceRefresh) {
+      homeState.tenantId = tenantId;
+      const sourceCourses = Array.isArray(homeState.courses) ? homeState.courses : [];
+      const firstCourse = sourceCourses[0];
+      const firstCourseName = normalizeCourse(firstCourse?.course || firstCourse || "");
+      if (firstCourseName) {
+        await loadScheduleForCourse(firstCourseName, { preferCache: true, forceRefresh: false });
+      }
+      return;
+    }
     const cursosSnap = await getDocs(collection(db, "tenants", tenantId, "cursos"));
     const rawCourses = cursosSnap.docs
       .map((docSnap) => {
@@ -1708,7 +1736,7 @@ async function loadTenantCourses(tenantId) {
         docentesByCupof: Array.from(homeState.docentesByCupof.entries()),
         docentesAll: homeState.docentesAll,
       });
-      await loadScheduleForCourse(unique[0]);
+      await loadScheduleForCourse(unique[0], { preferCache: true, forceRefresh: false });
     } else {
       courseScheduleWrap.classList.add("is-hidden");
     }
@@ -2178,9 +2206,9 @@ refreshFab.addEventListener("click", async () => {
   setRefreshFabLoading(true);
   setLoading(true, "Actualizando datos...");
   try {
-    await loadTenantCourses(importState.tenantId);
+    await loadTenantCourses(importState.tenantId, { forceRefresh: true });
     if (homeState.selectedCourse) {
-      await loadScheduleForCourse(homeState.selectedCourse, { preferCache: false });
+      await loadScheduleForCourse(homeState.selectedCourse, { preferCache: true, forceRefresh: true });
     }
     setMsg(homeMsg, "Datos actualizados");
   } catch (error) {
