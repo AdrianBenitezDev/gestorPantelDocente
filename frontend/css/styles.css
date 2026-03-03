@@ -20,7 +20,7 @@ body {
 
 .app {
   max-width: 960px;
-  margin: 88px auto 28px;
+  margin: 136px auto 28px;
   padding: 18px;
 }
 
@@ -181,7 +181,7 @@ button {
 
 @media (max-width: 740px) {
   .app {
-    margin-top: 128px;
+    margin-top: 184px;
   }
 
   .top-banner {
@@ -196,6 +196,15 @@ button {
 
   .row-form {
     grid-template-columns: 1fr;
+  }
+
+  .sub-banner {
+    top: 116px;
+    height: auto;
+    min-height: 56px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
   }
 }
 
@@ -238,7 +247,45 @@ button {
 .panel-nav {
   display: flex;
   gap: 10px;
-  margin: 10px 0 14px;
+  margin: 0;
+}
+
+.sub-banner {
+  position: fixed;
+  top: 72px;
+  left: 0;
+  right: 0;
+  height: 48px;
+  padding: 8px 18px;
+  background: #f8fbff;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 19;
+}
+
+.loading-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #d7e1f7;
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .schedule-table-wrap {

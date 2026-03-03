@@ -22,6 +22,18 @@
       <button id="logout-btn" type="button">Cerrar sesion</button>
     </div>
   </header>
+
+  <div id="sub-banner" class="sub-banner is-hidden">
+    <div class="panel-nav">
+      <button id="home-tab-btn" type="button">Inicio</button>
+      <button id="settings-tab-btn" type="button" class="google-btn">Configuracion</button>
+    </div>
+    <div id="loading-indicator" class="loading-indicator is-hidden" aria-live="polite">
+      <span class="spinner" aria-hidden="true"></span>
+      <span id="loading-text">Cargando...</span>
+    </div>
+  </div>
+
   <main class="app">
     <header class="header">
       <h1>Gestor Plantel Docente</h1>
@@ -43,11 +55,6 @@
     <section id="panel-section" class="card is-hidden">
       <h2>Panel</h2>
       <p id="panel-msg" class="msg"></p>
-
-      <div class="panel-nav">
-        <button id="home-tab-btn" type="button">Inicio</button>
-        <button id="settings-tab-btn" type="button" class="google-btn">Configuracion</button>
-      </div>
 
       <section id="home-section" class="is-hidden">
         <h3>Inicio</h3>

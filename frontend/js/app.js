@@ -27,6 +27,7 @@ const logoutBtn = document.getElementById("logout-btn");
 const googleLoginBtn = document.getElementById("google-login-btn");
 const panelSection = document.getElementById("panel-section");
 const panelMsg = document.getElementById("panel-msg");
+const subBanner = document.getElementById("sub-banner");
 const homeTabBtn = document.getElementById("home-tab-btn");
 const settingsTabBtn = document.getElementById("settings-tab-btn");
 const homeSection = document.getElementById("home-section");
@@ -37,6 +38,8 @@ const homeSelectedCourse = document.getElementById("home-selected-course");
 const courseScheduleWrap = document.getElementById("course-schedule-wrap");
 const courseScheduleTitle = document.getElementById("course-schedule-title");
 const courseScheduleTable = document.getElementById("course-schedule-table");
+const loadingIndicator = document.getElementById("loading-indicator");
+const loadingText = document.getElementById("loading-text");
 const tenantEmptyImport = document.getElementById("tenant-empty-import");
 const sheetImportForm = document.getElementById("sheet-import-form");
 const sheetUrlInput = document.getElementById("sheet-url");
@@ -104,6 +107,13 @@ function setPanelView(view) {
   settingsSection.classList.toggle("is-hidden", isHome);
   homeTabBtn.classList.toggle("google-btn", !isHome);
   settingsTabBtn.classList.toggle("google-btn", isHome);
+}
+
+function setLoading(isLoading, text = "Cargando...") {
+  loadingIndicator.classList.toggle("is-hidden", !isLoading);
+  if (isLoading) {
+    loadingText.textContent = text;
+  }
 }
 
 function normalizeDayColumn(day) {
@@ -386,6 +396,7 @@ function updateSessionLayout(isLoggedIn) {
   loginSection.classList.toggle("is-hidden", isLoggedIn);
   logoutBtn.classList.toggle("is-hidden", !isLoggedIn);
   panelSection.classList.toggle("is-hidden", !isLoggedIn);
+  subBanner.classList.toggle("is-hidden", !isLoggedIn);
 }
 
 function resetImportState() {
@@ -433,6 +444,7 @@ function resetImportState() {
   courseScheduleWrap.classList.add("is-hidden");
   courseScheduleTable.innerHTML = "";
   setMsg(homeMsg, "");
+  setLoading(false);
 }
 
 function renderCurrentDocente() {
@@ -671,6 +683,7 @@ async function loadScheduleForCourse(courseName) {
   homeState.selectedCourse = course;
   homeSelectedCourse.textContent = `Curso seleccionado: ${course}`;
   setMsg(homeMsg, `Cargando horario de ${course}...`);
+  setLoading(true, `Cargando horario ${course}...`);
 
   try {
     const itemsSnap = await getDocs(collection(db, "tenants", homeState.tenantId, "cursos", course, "items"));
@@ -679,33 +692,40 @@ async function loadScheduleForCourse(courseName) {
   } catch (error) {
     console.error(error);
     setMsg(homeMsg, "No se pudo cargar el horario del curso", true);
+  } finally {
+    setLoading(false);
   }
 }
 
 async function loadTenantCourses(tenantId) {
-  const cursosSnap = await getDocs(collection(db, "tenants", tenantId, "cursos"));
-  const courses = cursosSnap.docs
-    .map((docSnap) => {
-      const data = docSnap.data() || {};
-      return (
-        data.nombre ||
-        data.curso ||
-        data.codigo ||
-        data.id ||
-        docSnap.id
-      );
-    })
-    .map((value) => String(value || "").trim())
-    .filter(Boolean);
-  const unique = Array.from(new Set(courses.map((value) => normalizeCourse(value)))).filter(Boolean);
-  renderCourseButtons(unique);
-  renderHomeCourseButtons(unique);
-  homeState.tenantId = tenantId;
-  if (unique.length) {
-    await buildDocentesByCuilMap(tenantId);
-    await loadScheduleForCourse(unique[0]);
-  } else {
-    courseScheduleWrap.classList.add("is-hidden");
+  setLoading(true, "Cargando cursos...");
+  try {
+    const cursosSnap = await getDocs(collection(db, "tenants", tenantId, "cursos"));
+    const courses = cursosSnap.docs
+      .map((docSnap) => {
+        const data = docSnap.data() || {};
+        return (
+          data.nombre ||
+          data.curso ||
+          data.codigo ||
+          data.id ||
+          docSnap.id
+        );
+      })
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+    const unique = Array.from(new Set(courses.map((value) => normalizeCourse(value)))).filter(Boolean);
+    renderCourseButtons(unique);
+    renderHomeCourseButtons(unique);
+    homeState.tenantId = tenantId;
+    if (unique.length) {
+      await buildDocentesByCuilMap(tenantId);
+      await loadScheduleForCourse(unique[0]);
+    } else {
+      courseScheduleWrap.classList.add("is-hidden");
+    }
+  } finally {
+    setLoading(false);
   }
 }
 
@@ -848,6 +868,7 @@ sheetImportForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   clearCursosReviewOnly();
   toggleBulkSaveButton();
+  setLoading(true, "Cargando docentes...");
 
   if (!importState.tenantId) {
     setMsg(panelMsg, "No se encontro tenantId para este usuario", true);
@@ -909,12 +930,15 @@ sheetImportForm.addEventListener("submit", async (event) => {
     console.error(error);
     setMsg(panelMsg, error.message || "No se pudo leer la hoja", true);
     resetImportState();
+  } finally {
+    setLoading(false);
   }
 });
 
 loadCursosBtn.addEventListener("click", async () => {
   clearDocentesReviewOnly();
   toggleBulkSaveButton();
+  setLoading(true, "Cargando cursos...");
   if (!importState.tenantId) {
     setMsg(panelMsg, "No se encontro tenantId para este usuario", true);
     return;
@@ -970,6 +994,8 @@ loadCursosBtn.addEventListener("click", async () => {
     setMsg(panelMsg, error.message || "No se pudo leer cursos desde la hoja", true);
     importReviewCursos.classList.add("is-hidden");
     toggleBulkSaveButton();
+  } finally {
+    setLoading(false);
   }
 });
 
@@ -990,58 +1016,62 @@ saveAllBtn.addEventListener("click", async () => {
   }
 
   setMsg(panelMsg, "Iniciando guardado masivo...");
+  setLoading(true, "Guardando todo...");
   const saveImportedCurso = httpsCallable(functions, "saveImportedCurso");
   const saveImportedDocente = httpsCallable(functions, "saveImportedDocente");
-
-  for (let i = 0; i < pendingCursos.length; i += 1) {
-    const curso = pendingCursos[i];
-    try {
-      await saveImportedCurso({
-        curso,
-        sheetUrl: importCursosState.sheetUrl,
-        sheetName: importCursosState.sheetName,
-        course: importCursosState.selectedCourse,
-      });
-      importCursosState.accepted += 1;
-      importCursosState.index += 1;
-      appendPanelLog(`Se guardo ${curso.curso} (CUPOF ${curso.cupof})`);
-    } catch (error) {
-      console.error(error);
-      appendPanelLog(
-        `Error al guardar curso ${curso.curso} (CUPOF ${curso.cupof}): ${error.message || "sin detalle"}`,
-        true
-      );
+  try {
+    for (let i = 0; i < pendingCursos.length; i += 1) {
+      const curso = pendingCursos[i];
+      try {
+        await saveImportedCurso({
+          curso,
+          sheetUrl: importCursosState.sheetUrl,
+          sheetName: importCursosState.sheetName,
+          course: importCursosState.selectedCourse,
+        });
+        importCursosState.accepted += 1;
+        importCursosState.index += 1;
+        appendPanelLog(`Se guardo ${curso.curso} (CUPOF ${curso.cupof})`);
+      } catch (error) {
+        console.error(error);
+        appendPanelLog(
+          `Error al guardar curso ${curso.curso} (CUPOF ${curso.cupof}): ${error.message || "sin detalle"}`,
+          true
+        );
+      }
     }
-  }
 
-  for (let i = 0; i < pendingDocentes.length; i += 1) {
-    const docente = pendingDocentes[i];
-    const docenteName = `${docente.apellido || ""} ${docente.nombre || ""}`.trim() || docente.cuil || "sin nombre";
-    try {
-      await saveImportedDocente({
-        docente,
-        sheetUrl: importState.sheetUrl,
-        sheetName: importState.sheetName,
-        course: importState.selectedCourse,
-      });
-      importState.accepted += 1;
-      importState.index += 1;
-      appendPanelLog(`Se guardo el docente ${docenteName}`);
-    } catch (error) {
-      console.error(error);
-      appendPanelLog(
-        `Error al guardar docente ${docenteName}: ${error.message || "sin detalle"}`,
-        true
-      );
+    for (let i = 0; i < pendingDocentes.length; i += 1) {
+      const docente = pendingDocentes[i];
+      const docenteName = `${docente.apellido || ""} ${docente.nombre || ""}`.trim() || docente.cuil || "sin nombre";
+      try {
+        await saveImportedDocente({
+          docente,
+          sheetUrl: importState.sheetUrl,
+          sheetName: importState.sheetName,
+          course: importState.selectedCourse,
+        });
+        importState.accepted += 1;
+        importState.index += 1;
+        appendPanelLog(`Se guardo el docente ${docenteName}`);
+      } catch (error) {
+        console.error(error);
+        appendPanelLog(
+          `Error al guardar docente ${docenteName}: ${error.message || "sin detalle"}`,
+          true
+        );
+      }
     }
-  }
 
-  appendPanelLog(
-    `Guardado masivo finalizado. Cursos guardados: ${importCursosState.accepted}. Docentes guardados: ${importState.accepted}.`
-  );
-  renderCurrentCurso();
-  renderCurrentDocente();
-  toggleBulkSaveButton();
+    appendPanelLog(
+      `Guardado masivo finalizado. Cursos guardados: ${importCursosState.accepted}. Docentes guardados: ${importState.accepted}.`
+    );
+    renderCurrentCurso();
+    renderCurrentDocente();
+    toggleBulkSaveButton();
+  } finally {
+    setLoading(false);
+  }
 });
 
 acceptDocenteBtn.addEventListener("click", async () => {
