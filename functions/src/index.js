@@ -555,6 +555,7 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
     missingIdentity: 0,
     emptyDocente: 0,
   };
+  let lastDetectedCourse = "";
 
   const docentes = dataRows
     .flatMap((values) => {
@@ -565,7 +566,11 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
         });
       }
 
-      const detectedCourse = pickCourseValue(rowObj, values);
+      const rawDetectedCourse = pickCourseValue(rowObj, values);
+      const detectedCourse = rawDetectedCourse || lastDetectedCourse;
+      if (rawDetectedCourse) {
+        lastDetectedCourse = rawDetectedCourse;
+      }
       if (detectedCourse) {
         detectedCoursesSet.add(detectedCourse);
       }
@@ -846,6 +851,7 @@ exports.loadCursosFromSheet = onCall(callableOptions, async (request) => {
   const headers = hasHeaders ? rows[headerRowIndex].map((header) => normalizeHeader(header)) : [];
   const dataRows = hasHeaders ? rows.slice(headerRowIndex + 1) : rows;
   const detectedCoursesSet = new Set();
+  let lastDetectedCourse = "";
 
   const cursos = dataRows
     .flatMap((values) => {
@@ -856,7 +862,11 @@ exports.loadCursosFromSheet = onCall(callableOptions, async (request) => {
         });
       }
 
-      const detectedCourse = pickCourseValue(rowObj, values);
+      const rawDetectedCourse = pickCourseValue(rowObj, values);
+      const detectedCourse = rawDetectedCourse || lastDetectedCourse;
+      if (rawDetectedCourse) {
+        lastDetectedCourse = rawDetectedCourse;
+      }
       if (detectedCourse) {
         detectedCoursesSet.add(detectedCourse);
       }

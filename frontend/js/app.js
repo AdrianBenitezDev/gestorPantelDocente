@@ -618,9 +618,13 @@ sheetImportForm.addEventListener("submit", async (event) => {
       sheetName,
     });
     const docentes = result.data?.docentes || [];
+    const detectedCourses = result.data?.detectedCourses || [];
+    if (detectedCourses.length) {
+      renderCourseButtons(detectedCourses);
+      courseButtonsMsg.textContent = `Cursos detectados en hoja: ${detectedCourses.join(", ")}`;
+    }
 
     if (!docentes.length) {
-      const detectedCourses = result.data?.detectedCourses || [];
       const debug = result.data?.debug || {};
       const details = [
         "No se encontraron docentes en la hoja actual.",
@@ -679,9 +683,13 @@ loadCursosBtn.addEventListener("click", async () => {
       sheetName,
     });
     const cursos = result.data?.cursos || [];
+    const detectedCourses = result.data?.detectedCourses || [];
+    if (detectedCourses.length) {
+      renderCourseButtons(detectedCourses);
+      courseButtonsMsg.textContent = `Cursos detectados en hoja: ${detectedCourses.join(", ")}`;
+    }
 
     if (!cursos.length) {
-      const detectedCourses = result.data?.detectedCourses || [];
       const details = [
         "No se encontraron cursos en la hoja actual.",
         detectedCourses.length ? `Cursos detectados: ${detectedCourses.join(", ")}` : "",
