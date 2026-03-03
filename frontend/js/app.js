@@ -44,6 +44,10 @@ const courseScheduleTable = document.getElementById("course-schedule-table");
 const loadingIndicator = document.getElementById("loading-indicator");
 const loadingText = document.getElementById("loading-text");
 const tenantEmptyImport = document.getElementById("tenant-empty-import");
+const buttonConfigMsg = document.getElementById("button-config-msg");
+const turnButtonConfig = document.getElementById("turn-button-config");
+const saveButtonConfigBtn = document.getElementById("save-button-config-btn");
+const reloadButtonConfigBtn = document.getElementById("reload-button-config-btn");
 const sheetImportForm = document.getElementById("sheet-import-form");
 const sheetUrlInput = document.getElementById("sheet-url");
 const sheetNameInput = document.getElementById("sheet-name");
@@ -97,6 +101,17 @@ let homeState = {
   selectedCourse: "",
   docentesByCuil: new Map(),
 };
+
+const TURN_ORDER = ["M", "T", "V", "N", "S"];
+const DEFAULT_BUTTON_CONFIG = {
+  M: { label: "Manana", color: "#0f6ab8" },
+  T: { label: "Tarde", color: "#bf5f00" },
+  V: { label: "Vespertino", color: "#6f42c1" },
+  N: { label: "Noche", color: "#1d3a8a" },
+  S: { label: "Sin turno", color: "#4a5568" },
+};
+
+let buttonConfigState = clonePlain(DEFAULT_BUTTON_CONFIG);
 
 function setMsg(el, text, isError = false) {
   el.textContent = text;
@@ -464,6 +479,9 @@ function resetImportState() {
     selectedCourse: "",
     docentesByCuil: new Map(),
   };
+  buttonConfigState = clonePlain(DEFAULT_BUTTON_CONFIG);
+  renderButtonConfigEditor();
+  setMsg(buttonConfigMsg, "");
   homeCourseButtons.innerHTML = "";
   homeSelectedCourse.textContent = "Curso seleccionado: -";
   courseScheduleWrap.classList.add("is-hidden");
@@ -546,6 +564,104 @@ function normalizeTurn(value) {
   if (raw.startsWith("V")) return "V";
   if (raw.startsWith("N")) return "N";
   return "S";
+}
+
+function normalizeHexColor(value, fallback) {
+  const raw = String(value || "").trim();
+  const isValid = /^#([0-9a-fA-F]{6})$/.test(raw);
+  return isValid ? raw : fallback;
+}
+
+function normalizeButtonConfig(rawConfig) {
+  const source = rawConfig && typeof rawConfig === "object" ? rawConfig : {};
+  const normalized = {};
+  TURN_ORDER.forEach((turn) => {
+    const fromDb = source[turn] || {};
+    const fallback = DEFAULT_BUTTON_CONFIG[turn];
+    normalized[turn] = {
+      label: String(fromDb.label || fallback.label || turn).trim() || fallback.label,
+      color: normalizeHexColor(fromDb.color, fallback.color),
+    };
+  });
+  return normalized;
+}
+
+function getTurnButtonConfig(turnValue) {
+  const turn = normalizeTurn(turnValue);
+  const fromState = buttonConfigState?.[turn];
+  if (fromState) {
+    return fromState;
+  }
+  return DEFAULT_BUTTON_CONFIG[turn] || DEFAULT_BUTTON_CONFIG.S;
+}
+
+function applyTurnButtonStyle(button, turnValue) {
+  const config = getTurnButtonConfig(turnValue);
+  button.style.backgroundColor = config.color;
+  button.style.borderColor = config.color;
+  button.title = `${config.label} (${normalizeTurn(turnValue)})`;
+}
+
+function renderButtonConfigEditor() {
+  if (!turnButtonConfig) {
+    return;
+  }
+  turnButtonConfig.innerHTML = "";
+  TURN_ORDER.forEach((turn) => {
+    const config = getTurnButtonConfig(turn);
+    const row = document.createElement("div");
+    row.className = "turn-config-row";
+    row.innerHTML = `
+      <div class="turn-code">${turn}</div>
+      <label>Nombre
+        <input type="text" data-turn="${turn}" data-key="label" value="${esc(config.label)}" />
+      </label>
+      <label>Color
+        <input type="color" data-turn="${turn}" data-key="color" value="${esc(config.color)}" />
+      </label>
+    `;
+    turnButtonConfig.appendChild(row);
+  });
+}
+
+function readButtonConfigFromEditor() {
+  const output = {};
+  TURN_ORDER.forEach((turn) => {
+    const fallback = DEFAULT_BUTTON_CONFIG[turn];
+    const labelInput = turnButtonConfig.querySelector(`input[data-turn="${turn}"][data-key="label"]`);
+    const colorInput = turnButtonConfig.querySelector(`input[data-turn="${turn}"][data-key="color"]`);
+    const label = String(labelInput?.value || fallback.label).trim() || fallback.label;
+    const color = normalizeHexColor(colorInput?.value, fallback.color);
+    output[turn] = { label, color };
+  });
+  return output;
+}
+
+async function loadButtonConfig(tenantId) {
+  if (!tenantId) {
+    buttonConfigState = clonePlain(DEFAULT_BUTTON_CONFIG);
+    renderButtonConfigEditor();
+    return;
+  }
+  try {
+    const configRef = doc(db, "tenants", tenantId, "botones", "config");
+    const snap = await getDoc(configRef);
+    if (!snap.exists()) {
+      buttonConfigState = clonePlain(DEFAULT_BUTTON_CONFIG);
+      renderButtonConfigEditor();
+      setMsg(buttonConfigMsg, "Usando configuracion de botones por defecto.");
+      return;
+    }
+    const data = snap.data() || {};
+    buttonConfigState = normalizeButtonConfig(data.turnos);
+    renderButtonConfigEditor();
+    setMsg(buttonConfigMsg, "Configuracion de botones cargada.");
+  } catch (error) {
+    console.error(error);
+    buttonConfigState = clonePlain(DEFAULT_BUTTON_CONFIG);
+    renderButtonConfigEditor();
+    setMsg(buttonConfigMsg, "No se pudo cargar configuracion de botones", true);
+  }
 }
 
 function setSelectedCourse(courseName) {
@@ -643,6 +759,7 @@ function renderHomeCourseButtons(courses) {
         button.className = `course-btn turn-${item.turn.toLowerCase()}`;
         button.dataset.course = item.course;
         button.textContent = item.course;
+        applyTurnButtonStyle(button, item.turn);
         button.addEventListener("click", () => loadScheduleForCourse(item.course));
         buttonsWrap.appendChild(button);
       });
@@ -786,6 +903,7 @@ async function loadScheduleForCourse(courseName) {
 async function loadTenantCourses(tenantId) {
   setLoading(true, "Cargando cursos...");
   try {
+    await loadButtonConfig(tenantId);
     const cursosSnap = await getDocs(collection(db, "tenants", tenantId, "cursos"));
     const rawCourses = cursosSnap.docs
       .map((docSnap) => {
@@ -1289,6 +1407,45 @@ cancelCursoBtn.addEventListener("click", () => {
   );
 });
 
+saveButtonConfigBtn.addEventListener("click", async () => {
+  if (!importState.tenantId) {
+    setMsg(buttonConfigMsg, "No hay tenantId activo para guardar configuracion", true);
+    return;
+  }
+
+  try {
+    const turnos = readButtonConfigFromEditor();
+    buttonConfigState = normalizeButtonConfig(turnos);
+    const configRef = doc(db, "tenants", importState.tenantId, "botones", "config");
+    await setDoc(
+      configRef,
+      {
+        tenantId: importState.tenantId,
+        turnos: buttonConfigState,
+        updatedAt: new Date(),
+      },
+      { merge: true }
+    );
+    renderButtonConfigEditor();
+    renderHomeCourseButtons(homeState.courses);
+    updateHomeCourseButtonSelection();
+    setMsg(buttonConfigMsg, "Configuracion de botones guardada.");
+  } catch (error) {
+    console.error(error);
+    setMsg(buttonConfigMsg, "No se pudo guardar la configuracion de botones", true);
+  }
+});
+
+reloadButtonConfigBtn.addEventListener("click", async () => {
+  if (!importState.tenantId) {
+    setMsg(buttonConfigMsg, "No hay tenantId activo para recargar configuracion", true);
+    return;
+  }
+  await loadButtonConfig(importState.tenantId);
+  renderHomeCourseButtons(homeState.courses);
+  updateHomeCourseButtonSelection();
+});
+
 homeTabBtn.addEventListener("click", () => {
   setPanelView("home");
 });
@@ -1355,4 +1512,5 @@ onAuthStateChanged(auth, (user) => {
     });
 });
 
+renderButtonConfigEditor();
 syncBannerLayout();

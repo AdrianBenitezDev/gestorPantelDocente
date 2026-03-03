@@ -367,6 +367,32 @@ button {
   gap: 6px;
 }
 
+.turn-config-list {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 10px;
+}
+
+.turn-config-row {
+  display: grid;
+  grid-template-columns: 70px 1fr 120px;
+  gap: 8px;
+  align-items: end;
+}
+
+.turn-config-row .turn-code {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  padding-bottom: 10px;
+}
+
+.turn-config-row input[type="color"] {
+  width: 100%;
+  min-height: 40px;
+  padding: 4px;
+}
+
 .course-btn {
   min-width: 62px;
   min-height: 30px;
