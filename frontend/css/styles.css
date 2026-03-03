@@ -114,7 +114,7 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  z-index: 20;
+  z-index: 40;
 }
 
 .brand-block {
@@ -250,6 +250,12 @@ button {
   margin: 0;
 }
 
+.panel-nav button.active-tab {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
 .sub-banner {
   position: fixed;
   top: 72px;
@@ -262,7 +268,7 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  z-index: 19;
+  z-index: 30;
 }
 
 .loading-indicator {

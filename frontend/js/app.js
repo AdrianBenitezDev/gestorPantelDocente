@@ -27,7 +27,9 @@ const logoutBtn = document.getElementById("logout-btn");
 const googleLoginBtn = document.getElementById("google-login-btn");
 const panelSection = document.getElementById("panel-section");
 const panelMsg = document.getElementById("panel-msg");
+const topBanner = document.querySelector(".top-banner");
 const subBanner = document.getElementById("sub-banner");
+const appRoot = document.querySelector(".app");
 const homeTabBtn = document.getElementById("home-tab-btn");
 const settingsTabBtn = document.getElementById("settings-tab-btn");
 const homeSection = document.getElementById("home-section");
@@ -107,6 +109,19 @@ function setPanelView(view) {
   settingsSection.classList.toggle("is-hidden", isHome);
   homeTabBtn.classList.toggle("google-btn", !isHome);
   settingsTabBtn.classList.toggle("google-btn", isHome);
+  homeTabBtn.classList.toggle("active-tab", isHome);
+  settingsTabBtn.classList.toggle("active-tab", !isHome);
+}
+
+function syncBannerLayout() {
+  if (!topBanner || !subBanner || !appRoot) {
+    return;
+  }
+  const topHeight = topBanner.getBoundingClientRect().height || 72;
+  subBanner.style.top = `${Math.ceil(topHeight)}px`;
+  const subVisible = !subBanner.classList.contains("is-hidden");
+  const subHeight = subVisible ? (subBanner.getBoundingClientRect().height || 48) : 0;
+  appRoot.style.marginTop = `${Math.ceil(topHeight + subHeight + 16)}px`;
 }
 
 function setLoading(isLoading, text = "Cargando...") {
@@ -114,6 +129,7 @@ function setLoading(isLoading, text = "Cargando...") {
   if (isLoading) {
     loadingText.textContent = text;
   }
+  syncBannerLayout();
 }
 
 function normalizeDayColumn(day) {
@@ -397,6 +413,7 @@ function updateSessionLayout(isLoggedIn) {
   logoutBtn.classList.toggle("is-hidden", !isLoggedIn);
   panelSection.classList.toggle("is-hidden", !isLoggedIn);
   subBanner.classList.toggle("is-hidden", !isLoggedIn);
+  syncBannerLayout();
 }
 
 function resetImportState() {
@@ -872,6 +889,7 @@ sheetImportForm.addEventListener("submit", async (event) => {
 
   if (!importState.tenantId) {
     setMsg(panelMsg, "No se encontro tenantId para este usuario", true);
+    setLoading(false);
     return;
   }
 
@@ -880,6 +898,7 @@ sheetImportForm.addEventListener("submit", async (event) => {
 
   if (!sheetUrl || !sheetName) {
     setMsg(panelMsg, "Completa URL y nombre de hoja", true);
+    setLoading(false);
     return;
   }
   try {
@@ -941,6 +960,7 @@ loadCursosBtn.addEventListener("click", async () => {
   setLoading(true, "Cargando cursos...");
   if (!importState.tenantId) {
     setMsg(panelMsg, "No se encontro tenantId para este usuario", true);
+    setLoading(false);
     return;
   }
 
@@ -948,6 +968,7 @@ loadCursosBtn.addEventListener("click", async () => {
   const sheetName = sheetNameInput.value.trim();
   if (!sheetUrl || !sheetName) {
     setMsg(panelMsg, "Completa URL y nombre de hoja", true);
+    setLoading(false);
     return;
   }
   try {
@@ -1170,6 +1191,10 @@ settingsTabBtn.addEventListener("click", () => {
   setPanelView("settings");
 });
 
+window.addEventListener("resize", () => {
+  syncBannerLayout();
+});
+
 logoutBtn.addEventListener("click", async () => {
   try {
     await signOut(auth);
@@ -1223,3 +1248,5 @@ onAuthStateChanged(auth, (user) => {
       console.error("No se pudo leer perfil en Firestore", error);
     });
 });
+
+syncBannerLayout();
