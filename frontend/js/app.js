@@ -542,15 +542,9 @@ function renderCurrentCurso() {
 
 async function checkTenantDataAndToggleImport(tenantId) {
   const docentesRef = collection(db, "tenants", tenantId, "docentes");
-  const firstDoc = await getDocs(query(docentesRef, limit(1)));
-  const hasDocentes = !firstDoc.empty;
+  await getDocs(query(docentesRef, limit(1)));
   tenantEmptyImport.classList.remove("is-hidden");
-  setMsg(
-    panelMsg,
-    hasDocentes
-      ? "Tu tenant ya tiene docentes cargados. Puedes cargar mas por curso."
-      : "No hay docentes cargados en este tenant. Inicia con el curso 1A."
-  );
+  setMsg(panelMsg, "");
 }
 
 function normalizeCourse(value) {
@@ -662,6 +656,51 @@ async function loadButtonConfig(tenantId) {
     renderButtonConfigEditor();
     setMsg(buttonConfigMsg, "No se pudo cargar configuracion de botones", true);
   }
+}
+
+async function loadCourseButtonsFromFirestore(tenantId) {
+  if (!tenantId) {
+    return [];
+  }
+  try {
+    const snap = await getDocs(collection(db, "tenants", tenantId, "botones"));
+    const entries = [];
+    snap.docs.forEach((docSnap) => {
+      if (docSnap.id === "config") {
+        return;
+      }
+      const data = docSnap.data() || {};
+      const course = normalizeCourse(data.course || docSnap.id);
+      if (!course) {
+        return;
+      }
+      entries.push({
+        course,
+        turno: normalizeTurn(data.turno),
+      });
+    });
+    return entries.sort((a, b) => a.course.localeCompare(b.course));
+  } catch (error) {
+    console.error("No se pudieron cargar botones de cursos", error);
+    return [];
+  }
+}
+
+async function upsertCourseButton(tenantId, courseName, turnValue) {
+  const course = normalizeCourse(courseName);
+  if (!tenantId || !course) {
+    return;
+  }
+  const turn = normalizeTurn(turnValue);
+  await setDoc(
+    doc(db, "tenants", tenantId, "botones", course),
+    {
+      course,
+      turno: turn,
+      updatedAt: new Date(),
+    },
+    { merge: true }
+  );
 }
 
 function setSelectedCourse(courseName) {
@@ -956,8 +995,9 @@ async function loadTenantCourses(tenantId) {
       })
     );
 
+    const courseButtonsFromDb = await loadCourseButtonsFromFirestore(tenantId);
     renderCourseButtons(unique);
-    renderHomeCourseButtons(homeCourseEntries);
+    renderHomeCourseButtons(courseButtonsFromDb.length ? courseButtonsFromDb : homeCourseEntries);
     homeState.tenantId = tenantId;
     if (unique.length) {
       await buildDocentesByCuilMap(tenantId);
@@ -1274,6 +1314,7 @@ saveAllBtn.addEventListener("click", async () => {
           sheetName: importCursosState.sheetName,
           course: importCursosState.selectedCourse,
         });
+        await upsertCourseButton(importState.tenantId, curso.curso, curso.turno);
         importCursosState.accepted += 1;
         importCursosState.index += 1;
         appendPanelLog(`Se guardo ${curso.curso} (CUPOF ${curso.cupof})`);
@@ -1305,6 +1346,13 @@ saveAllBtn.addEventListener("click", async () => {
           `Error al guardar docente ${docenteName}: ${error.message || "sin detalle"}`,
           true
         );
+      }
+    }
+
+    if (importState.tenantId) {
+      const refreshedButtons = await loadCourseButtonsFromFirestore(importState.tenantId);
+      if (refreshedButtons.length) {
+        renderHomeCourseButtons(refreshedButtons);
       }
     }
 
@@ -1379,6 +1427,13 @@ acceptCursoBtn.addEventListener("click", async () => {
       sheetName: importCursosState.sheetName,
       course: importCursosState.selectedCourse,
     });
+    await upsertCourseButton(importState.tenantId, editedCurso.curso, editedCurso.turno);
+    if (importState.tenantId) {
+      const refreshedButtons = await loadCourseButtonsFromFirestore(importState.tenantId);
+      if (refreshedButtons.length) {
+        renderHomeCourseButtons(refreshedButtons);
+      }
+    }
     importCursosState.accepted += 1;
     importCursosState.index += 1;
     renderCurrentCurso();
