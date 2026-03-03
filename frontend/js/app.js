@@ -560,6 +560,24 @@ function normalizeTurn(value) {
   return "S";
 }
 
+function normalizeRenderableTurn(value) {
+  const raw = String(value || "").trim().toUpperCase();
+  if (raw === "M" || raw === "T" || raw === "V") {
+    return raw;
+  }
+  return "";
+}
+
+function pickRenderableTurn(values) {
+  for (let i = 0; i < values.length; i += 1) {
+    const turn = normalizeRenderableTurn(values[i]);
+    if (turn) {
+      return turn;
+    }
+  }
+  return "S";
+}
+
 function normalizeHexColor(value, fallback) {
   const raw = String(value || "").trim();
   const isValid = /^#([0-9a-fA-F]{6})$/.test(raw);
@@ -665,20 +683,38 @@ async function loadCourseButtonsFromFirestore(tenantId) {
   try {
     const snap = await getDocs(collection(db, "tenants", tenantId, "botones"));
     const entries = [];
-    snap.docs.forEach((docSnap) => {
+    for (let i = 0; i < snap.docs.length; i += 1) {
+      const docSnap = snap.docs[i];
       if (docSnap.id === "config") {
-        return;
+        continue;
       }
       const data = docSnap.data() || {};
       const course = normalizeCourse(data.course || docSnap.id);
       if (!course) {
-        return;
+        continue;
       }
+
+      let turn = normalizeRenderableTurn(data.turno);
+      if (!turn) {
+        try {
+          const firstTwoItemsSnap = await getDocs(
+            query(collection(db, "tenants", tenantId, "cursos", course, "items"), limit(2))
+          );
+          const firstTwoTurns = firstTwoItemsSnap.docs
+            .map((itemSnap) => (itemSnap.data() || {}).turno)
+            .slice(0, 2);
+          turn = pickRenderableTurn(firstTwoTurns);
+        } catch (error) {
+          console.error("No se pudo resolver turno del boton", course, error);
+          turn = "S";
+        }
+      }
+
       entries.push({
         course,
-        turno: normalizeTurn(data.turno),
+        turno: turn,
       });
-    });
+    }
     return entries.sort((a, b) => a.course.localeCompare(b.course));
   } catch (error) {
     console.error("No se pudieron cargar botones de cursos", error);
@@ -691,7 +727,7 @@ async function upsertCourseButton(tenantId, courseName, turnValue) {
   if (!tenantId || !course) {
     return;
   }
-  const turn = normalizeTurn(turnValue);
+  const turn = pickRenderableTurn([turnValue]);
   await setDoc(
     doc(db, "tenants", tenantId, "botones", course),
     {
@@ -969,8 +1005,8 @@ async function loadTenantCourses(tenantId) {
           data.id ||
           docSnap.id
       );
-      const turn = normalizeTurn(data.turno);
-      if (course && turn !== "S") {
+      const turn = normalizeRenderableTurn(data.turno);
+      if (course && turn) {
         rootTurnByCourse.set(course, turn);
       }
     });
@@ -980,13 +1016,13 @@ async function loadTenantCourses(tenantId) {
         let turn = rootTurnByCourse.get(course) || "S";
         if (turn === "S") {
           try {
-            const firstItem = await getDocs(
-              query(collection(db, "tenants", tenantId, "cursos", course, "items"), limit(1))
+            const firstTwoItems = await getDocs(
+              query(collection(db, "tenants", tenantId, "cursos", course, "items"), limit(2))
             );
-            if (!firstItem.empty) {
-              const firstData = firstItem.docs[0].data() || {};
-              turn = normalizeTurn(firstData.turno);
-            }
+            const firstTwoTurns = firstTwoItems.docs
+              .map((docItem) => (docItem.data() || {}).turno)
+              .slice(0, 2);
+            turn = pickRenderableTurn(firstTwoTurns);
           } catch (error) {
             console.error("No se pudo resolver turno de curso", course, error);
           }
