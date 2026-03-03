@@ -576,6 +576,56 @@ exports.setUserProfile = onCall(callableOptions, async (request) => {
   return { ok: true };
 });
 
+exports.registerSession = onCall(callableOptions, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Auth required");
+  }
+
+  const uid = request.auth.uid;
+  const tenantId = await getUserTenantId(uid);
+  const token = request.auth.token || {};
+  const data = request.data || {};
+  const now = admin.firestore.FieldValue.serverTimestamp();
+
+  const email = String(data.email || token.email || "").trim().toLowerCase();
+  const nombre = String(data.nombre || token.name || "").trim();
+  const source = String(data.source || "web").trim();
+  const provider = String(data.provider || token.firebase?.sign_in_provider || "").trim();
+
+  const sessionRef = db.collection("tenants").doc(tenantId).collection("sesiones").doc();
+  await sessionRef.set({
+    sessionId: sessionRef.id,
+    tenantId,
+    uid,
+    email,
+    nombre,
+    source,
+    provider,
+    createdAt: now,
+  });
+
+  const summaryRef = db.collection("tenants").doc(tenantId).collection("sesionesUsuarios").doc(uid);
+  await summaryRef.set(
+    {
+      tenantId,
+      uid,
+      email,
+      nombre,
+      totalInicios: admin.firestore.FieldValue.increment(1),
+      lastInicioAt: now,
+      updatedAt: now,
+      createdAt: now,
+    },
+    { merge: true }
+  );
+
+  return {
+    ok: true,
+    tenantId,
+    sessionId: sessionRef.id,
+  };
+});
+
 exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Auth required");

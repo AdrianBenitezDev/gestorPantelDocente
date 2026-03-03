@@ -118,6 +118,7 @@ let refreshInProgress = false;
 let bannerAutoHideEnabled = false;
 let bannerLastScrollY = 0;
 let bannerHiddenByScroll = false;
+let currentSessionLogKey = "";
 
 function setMsg(el, text, isError = false) {
   el.textContent = text;
@@ -309,6 +310,47 @@ function setRefreshFabLoading(isLoading) {
     return;
   }
   refreshFabIcon.classList.toggle("is-spinning", isLoading);
+}
+
+async function registerCurrentSession(user, tenantId, profile = {}) {
+  const uid = String(user?.uid || "").trim();
+  const safeTenantId = String(tenantId || "").trim();
+  if (!uid || !safeTenantId) {
+    return;
+  }
+  const key = `${uid}:${safeTenantId}`;
+  if (currentSessionLogKey === key) {
+    return;
+  }
+
+  const storageKey = `gpd_session_logged_${key}`;
+  try {
+    if (window.sessionStorage?.getItem(storageKey) === "1") {
+      currentSessionLogKey = key;
+      return;
+    }
+  } catch (error) {
+    console.error("No se pudo leer sessionStorage", error);
+  }
+
+  try {
+    const registerSession = httpsCallable(functions, "registerSession");
+    await registerSession({
+      tenantId: safeTenantId,
+      email: String(profile?.correo || user?.email || "").trim().toLowerCase(),
+      nombre: String(profile?.nombre || user?.displayName || "").trim(),
+      provider: String(user?.providerData?.[0]?.providerId || "").trim(),
+      source: "web",
+    });
+    currentSessionLogKey = key;
+    try {
+      window.sessionStorage?.setItem(storageKey, "1");
+    } catch (error) {
+      console.error("No se pudo escribir sessionStorage", error);
+    }
+  } catch (error) {
+    console.error("No se pudo registrar sesion", error);
+  }
 }
 
 function openCacheDb() {
@@ -1787,6 +1829,7 @@ window.addEventListener("scroll", () => {
 logoutBtn.addEventListener("click", async () => {
   try {
     await signOut(auth);
+    currentSessionLogKey = "";
     setMsg(loginMsg, "Sesion cerrada");
     setMsg(panelMsg, "");
     resetImportState();
@@ -1798,6 +1841,7 @@ logoutBtn.addEventListener("click", async () => {
 
 onAuthStateChanged(auth, (user) => {
   if (!user) {
+    currentSessionLogKey = "";
     updateSessionLayout(false);
     setPanelView("home");
     userName.textContent = "Sin sesion";
@@ -1823,6 +1867,7 @@ onAuthStateChanged(auth, (user) => {
             tenantEmptyImport.classList.add("is-hidden");
             return;
           }
+          registerCurrentSession(user, importState.tenantId, profile);
           return Promise.all([
             checkTenantDataAndToggleImport(importState.tenantId),
             loadTenantCourses(importState.tenantId),
