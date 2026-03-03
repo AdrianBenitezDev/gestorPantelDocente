@@ -93,52 +93,116 @@ function stringifyFieldValue(value) {
   if (value === null || value === undefined) {
     return "";
   }
-  if (typeof value === "object") {
-    try {
-      return JSON.stringify(value);
-    } catch (error) {
-      return "";
-    }
-  }
   return String(value);
 }
 
-function parseFieldValue(rawValue, originalValue, keyName) {
+function parseFieldValue(rawValue, originalValue) {
   const raw = String(rawValue || "").trim();
   if (typeof originalValue === "number") {
     const parsed = Number(raw);
     if (!Number.isFinite(parsed)) {
-      throw new Error(`El campo ${keyName} debe ser numerico`);
+      throw new Error("Hay un campo numerico invalido");
     }
     return parsed;
   }
   if (typeof originalValue === "boolean") {
     return raw.toLowerCase() === "true";
   }
-  if (originalValue && typeof originalValue === "object") {
-    if (!raw) {
-      return Array.isArray(originalValue) ? [] : {};
-    }
-    try {
-      return JSON.parse(raw);
-    } catch (error) {
-      throw new Error(`El campo ${keyName} debe contener JSON valido`);
-    }
-  }
   return raw;
 }
 
+function clonePlain(value) {
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (error) {
+    return {};
+  }
+}
+
+function flattenEntityFields(value, currentPath = "", output = []) {
+  if (Array.isArray(value)) {
+    if (!value.length) {
+      return output;
+    }
+    value.forEach((item, index) => {
+      const nextPath = `${currentPath}[${index}]`;
+      flattenEntityFields(item, nextPath, output);
+    });
+    return output;
+  }
+
+  if (value && typeof value === "object") {
+    const keys = Object.keys(value);
+    if (!keys.length) {
+      return output;
+    }
+    keys.forEach((key) => {
+      const nextPath = currentPath ? `${currentPath}.${key}` : key;
+      flattenEntityFields(value[key], nextPath, output);
+    });
+    return output;
+  }
+
+  output.push({ path: currentPath, value });
+  return output;
+}
+
+function splitPath(path) {
+  const parts = [];
+  const re = /([^[.\]]+)|\[(\d+)\]/g;
+  let match = re.exec(path);
+  while (match) {
+    if (match[1]) {
+      parts.push(match[1]);
+    } else {
+      parts.push(Number(match[2]));
+    }
+    match = re.exec(path);
+  }
+  return parts;
+}
+
+function getValueByPath(obj, path) {
+  const parts = splitPath(path);
+  let cursor = obj;
+  for (let i = 0; i < parts.length; i += 1) {
+    if (cursor === null || cursor === undefined) {
+      return undefined;
+    }
+    cursor = cursor[parts[i]];
+  }
+  return cursor;
+}
+
+function setValueByPath(obj, path, value) {
+  const parts = splitPath(path);
+  if (!parts.length) {
+    return;
+  }
+
+  let cursor = obj;
+  for (let i = 0; i < parts.length - 1; i += 1) {
+    const key = parts[i];
+    const nextKey = parts[i + 1];
+    if (cursor[key] === undefined || cursor[key] === null) {
+      cursor[key] = typeof nextKey === "number" ? [] : {};
+    }
+    cursor = cursor[key];
+  }
+  cursor[parts[parts.length - 1]] = value;
+}
+
 function renderEditableCard(container, entity) {
-  const entries = Object.entries(entity || {});
+  const entries = flattenEntityFields(entity || {});
   container.innerHTML = `
     <div class="review-grid">
       ${entries
-        .map(([key, value]) => {
+        .map(({ path, value }) => {
           const isLong = String(stringifyFieldValue(value)).length > 80;
           return `
             <label class="${isLong ? "full" : ""}">
-              <span class="mini-title">${esc(key)}</span>
-              <input data-card-key="${esc(key)}" value="${esc(stringifyFieldValue(value))}" />
+              <span class="mini-title">${esc(path)}</span>
+              <input data-card-path="${esc(path)}" value="${esc(stringifyFieldValue(value))}" />
             </label>
           `;
         })
@@ -148,14 +212,16 @@ function renderEditableCard(container, entity) {
 }
 
 function readEditedObjectFromCard(container, originalEntity) {
-  const result = { ...originalEntity };
-  const inputs = container.querySelectorAll("[data-card-key]");
+  const result = clonePlain(originalEntity || {});
+  const inputs = container.querySelectorAll("[data-card-path]");
   inputs.forEach((inputEl) => {
-    const key = inputEl.getAttribute("data-card-key");
-    if (!key) {
+    const path = inputEl.getAttribute("data-card-path");
+    if (!path) {
       return;
     }
-    result[key] = parseFieldValue(inputEl.value, originalEntity[key], key);
+    const originalValue = getValueByPath(originalEntity || {}, path);
+    const parsedValue = parseFieldValue(inputEl.value, originalValue);
+    setValueByPath(result, path, parsedValue);
   });
   return result;
 }
@@ -193,7 +259,7 @@ function renderCursoCard(curso) {
 
 function readEditedDocenteFromCard() {
   const original = importState.docentes[importState.index];
-  if (!original || !reviewDocente.querySelector("[data-card-key]")) {
+  if (!original || !reviewDocente.querySelector("[data-card-path]")) {
     return original;
   }
   return readEditedObjectFromCard(reviewDocente, original);
@@ -201,10 +267,32 @@ function readEditedDocenteFromCard() {
 
 function readEditedCursoFromCard() {
   const original = importCursosState.cursos[importCursosState.index];
-  if (!original || !reviewCurso.querySelector("[data-card-key]")) {
+  if (!original || !reviewCurso.querySelector("[data-card-path]")) {
     return original;
   }
   return readEditedObjectFromCard(reviewCurso, original);
+}
+
+function clearDocentesReviewOnly() {
+  importState.docentes = [];
+  importState.index = 0;
+  importState.accepted = 0;
+  importState.skipped = 0;
+  importState.cancelled = false;
+  importReview.classList.add("is-hidden");
+  reviewProgress.textContent = "";
+  reviewDocente.innerHTML = "";
+}
+
+function clearCursosReviewOnly() {
+  importCursosState.cursos = [];
+  importCursosState.index = 0;
+  importCursosState.accepted = 0;
+  importCursosState.skipped = 0;
+  importCursosState.cancelled = false;
+  importReviewCursos.classList.add("is-hidden");
+  reviewCursoProgress.textContent = "";
+  reviewCurso.innerHTML = "";
 }
 
 function updateSessionLayout(isLoggedIn) {
@@ -507,6 +595,8 @@ googleLoginBtn.addEventListener("click", async () => {
 
 sheetImportForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  clearCursosReviewOnly();
+  toggleBulkSaveButton();
 
   if (!importState.tenantId) {
     setMsg(panelMsg, "No se encontro tenantId para este usuario", true);
@@ -568,6 +658,8 @@ sheetImportForm.addEventListener("submit", async (event) => {
 });
 
 loadCursosBtn.addEventListener("click", async () => {
+  clearDocentesReviewOnly();
+  toggleBulkSaveButton();
   if (!importState.tenantId) {
     setMsg(panelMsg, "No se encontro tenantId para este usuario", true);
     return;
