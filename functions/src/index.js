@@ -284,6 +284,11 @@ function normalizeIdentityPart(value) {
     .replace(/[^a-z0-9_-]/g, "");
 }
 
+function normalizeCuil(value) {
+  const raw = String(value || "").trim();
+  return raw || "sin datos";
+}
+
 function buildDocenteKey({ cuil, apellido, nombre, pid, keyHint }) {
   const normalizedCuil = String(cuil || "").trim();
   if (normalizedCuil) {
@@ -714,7 +719,7 @@ exports.saveImportedDocente = onCall(callableOptions, async (request) => {
 
   const apellido = String(docente.apellido || "").trim();
   const nombre = String(docente.nombre || "").trim();
-  const cuil = String(docente.cuil || "").trim();
+  const cuil = normalizeCuil(docente.cuil);
   const fechaNacimiento = String(docente.fechaNacimiento || "").trim();
   const pid = String(docente.pid || "").trim();
   const modulosTitular = parseModuleCount(docente.modulosTitular);
@@ -735,7 +740,7 @@ exports.saveImportedDocente = onCall(callableOptions, async (request) => {
   );
   const incomingCursoRefs = cursosFromPayload.length ? cursosFromPayload : fallbackCursoRefs;
 
-  if (!cuil && !pid && !nombre && !apellido) {
+  if ((!cuil || cuil === "sin datos") && !pid && !nombre && !apellido) {
     throw new HttpsError("invalid-argument", "Docente without identity");
   }
 
@@ -750,7 +755,7 @@ exports.saveImportedDocente = onCall(callableOptions, async (request) => {
   let docenteRef = db.collection("tenants").doc(tenantId).collection("docentes").doc(key);
   let docenteSnap = await docenteRef.get();
 
-  if (cuil) {
+  if (cuil && cuil !== "sin datos") {
     const byCuilSnap = await db
       .collection("tenants")
       .doc(tenantId)
