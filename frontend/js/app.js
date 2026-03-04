@@ -389,6 +389,26 @@ function resolveSuplenteInfo(item) {
       docente: { id: directS.id, data: clonePlain(directS) },
     };
   }
+
+  // Compatibilidad con datos historicos: si no existe ref "S",
+  // igual tomamos el suplente por cuil + cupof.
+  const legacyByCupof = homeState.docentesAll.find((docente) => {
+    const cuil = String(docente?.cuil || "").trim();
+    if (!cuil || cuil !== suplenteCuil) {
+      return false;
+    }
+    const refs = extractDocenteRefs(docente);
+    const cupof = String(item?.cupof || "").trim();
+    return refs.some((ref) => String(ref?.cupof || "").trim() === cupof);
+  });
+  if (legacyByCupof) {
+    const name = `${String(legacyByCupof.apellido || "").trim()} ${String(legacyByCupof.nombre || "").trim()}`.trim();
+    return {
+      name: name || "-",
+      situacionRevista: "S",
+      docente: { id: legacyByCupof.id, data: clonePlain(legacyByCupof) },
+    };
+  }
   return { name: "", situacionRevista: "", docente: null };
 }
 

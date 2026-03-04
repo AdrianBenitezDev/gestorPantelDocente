@@ -336,6 +336,16 @@ function buildCursoRefs(
   return refs;
 }
 
+function buildSuplenteCursoRefs(cupof, curso, materia) {
+  const cupofValue = String(cupof || "").trim();
+  const cursoValue = normalizeCourse(curso);
+  const materiaValue = String(materia || "").trim();
+  if (!cupofValue) {
+    return [];
+  }
+  return [{ cupof: cupofValue, situacionRevista: "S", curso: cursoValue, materia: materiaValue }];
+}
+
 function mergeCursoRefs(existing, incoming) {
   const map = new Map();
   const all = [...(Array.isArray(existing) ? existing : []), ...(Array.isArray(incoming) ? incoming : [])];
@@ -344,7 +354,7 @@ function mergeCursoRefs(existing, incoming) {
     const situacionRevista = String(item?.situacionRevista || "").trim().toUpperCase();
     const curso = normalizeCourse(item?.curso || "");
     const materia = String(item?.materia || "").trim();
-    if (!cupof || !situacionRevista || !["T", "TI", "P"].includes(situacionRevista)) {
+    if (!cupof || !situacionRevista || !["T", "TI", "P", "S"].includes(situacionRevista)) {
       return;
     }
     map.set(`${cupof}__${situacionRevista}`, { cupof, situacionRevista, curso, materia });
@@ -825,14 +835,16 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
             nombre: variant.nombre,
             cuil: variant.cuil,
             fechaNacimiento,
-            cursoRefs: buildCursoRefs(
-              cupof,
-              modulosTitular,
-              modulosTitularInterino,
-              modulosProvisional,
-              detectedCourse,
-              espacioCurricular
-            ),
+            cursoRefs: variant.tipo === "titular"
+              ? buildCursoRefs(
+                cupof,
+                modulosTitular,
+                modulosTitularInterino,
+                modulosProvisional,
+                detectedCourse,
+                espacioCurricular
+              )
+              : buildSuplenteCursoRefs(cupof, detectedCourse, espacioCurricular),
             telefono: variant.telefono,
             correo: variant.correo,
             domicilio: variant.domicilio,
