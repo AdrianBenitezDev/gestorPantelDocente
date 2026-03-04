@@ -908,20 +908,61 @@ function normalizeTurn(value) {
 
 function normalizeRenderableTurn(value) {
   const raw = String(value || "").trim().toUpperCase();
-  if (raw === "M" || raw === "T" || raw === "V" || raw === "C") {
+  if (raw === "M" || raw === "T" || raw === "V") {
     return raw;
   }
   return "";
 }
 
 function pickRenderableTurn(values) {
-  for (let i = 0; i < values.length; i += 1) {
-    const turn = normalizeRenderableTurn(values[i]);
+  const list = Array.isArray(values) ? values : [];
+  const firstPassCount = Math.min(list.length, 2);
+  for (let i = 0; i < firstPassCount; i += 1) {
+    const turn = normalizeRenderableTurn(list[i]);
+    if (turn) {
+      return turn;
+    }
+  }
+  for (let i = firstPassCount; i < list.length; i += 1) {
+    const turn = normalizeRenderableTurn(list[i]);
     if (turn) {
       return turn;
     }
   }
   return "S";
+}
+
+async function resolveCourseButtonTurn(tenantId, course, fallbackTurns = []) {
+  const fromFallback = pickRenderableTurn(fallbackTurns);
+  if (fromFallback !== "S") {
+    return fromFallback;
+  }
+
+  const cachedItems = await loadCourseScheduleCache(tenantId, course);
+  if (Array.isArray(cachedItems) && cachedItems.length) {
+    const fromCache = pickRenderableTurn(cachedItems.map((item) => item?.turno));
+    if (fromCache !== "S") {
+      return fromCache;
+    }
+  }
+
+  try {
+    const firstTwoItemsSnap = await getDocs(
+      query(collection(db, "tenants", tenantId, "cursos", course, "items"), limit(2))
+    );
+    const firstTwoTurns = firstTwoItemsSnap.docs.map((itemSnap) => (itemSnap.data() || {}).turno);
+    const fromFirstTwo = pickRenderableTurn(firstTwoTurns);
+    if (fromFirstTwo !== "S") {
+      return fromFirstTwo;
+    }
+
+    const allItemsSnap = await getDocs(collection(db, "tenants", tenantId, "cursos", course, "items"));
+    const allTurns = allItemsSnap.docs.map((itemSnap) => (itemSnap.data() || {}).turno);
+    return pickRenderableTurn(allTurns);
+  } catch (error) {
+    console.error("No se pudo resolver turno del boton", course, error);
+    return "S";
+  }
 }
 
 function normalizeHexColor(value, fallback) {
@@ -1040,21 +1081,7 @@ async function loadCourseButtonsFromFirestore(tenantId) {
         continue;
       }
 
-      let turn = normalizeRenderableTurn(data.turno);
-      if (!turn) {
-        try {
-          const firstTwoItemsSnap = await getDocs(
-            query(collection(db, "tenants", tenantId, "cursos", course, "items"), limit(2))
-          );
-          const firstTwoTurns = firstTwoItemsSnap.docs
-            .map((itemSnap) => (itemSnap.data() || {}).turno)
-            .slice(0, 2);
-          turn = pickRenderableTurn(firstTwoTurns);
-        } catch (error) {
-          console.error("No se pudo resolver turno del boton", course, error);
-          turn = "S";
-        }
-      }
+      const turn = await resolveCourseButtonTurn(tenantId, course, [data.turno]);
 
       entries.push({
         course,
@@ -1203,9 +1230,6 @@ function renderHomeCourseButtons(courses) {
     ["M", []],
     ["T", []],
     ["V", []],
-    ["C", []],
-    ["N", []],
-    ["S", []],
   ]);
 
   courses.forEach((entry) => {
@@ -1213,7 +1237,10 @@ function renderHomeCourseButtons(courses) {
     if (!course) {
       return;
     }
-    const turn = normalizeTurn(entry?.turno);
+    const turn = pickRenderableTurn([entry?.turno]);
+    if (!byTurn.has(turn)) {
+      return;
+    }
     byTurn.get(turn).push({
       course,
       turn,
@@ -1224,12 +1251,9 @@ function renderHomeCourseButtons(courses) {
     M: "Manana",
     T: "Tarde",
     V: "Vespertino",
-    C: "Contraturno",
-    N: "Noche",
-    S: "Sin turno",
   };
 
-  ["M", "T", "V", "C", "N", "S"].forEach((turn) => {
+  ["M", "T", "V"].forEach((turn) => {
     const items = byTurn.get(turn) || [];
     if (!items.length) {
       return;
@@ -1537,17 +1561,23 @@ function searchByPid(pid) {
       return;
     }
     const nombre = `${String(docente?.apellido || "").trim()} ${String(docente?.nombre || "").trim()}`.trim() || "-";
-    const cursoRefs = Array.isArray(docente?.cursoRefs) ? docente.cursoRefs : [];
-    const refsText = cursoRefs.length
-      ? cursoRefs
-        .map((ref) => `${String(ref?.curso || "-").trim()} / CUPOF ${String(ref?.cupof || "-").trim()} (${String(ref?.situacionRevista || "-").trim()})`)
-        .join(" | ")
-      : "Sin cursoRefs";
-    results.push({
-      curso: refsText,
-      cupof: "-",
-      materia: "-",
-      docente: nombre,
+    const refs = extractDocenteRefs(docente);
+    if (!refs.length) {
+      results.push({
+        curso: "Sin curso",
+        cupof: "-",
+        materia: "-",
+        docente: nombre,
+      });
+      return;
+    }
+    refs.forEach((ref) => {
+      results.push({
+        curso: String(ref?.curso || "-").trim() || "-",
+        cupof: String(ref?.cupof || "-").trim() || "-",
+        materia: String(ref?.materia || ref?.espacioCurricular || "-").trim() || "-",
+        docente: `${nombre} (${String(ref?.situacionRevista || "-").trim() || "-"})`,
+      });
     });
   });
   renderPidResults(target, results);
@@ -1683,7 +1713,23 @@ async function loadTenantCourses(tenantId, options = {}) {
     if (hasCache && !forceRefresh) {
       homeState.tenantId = tenantId;
       const sourceCourses = Array.isArray(homeState.courses) ? homeState.courses : [];
-      const firstCourse = sourceCourses[0];
+      const resolvedFromCache = [];
+      for (let i = 0; i < sourceCourses.length; i += 1) {
+        const entry = sourceCourses[i];
+        const course = normalizeCourse(entry?.course || entry);
+        if (!course) {
+          continue;
+        }
+        const turn = await resolveCourseButtonTurn(tenantId, course, [entry?.turno]);
+        if (turn === "S") {
+          continue;
+        }
+        resolvedFromCache.push({ course, turno: turn });
+      }
+      if (resolvedFromCache.length) {
+        renderHomeCourseButtons(resolvedFromCache);
+      }
+      const firstCourse = (resolvedFromCache.length ? resolvedFromCache : sourceCourses)[0];
       const firstCourseName = normalizeCourse(firstCourse?.course || firstCourse || "");
       if (firstCourseName) {
         await loadScheduleForCourse(firstCourseName, { preferCache: true, forceRefresh: false });
@@ -1724,20 +1770,7 @@ async function loadTenantCourses(tenantId, options = {}) {
 
     const homeCourseEntries = await Promise.all(
       unique.map(async (course) => {
-        let turn = rootTurnByCourse.get(course) || "S";
-        if (turn === "S") {
-          try {
-            const firstTwoItems = await getDocs(
-              query(collection(db, "tenants", tenantId, "cursos", course, "items"), limit(2))
-            );
-            const firstTwoTurns = firstTwoItems.docs
-              .map((docItem) => (docItem.data() || {}).turno)
-              .slice(0, 2);
-            turn = pickRenderableTurn(firstTwoTurns);
-          } catch (error) {
-            console.error("No se pudo resolver turno de curso", course, error);
-          }
-        }
+        const turn = await resolveCourseButtonTurn(tenantId, course, [rootTurnByCourse.get(course)]);
         return { course, turno: turn };
       })
     );
