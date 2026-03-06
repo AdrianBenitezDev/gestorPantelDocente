@@ -474,6 +474,22 @@ function parseSheetGid(sheetUrl) {
   return match ? match[1] : "";
 }
 
+function getForcedHeaderRowIndex(rows = [], sheetGid = "") {
+  // Hoja DATOS (gid 687928343): encabezado en fila 216, datos desde 217.
+  const forcedHeaderRowByGid = {
+    "687928343": 216,
+  };
+  const oneBased = forcedHeaderRowByGid[String(sheetGid || "").trim()];
+  if (!oneBased) {
+    return -1;
+  }
+  const zeroBased = oneBased - 1;
+  if (zeroBased < 0 || zeroBased >= rows.length) {
+    return -1;
+  }
+  return zeroBased;
+}
+
 function normalizeSituacionRevista(value) {
   const raw = normalizeHeader(value);
   if (!raw) {
@@ -777,11 +793,15 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
     return { ok: true, docentes: [], total: 0 };
   }
 
-  const headerRowIndex = findHeaderRowIndex(rows);
+  const forcedHeaderRowIndex = getForcedHeaderRowIndex(rows, sheetGid);
+  const headerRowIndex = forcedHeaderRowIndex >= 0
+    ? forcedHeaderRowIndex
+    : findHeaderRowIndex(rows);
   const hasHeaders = headerRowIndex >= 0;
   const headers = hasHeaders ? rows[headerRowIndex].map((header) => normalizeHeader(header)) : [];
   const dataRows = hasHeaders ? rows.slice(headerRowIndex + 1) : rows;
   logger.info("loadDocentesFromSheet: headers analysis", {
+    forcedHeaderRowIndex,
     headerRowIndex,
     hasHeaders,
     headers: headers.slice(0, 20),
@@ -1138,7 +1158,10 @@ exports.loadCursosFromSheet = onCall(callableOptions, async (request) => {
     return { ok: true, cursos: [], total: 0 };
   }
 
-  const headerRowIndex = findHeaderRowIndex(rows);
+  const forcedHeaderRowIndex = getForcedHeaderRowIndex(rows, sheetGid);
+  const headerRowIndex = forcedHeaderRowIndex >= 0
+    ? forcedHeaderRowIndex
+    : findHeaderRowIndex(rows);
   const hasHeaders = headerRowIndex >= 0;
   const headers = hasHeaders ? rows[headerRowIndex].map((header) => normalizeHeader(header)) : [];
   const dataRows = hasHeaders ? rows.slice(headerRowIndex + 1) : rows;

@@ -897,6 +897,55 @@ function normalizeCourse(value) {
   return String(value || "").trim().toUpperCase();
 }
 
+function isLikelyCourseCode(value) {
+  const course = normalizeCourse(value);
+  if (!course) {
+    return false;
+  }
+  if (course === "SEDE" || course === "AN" || course === "EX") {
+    return false;
+  }
+  if (course.length > 10) {
+    return false;
+  }
+  return /\d/.test(course);
+}
+
+function sanitizeCourseList(values) {
+  const list = Array.isArray(values) ? values : [];
+  const unique = [];
+  const seen = new Set();
+  list.forEach((raw) => {
+    const item = normalizeCourse(raw?.course || raw);
+    if (!isLikelyCourseCode(item)) {
+      return;
+    }
+    if (seen.has(item)) {
+      return;
+    }
+    seen.add(item);
+    unique.push(item);
+  });
+  return unique;
+}
+
+function collectCoursesFromDocentes(docentes) {
+  const list = Array.isArray(docentes) ? docentes : [];
+  const out = [];
+  list.forEach((docente) => {
+    const refs = Array.isArray(docente?.cursoRefs) ? docente.cursoRefs : [];
+    refs.forEach((ref) => {
+      out.push(ref?.curso);
+    });
+  });
+  return out;
+}
+
+function collectCoursesFromCursos(cursos) {
+  const list = Array.isArray(cursos) ? cursos : [];
+  return list.map((curso) => curso?.curso);
+}
+
 function hasSheetGid(sheetUrl) {
   return /[?&#]gid=\d+/.test(String(sheetUrl || ""));
 }
@@ -1190,8 +1239,9 @@ function setSelectedCourse(courseName) {
 }
 
 function renderCourseButtons(courses) {
+  const safeCourses = sanitizeCourseList(courses);
   courseButtons.innerHTML = "";
-  if (!courses.length) {
+  if (!safeCourses.length) {
     courseButtonsMsg.textContent = "No hay cursos cargados en Firestore. Se creara boton 1A por defecto.";
     const defaultCourse = "1A";
     importState.courses = [defaultCourse];
@@ -1204,10 +1254,10 @@ function renderCourseButtons(courses) {
     return;
   }
 
-  importState.courses = courses;
-  courseButtonsMsg.textContent = `Cursos detectados: ${courses.join(", ")}`;
+  importState.courses = safeCourses;
+  courseButtonsMsg.textContent = `Cursos detectados: ${safeCourses.join(", ")}`;
 
-  courses.forEach((courseName) => {
+  safeCourses.forEach((courseName) => {
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = `Cargar ${courseName}`;
@@ -1215,7 +1265,7 @@ function renderCourseButtons(courses) {
     courseButtons.appendChild(button);
   });
 
-  const preferred = courses.find((course) => normalizeCourse(course) === "1A") || courses[0];
+  const preferred = safeCourses.find((course) => normalizeCourse(course) === "1A") || safeCourses[0];
   setSelectedCourse(preferred);
 }
 
@@ -1999,16 +2049,20 @@ sheetImportForm.addEventListener("submit", async (event) => {
     });
     const docentes = result.data?.docentes || [];
     const detectedCourses = result.data?.detectedCourses || [];
-    if (detectedCourses.length) {
-      renderCourseButtons(detectedCourses);
-      courseButtonsMsg.textContent = `Cursos detectados en hoja: ${detectedCourses.join(", ")}`;
+    const resolvedCourses = sanitizeCourseList([
+      ...collectCoursesFromDocentes(docentes),
+      ...detectedCourses,
+    ]);
+    if (resolvedCourses.length) {
+      renderCourseButtons(resolvedCourses);
+      courseButtonsMsg.textContent = `Cursos detectados en hoja: ${resolvedCourses.join(", ")}`;
     }
 
     if (!docentes.length) {
       const debug = result.data?.debug || {};
       const details = [
         "No se encontraron docentes en la hoja actual.",
-        detectedCourses.length ? `Cursos detectados en hoja: ${detectedCourses.join(", ")}` : "",
+        resolvedCourses.length ? `Cursos detectados en hoja: ${resolvedCourses.join(", ")}` : "",
         debug.hasHeaders === false ? "No se detectaron encabezados validos en las primeras filas de la hoja." : "",
       ]
         .filter(Boolean)
@@ -2070,15 +2124,19 @@ loadCursosBtn.addEventListener("click", async () => {
     });
     const cursos = result.data?.cursos || [];
     const detectedCourses = result.data?.detectedCourses || [];
-    if (detectedCourses.length) {
-      renderCourseButtons(detectedCourses);
-      courseButtonsMsg.textContent = `Cursos detectados en hoja: ${detectedCourses.join(", ")}`;
+    const resolvedCourses = sanitizeCourseList([
+      ...collectCoursesFromCursos(cursos),
+      ...detectedCourses,
+    ]);
+    if (resolvedCourses.length) {
+      renderCourseButtons(resolvedCourses);
+      courseButtonsMsg.textContent = `Cursos detectados en hoja: ${resolvedCourses.join(", ")}`;
     }
 
     if (!cursos.length) {
       const details = [
         "No se encontraron cursos en la hoja actual.",
-        detectedCourses.length ? `Cursos detectados: ${detectedCourses.join(", ")}` : "",
+        resolvedCourses.length ? `Cursos detectados: ${resolvedCourses.join(", ")}` : "",
       ]
         .filter(Boolean)
         .join(" ");
