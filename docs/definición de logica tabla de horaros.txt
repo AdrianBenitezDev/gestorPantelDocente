@@ -1,0 +1,46 @@
+﻿PROMPT: implementar logica obligatoria de turnos, horarios y asignacion de materias
+
+Objetivo general:
+La app debe exigir una configuracion inicial de turnos y horarios antes de permitir cualquier operacion principal.
+
+Fuente de verdad y cache:
+1. Guardar la configuracion en Firebase, documento `configuraciones/turnosAndHorarios`.
+2. Al iniciar, leer primero desde IndexedDB.
+3. Si falta o esta desactualizado, consultar Firebase y refrescar IndexedDB.
+4. Al presionar el boton `Sincronizar`, volver a consultar Firebase, actualizar IndexedDB y re-renderizar UI.
+
+Regla de bloqueo:
+1. Si no existe `configuraciones/turnosAndHorarios`, bloquear la app.
+2. Mostrar un flujo obligatorio para crear la configuracion.
+3. Hasta que el usuario guarde la configuracion valida, no permitir usar cursos, docentes ni tabla principal.
+
+Configuracion de turnos:
+1. Turnos soportados: `manana`, `tarde`, `vespertino`, `alternado`.
+2. Para cada turno, el usuario define:
+- hora de inicio
+- hora de fin
+- modo de duracion: `modulo` (60 min) o `hora_catedra` (40 min)
+3. Generar bloques automaticamente segun inicio/fin y modo.
+4. Permitir edicion manual de cada bloque antes de confirmar.
+5. Permitir insertar `recreo` entre bloques, con duracion maxima de 30 minutos.
+6. Al confirmar, guardar en Firebase e IndexedDB y mostrar mensaje flotante de guardado exitoso.
+
+Render de tabla principal:
+1. Construir filas por bloque horario usando `turnosAndHorarios`.
+2. Si una celda no tiene materia asignada, mostrar accion `Designar`.
+3. Al hacer click en `Designar`, abrir input flotante con buscador de materias del curso.
+4. El autocompletado debe usar datos locales (IndexedDB/local), sin consultar Firebase en cada tecla.
+5. Al seleccionar materia, guardar asignacion (curso, dia, bloque, materia) y renderizar:
+- materia
+- docente
+- suplente (si existe)
+6. Persistir cambios en local y Firebase, y actualizar la UI en el momento.
+
+Secuencia de carga al iniciar la web:
+1. Verificar cursos guardados (local/Firebase). Si faltan, exigir carga en Configuraciones.
+2. Verificar docentes guardados (local/Firebase). Si faltan, exigir carga en Configuraciones.
+3. Verificar `turnosAndHorarios` (local/Firebase). Si falta, abrir flujo obligatorio de configuracion.
+4. Solo cuando todo este completo, renderizar botones de cursos y tabla de horarios.
+
+Nota:
+En una etapa posterior se agregara edicion avanzada de horarios/materias incluso cuando ya exista una configuracion previa.

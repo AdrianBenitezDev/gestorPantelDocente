@@ -84,6 +84,21 @@
             </div>
           </div>
         </div>
+        <div id="assign-materia-modal" class="assign-materia-modal is-hidden">
+          <div class="assign-materia-card">
+            <h3>Designar materia al horario</h3>
+            <p id="assign-materia-context" class="msg"></p>
+            <label>
+              Buscar materia
+              <input id="assign-materia-input" type="text" placeholder="Escribe materia o CUPOF..." />
+            </label>
+            <div id="assign-materia-list" class="assign-materia-list"></div>
+            <div class="review-actions">
+              <button id="assign-materia-save-btn" type="button">Guardar designacion</button>
+              <button id="assign-materia-cancel-btn" type="button" class="google-btn">Cancelar</button>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section id="settings-section" class="is-hidden">
@@ -102,6 +117,17 @@
             <button id="load-cursos-btn" type="button" class="google-btn">Cargar cursos</button>
           </div>
         </form>
+
+        <div id="turn-schedule-config-card" class="card">
+          <h3>Configurar turnos y horarios (obligatorio)</h3>
+          <p id="turn-schedule-msg" class="msg"></p>
+          <p id="turn-schedule-lock-msg" class="msg is-hidden"></p>
+          <div id="turn-schedule-editor" class="turn-schedule-editor"></div>
+          <div class="review-actions">
+            <button id="save-turn-schedule-btn" type="button">Guardar turnos y horarios</button>
+            <button id="reload-turn-schedule-btn" type="button" class="google-btn">Recargar</button>
+          </div>
+        </div>
 
         <details id="button-config-section" class="card button-config-details">
           <summary>Configuracion de botones por turno</summary>

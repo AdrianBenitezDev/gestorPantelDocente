@@ -81,6 +81,17 @@ const cancelCursoBtn = document.getElementById("cancel-curso-btn");
 const bulkSaveWrap = document.getElementById("bulk-save-wrap");
 const refreshFab = document.getElementById("refresh-fab");
 const refreshFabIcon = document.getElementById("refresh-fab-icon");
+const turnScheduleMsg = document.getElementById("turn-schedule-msg");
+const turnScheduleLockMsg = document.getElementById("turn-schedule-lock-msg");
+const turnScheduleEditor = document.getElementById("turn-schedule-editor");
+const saveTurnScheduleBtn = document.getElementById("save-turn-schedule-btn");
+const reloadTurnScheduleBtn = document.getElementById("reload-turn-schedule-btn");
+const assignMateriaModal = document.getElementById("assign-materia-modal");
+const assignMateriaContext = document.getElementById("assign-materia-context");
+const assignMateriaInput = document.getElementById("assign-materia-input");
+const assignMateriaList = document.getElementById("assign-materia-list");
+const assignMateriaSaveBtn = document.getElementById("assign-materia-save-btn");
+const assignMateriaCancelBtn = document.getElementById("assign-materia-cancel-btn");
 
 let importState = {
   tenantId: "",
@@ -111,6 +122,7 @@ let homeState = {
   tenantId: "",
   courses: [],
   selectedCourse: "",
+  selectedCourseTurn: "",
   docentesByCuil: new Map(),
   docentesByCupof: new Map(),
   docentesAll: [],
@@ -118,24 +130,48 @@ let homeState = {
   slotItems: new Map(),
   editingDocente: null,
   loadingCourseButton: "",
+  turnScheduleConfig: createEmptyTurnScheduleConfig(),
+  setupStatus: {
+    hasCourses: false,
+    hasDocentes: false,
+    hasTurnConfig: false,
+  },
 };
 
-const TURN_ORDER = ["M", "T", "V", "C", "N", "S"];
+const TURN_ORDER = ["M", "T", "V", "A", "C", "N", "S"];
 const DEFAULT_BUTTON_CONFIG = {
   M: { label: "Manana", color: "#0f6ab8" },
   T: { label: "Tarde", color: "#bf5f00" },
   V: { label: "Vespertino", color: "#6f42c1" },
+  A: { label: "Alternado", color: "#0d9488" },
   C: { label: "Contraturno", color: "#0f766e" },
   N: { label: "Noche", color: "#1d3a8a" },
   S: { label: "Sin turno", color: "#4a5568" },
 };
+const REQUIRED_SCHEDULE_TURNS = ["M", "T", "V"];
+const SCHEDULE_TURN_META = [
+  { code: "M", key: "manana", label: "Manana" },
+  { code: "T", key: "tarde", label: "Tarde" },
+  { code: "V", key: "vespertino", label: "Vespertino" },
+  { code: "A", key: "alternado", label: "Alternado" },
+];
+const DAYS = ["LUNES", "MARTES", "MIERCOLES", "JUEVES", "VIERNES"];
 
 let buttonConfigState = clonePlain(DEFAULT_BUTTON_CONFIG);
+let turnScheduleDraft = null;
 let refreshInProgress = false;
 let bannerAutoHideEnabled = false;
 let bannerLastScrollY = 0;
 let bannerHiddenByScroll = false;
 let currentSessionLogKey = "";
+let assignMateriaState = {
+  day: "",
+  slotIndex: -1,
+  selectedItemId: "",
+  course: "",
+  query: "",
+  saving: false,
+};
 
 function setMsg(el, text, isError = false) {
   el.textContent = text;
@@ -272,6 +308,198 @@ function parseStartMinutes(rangeText) {
     return Number.MAX_SAFE_INTEGER;
   }
   return hours * 60 + minutes;
+}
+
+function parseClockToMinutes(value) {
+  const text = String(value || "").trim();
+  const match = text.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) {
+    return -1;
+  }
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (
+    !Number.isFinite(hours) ||
+    !Number.isFinite(minutes) ||
+    hours < 0 ||
+    hours > 23 ||
+    minutes < 0 ||
+    minutes > 59
+  ) {
+    return -1;
+  }
+  return hours * 60 + minutes;
+}
+
+function minutesToClock(value) {
+  const minutes = Number(value);
+  if (!Number.isFinite(minutes) || minutes < 0) {
+    return "";
+  }
+  const safe = Math.floor(minutes);
+  const hours = Math.floor(safe / 60);
+  const mins = safe % 60;
+  if (hours > 23) {
+    return "";
+  }
+  return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+}
+
+function slotLabelFromConfig(slot) {
+  const start = String(slot?.start || "").trim();
+  const end = String(slot?.end || "").trim();
+  if (!start || !end) {
+    return "";
+  }
+  return `${start} - ${end}`;
+}
+
+function unitMinutesFromMode(mode) {
+  return String(mode || "").trim().toLowerCase() === "hora_catedra" ? 40 : 60;
+}
+
+function createEmptyTurnScheduleConfig() {
+  const turns = {};
+  SCHEDULE_TURN_META.forEach((meta) => {
+    turns[meta.code] = {
+      key: meta.key,
+      label: meta.label,
+      start: "",
+      end: "",
+      mode: "modulo",
+      slots: [],
+    };
+  });
+  return { turns };
+}
+
+function normalizeTurnScheduleSlot(slot, fallbackIndex = 0) {
+  const start = String(slot?.start || "").trim();
+  const end = String(slot?.end || "").trim();
+  const breakAfterRaw = Number(slot?.breakAfterMin);
+  const breakAfterMin = Number.isFinite(breakAfterRaw)
+    ? Math.max(0, Math.min(30, Math.round(breakAfterRaw)))
+    : 0;
+  const slotIndex = Number(slot?.index);
+  const index = Number.isFinite(slotIndex) && slotIndex >= 0 ? Math.floor(slotIndex) : fallbackIndex;
+  return {
+    index,
+    start,
+    end,
+    breakAfterMin,
+  };
+}
+
+function normalizeTurnScheduleTurn(value, fallbackMeta) {
+  const mode = String(value?.mode || "modulo").trim().toLowerCase() === "hora_catedra"
+    ? "hora_catedra"
+    : "modulo";
+  const start = String(value?.start || "").trim();
+  const end = String(value?.end || "").trim();
+  const slotsRaw = Array.isArray(value?.slots) ? value.slots : [];
+  const slots = slotsRaw
+    .map((slot, index) => normalizeTurnScheduleSlot(slot, index))
+    .filter((slot) => slot.start && slot.end)
+    .sort((a, b) => a.index - b.index)
+    .map((slot, index) => ({
+      ...slot,
+      index,
+    }));
+  return {
+    key: fallbackMeta.key,
+    label: fallbackMeta.label,
+    start,
+    end,
+    mode,
+    slots,
+  };
+}
+
+function normalizeTurnScheduleConfig(rawConfig) {
+  const base = createEmptyTurnScheduleConfig();
+  const source = rawConfig && typeof rawConfig === "object" ? rawConfig : {};
+  const sourceTurns = source.turns && typeof source.turns === "object"
+    ? source.turns
+    : source.turnos && typeof source.turnos === "object"
+      ? source.turnos
+      : source;
+
+  SCHEDULE_TURN_META.forEach((meta) => {
+    const byCode = sourceTurns?.[meta.code] || {};
+    const byKey = sourceTurns?.[meta.key] || {};
+    const incoming = Object.keys(byCode).length ? byCode : byKey;
+    base.turns[meta.code] = normalizeTurnScheduleTurn(incoming, meta);
+  });
+  return base;
+}
+
+function isTurnScheduleReady(config) {
+  const normalized = normalizeTurnScheduleConfig(config);
+  return REQUIRED_SCHEDULE_TURNS.every((turnCode) => {
+    const turn = normalized.turns?.[turnCode];
+    return Boolean(turn?.start && turn?.end && Array.isArray(turn?.slots) && turn.slots.length);
+  });
+}
+
+function generateSlotsForTurn(startClock, endClock, mode) {
+  const startMinutes = parseClockToMinutes(startClock);
+  const endMinutes = parseClockToMinutes(endClock);
+  const unit = unitMinutesFromMode(mode);
+  if (startMinutes < 0 || endMinutes < 0 || endMinutes <= startMinutes) {
+    return [];
+  }
+  const slots = [];
+  let cursor = startMinutes;
+  let index = 0;
+  while (cursor + unit <= endMinutes && index < 24) {
+    const slotStart = cursor;
+    const slotEnd = cursor + unit;
+    const start = minutesToClock(slotStart);
+    const end = minutesToClock(slotEnd);
+    if (!start || !end) {
+      break;
+    }
+    slots.push({
+      index,
+      start,
+      end,
+      breakAfterMin: 0,
+    });
+    cursor = slotEnd;
+    index += 1;
+  }
+  return slots;
+}
+
+function resolveCourseTurnCode(courseName, items = []) {
+  const course = normalizeCourse(courseName);
+  const entries = Array.isArray(homeState.courses) ? homeState.courses : [];
+  const fromCourses = entries.find(
+    (entry) => normalizeCourse(entry?.course || entry) === course
+  );
+  const itemTurns = Array.isArray(items) ? items.map((item) => item?.turno) : [];
+  const resolved = pickRenderableTurn([fromCourses?.turno, ...itemTurns]);
+  if (resolved !== "S") {
+    return resolved;
+  }
+  const fallback = normalizeTurn(fromCourses?.turno || itemTurns[0] || "M");
+  return fallback === "S" ? "M" : fallback;
+}
+
+function resolveDiaSlotIndex(diaItem, slots) {
+  const list = Array.isArray(slots) ? slots : [];
+  if (!list.length) {
+    return -1;
+  }
+  const fromIndex = Number(diaItem?.slotIndex);
+  if (Number.isFinite(fromIndex) && fromIndex >= 0 && fromIndex < list.length) {
+    return Math.floor(fromIndex);
+  }
+  const horario = normalizeHorarioRange(diaItem?.horario);
+  if (!horario) {
+    return -1;
+  }
+  return list.findIndex((slot) => normalizeHorarioRange(slotLabelFromConfig(slot)) === horario);
 }
 
 function docenteDisplayNameByCuil(cuil) {
@@ -852,6 +1080,7 @@ function resetImportState() {
     tenantId: "",
     courses: [],
     selectedCourse: "",
+    selectedCourseTurn: "",
     docentesByCuil: new Map(),
     docentesByCupof: new Map(),
     docentesAll: [],
@@ -859,10 +1088,25 @@ function resetImportState() {
     slotItems: new Map(),
     editingDocente: null,
     loadingCourseButton: "",
+    turnScheduleConfig: createEmptyTurnScheduleConfig(),
+    setupStatus: {
+      hasCourses: false,
+      hasDocentes: false,
+      hasTurnConfig: false,
+    },
   };
+  turnScheduleDraft = clonePlain(homeState.turnScheduleConfig);
   buttonConfigState = clonePlain(DEFAULT_BUTTON_CONFIG);
   renderButtonConfigEditor();
+  renderTurnScheduleEditor();
   setMsg(buttonConfigMsg, "");
+  if (turnScheduleMsg) {
+    setMsg(turnScheduleMsg, "");
+  }
+  if (turnScheduleLockMsg) {
+    turnScheduleLockMsg.textContent = "";
+    turnScheduleLockMsg.classList.add("is-hidden");
+  }
   homeCourseButtons.innerHTML = "";
   homeSelectedCourse.textContent = "Curso seleccionado: -";
   courseScheduleWrap.classList.add("is-hidden");
@@ -875,6 +1119,7 @@ function resetImportState() {
     homeSearchInput.value = "";
   }
   closeDocenteEditor();
+  closeAssignMateriaModal();
   setLoading(false);
 }
 
@@ -935,6 +1180,13 @@ async function checkTenantDataAndToggleImport(tenantId) {
   }
   tenantEmptyImport.classList.remove("is-hidden");
   setMsg(panelMsg, "");
+}
+
+async function refreshTenantAfterImport() {
+  if (!importState.tenantId) {
+    return;
+  }
+  await loadTenantCourses(importState.tenantId, { forceRefresh: true, allowFirestore: true });
 }
 
 function normalizeCourse(value) {
@@ -1026,12 +1278,362 @@ function normalizeDocenteForReview(docente) {
   return normalized;
 }
 
+function ensureTurnScheduleDraft() {
+  if (!turnScheduleDraft) {
+    turnScheduleDraft = normalizeTurnScheduleConfig(homeState.turnScheduleConfig);
+  }
+  return turnScheduleDraft;
+}
+
+function getSetupStatus() {
+  return homeState.setupStatus || {
+    hasCourses: false,
+    hasDocentes: false,
+    hasTurnConfig: false,
+  };
+}
+
+function canUseMainSchedule() {
+  const status = getSetupStatus();
+  return Boolean(status.hasCourses && status.hasDocentes && status.hasTurnConfig);
+}
+
+function setupMissingSteps(status) {
+  const missing = [];
+  if (!status.hasCourses) {
+    missing.push("cursos");
+  }
+  if (!status.hasDocentes) {
+    missing.push("docentes");
+  }
+  if (!status.hasTurnConfig) {
+    missing.push("turnos y horarios");
+  }
+  return missing;
+}
+
+function applySetupStatus(status) {
+  const next = {
+    hasCourses: Boolean(status?.hasCourses),
+    hasDocentes: Boolean(status?.hasDocentes),
+    hasTurnConfig: Boolean(status?.hasTurnConfig),
+  };
+  homeState.setupStatus = next;
+
+  const missing = setupMissingSteps(next);
+  const blocked = missing.length > 0;
+  [homeSearchInput, homeSearchBtn, homeSearchClearBtn, homeSearchPidBtn].forEach((el) => {
+    if (el) {
+      el.disabled = blocked;
+    }
+  });
+  if (missing.length) {
+    const message = `Configuracion incompleta: faltan ${missing.join(", ")}.`;
+    setMsg(panelMsg, `${message} Completa la seccion Configuracion y luego sincroniza.`, true);
+    setMsg(homeMsg, `${message} No se puede usar la tabla principal hasta completarlo.`, true);
+    courseScheduleWrap.classList.add("is-hidden");
+  } else if (!homeState.selectedCourse) {
+    setMsg(homeMsg, "Selecciona un curso para ver su horario.");
+  }
+
+  if (turnScheduleLockMsg) {
+    const showLock = !next.hasTurnConfig;
+    turnScheduleLockMsg.classList.toggle("is-hidden", !showLock);
+    if (showLock) {
+      turnScheduleLockMsg.textContent =
+        "Debes guardar la configuracion de turnos y horarios para habilitar la tabla principal.";
+      turnScheduleLockMsg.classList.add("error");
+      turnScheduleLockMsg.classList.remove("success");
+    } else {
+      turnScheduleLockMsg.textContent = "";
+      turnScheduleLockMsg.classList.remove("error");
+      turnScheduleLockMsg.classList.remove("success");
+    }
+  }
+}
+
+function turnModeLabel(mode) {
+  return String(mode || "").trim().toLowerCase() === "hora_catedra"
+    ? "Hora catedra (40 min)"
+    : "Modulo (60 min)";
+}
+
+function readTurnScheduleFromEditor() {
+  const parsed = createEmptyTurnScheduleConfig();
+  if (!turnScheduleEditor) {
+    return parsed;
+  }
+  SCHEDULE_TURN_META.forEach((meta) => {
+    const root = turnScheduleEditor.querySelector(`.turn-schedule-card[data-turn="${meta.code}"]`);
+    if (!root) {
+      return;
+    }
+    const startInput = root.querySelector('[data-turn-key="start"]');
+    const endInput = root.querySelector('[data-turn-key="end"]');
+    const modeInput = root.querySelector('[data-turn-key="mode"]');
+    const slotRows = root.querySelectorAll("[data-slot-row]");
+    const slots = [];
+    slotRows.forEach((row, index) => {
+      const start = String(row.querySelector('[data-slot-key="start"]')?.value || "").trim();
+      const end = String(row.querySelector('[data-slot-key="end"]')?.value || "").trim();
+      const breakAfterRaw = Number(row.querySelector('[data-slot-key="break"]')?.value || 0);
+      if (!start || !end) {
+        return;
+      }
+      slots.push({
+        index,
+        start,
+        end,
+        breakAfterMin: Number.isFinite(breakAfterRaw) ? Math.max(0, Math.min(30, Math.round(breakAfterRaw))) : 0,
+      });
+    });
+    parsed.turns[meta.code] = {
+      key: meta.key,
+      label: meta.label,
+      start: String(startInput?.value || "").trim(),
+      end: String(endInput?.value || "").trim(),
+      mode: String(modeInput?.value || "modulo").trim().toLowerCase() === "hora_catedra" ? "hora_catedra" : "modulo",
+      slots,
+    };
+  });
+  return normalizeTurnScheduleConfig(parsed);
+}
+
+function renderTurnScheduleEditor() {
+  if (!turnScheduleEditor) {
+    return;
+  }
+  const config = ensureTurnScheduleDraft();
+  turnScheduleEditor.innerHTML = SCHEDULE_TURN_META.map((meta) => {
+    const turn = config.turns?.[meta.code] || {};
+    const slots = Array.isArray(turn.slots) ? turn.slots : [];
+    const rowsHtml = slots.length
+      ? slots.map((slot, index) => `
+          <tr data-slot-row="${index}">
+            <td>${index + 1}</td>
+            <td><input type="time" data-slot-key="start" value="${esc(slot.start)}" /></td>
+            <td><input type="time" data-slot-key="end" value="${esc(slot.end)}" /></td>
+            <td><input type="number" min="0" max="30" step="1" data-slot-key="break" value="${Number(slot.breakAfterMin || 0)}" /></td>
+            <td><button type="button" class="google-btn" data-turn-remove-slot="${meta.code}" data-slot-index="${index}">Quitar</button></td>
+          </tr>
+        `).join("")
+      : '<tr><td colspan="5" class="msg">Sin bloques. Usa "Generar bloques".</td></tr>';
+    const mode = String(turn.mode || "modulo").trim().toLowerCase() === "hora_catedra" ? "hora_catedra" : "modulo";
+    return `
+      <div class="turn-schedule-card" data-turn="${meta.code}">
+        <h4>${esc(meta.label)} (${meta.code})</h4>
+        <div class="turn-schedule-header">
+          <label>Inicio
+            <input type="time" data-turn-key="start" value="${esc(turn.start || "")}" />
+          </label>
+          <label>Fin
+            <input type="time" data-turn-key="end" value="${esc(turn.end || "")}" />
+          </label>
+          <label>Modo
+            <select data-turn-key="mode">
+              <option value="modulo" ${mode === "modulo" ? "selected" : ""}>Modulo (60 min)</option>
+              <option value="hora_catedra" ${mode === "hora_catedra" ? "selected" : ""}>Hora catedra (40 min)</option>
+            </select>
+          </label>
+          <div class="review-actions">
+            <button type="button" class="google-btn" data-turn-generate="${meta.code}">Generar bloques</button>
+            <button type="button" class="google-btn" data-turn-add-slot="${meta.code}">Agregar bloque</button>
+          </div>
+        </div>
+        <div class="turn-schedule-slots-wrap">
+          <table class="turn-schedule-slots">
+            <thead>
+              <tr>
+                <th>Hora</th>
+                <th>Desde</th>
+                <th>Hasta</th>
+                <th>Recreo (min)</th>
+                <th>Accion</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+        </div>
+        <p class="turn-schedule-note">Modo actual: ${turnModeLabel(mode)}. El recreo maximo por bloque es 30 min.</p>
+      </div>
+    `;
+  }).join("");
+}
+
+function buildTenantCachePayload() {
+  return {
+    courses: sanitizeCourseList((homeState.courses || []).map((entry) => entry?.course || entry)),
+    courseButtons: clonePlain(homeState.courses || []),
+    docentesByCuil: Array.from(homeState.docentesByCuil.entries()),
+    docentesByCupof: Array.from(homeState.docentesByCupof.entries()),
+    docentesAll: clonePlain(homeState.docentesAll || []),
+    turnScheduleConfig: clonePlain(homeState.turnScheduleConfig || createEmptyTurnScheduleConfig()),
+  };
+}
+
+async function loadTurnScheduleConfig(tenantId, options = {}) {
+  const { allowFirestore = true } = options;
+  if (!tenantId) {
+    homeState.turnScheduleConfig = createEmptyTurnScheduleConfig();
+    turnScheduleDraft = clonePlain(homeState.turnScheduleConfig);
+    renderTurnScheduleEditor();
+    return homeState.turnScheduleConfig;
+  }
+
+  if (!allowFirestore) {
+    homeState.turnScheduleConfig = normalizeTurnScheduleConfig(homeState.turnScheduleConfig);
+    turnScheduleDraft = clonePlain(homeState.turnScheduleConfig);
+    renderTurnScheduleEditor();
+    return homeState.turnScheduleConfig;
+  }
+
+  try {
+    const configRef = doc(db, "tenants", tenantId, "configuraciones", "turnosAndHorarios");
+    const legacyRef = doc(db, "tenants", tenantId, "configuraciones", "tunosAndHorarios");
+    let snap = await getDoc(configRef);
+    if (!snap.exists()) {
+      const legacySnap = await getDoc(legacyRef);
+      if (legacySnap.exists()) {
+        snap = legacySnap;
+      }
+    }
+    if (!snap.exists()) {
+      homeState.turnScheduleConfig = createEmptyTurnScheduleConfig();
+      turnScheduleDraft = clonePlain(homeState.turnScheduleConfig);
+      renderTurnScheduleEditor();
+      setMsg(
+        turnScheduleMsg,
+        "No existe configuracion de turnos y horarios. Debes crearla para habilitar la tabla principal.",
+        true
+      );
+      return homeState.turnScheduleConfig;
+    }
+
+    const data = snap.data() || {};
+    homeState.turnScheduleConfig = normalizeTurnScheduleConfig(data.turns || data.turnos || data);
+    turnScheduleDraft = clonePlain(homeState.turnScheduleConfig);
+    renderTurnScheduleEditor();
+    setMsg(turnScheduleMsg, "Configuracion de turnos y horarios cargada.");
+    return homeState.turnScheduleConfig;
+  } catch (error) {
+    console.error(error);
+    homeState.turnScheduleConfig = createEmptyTurnScheduleConfig();
+    turnScheduleDraft = clonePlain(homeState.turnScheduleConfig);
+    renderTurnScheduleEditor();
+    setMsg(turnScheduleMsg, "No se pudo cargar configuracion de turnos y horarios", true);
+    return homeState.turnScheduleConfig;
+  }
+}
+
+async function saveTurnScheduleConfig(tenantId) {
+  if (!tenantId) {
+    throw new Error("No hay tenantId activo");
+  }
+
+  const parsed = readTurnScheduleFromEditor();
+  const requiredMissing = REQUIRED_SCHEDULE_TURNS.filter((turnCode) => {
+    const turn = parsed.turns?.[turnCode];
+    return !(turn?.start && turn?.end && Array.isArray(turn?.slots) && turn.slots.length);
+  });
+  if (requiredMissing.length) {
+    throw new Error(
+      `Faltan turnos obligatorios: ${requiredMissing.join(", ")}. Debes completar inicio/fin y generar bloques.`
+    );
+  }
+
+  homeState.turnScheduleConfig = normalizeTurnScheduleConfig(parsed);
+  turnScheduleDraft = clonePlain(homeState.turnScheduleConfig);
+  renderTurnScheduleEditor();
+  await setDoc(
+    doc(db, "tenants", tenantId, "configuraciones", "turnosAndHorarios"),
+    {
+      tenantId,
+      turns: homeState.turnScheduleConfig.turns,
+      updatedAt: new Date(),
+    },
+    { merge: true }
+  );
+  await saveTenantHomeCache(tenantId, buildTenantCachePayload());
+  const status = getSetupStatus();
+  applySetupStatus({
+    ...status,
+    hasTurnConfig: isTurnScheduleReady(homeState.turnScheduleConfig),
+  });
+  renderHomeCourseButtons(homeState.courses);
+  updateHomeCourseButtonSelection();
+}
+
+function addManualSlotToTurn(turnCode) {
+  const config = readTurnScheduleFromEditor();
+  const turn = config.turns?.[turnCode];
+  if (!turn) {
+    return;
+  }
+  const slots = Array.isArray(turn.slots) ? turn.slots.slice() : [];
+  const unit = unitMinutesFromMode(turn.mode);
+  const last = slots[slots.length - 1];
+  let start = "";
+  let end = "";
+  if (last?.end) {
+    const base = parseClockToMinutes(last.end);
+    const startMins = Number.isFinite(base) && base >= 0 ? base + Number(last.breakAfterMin || 0) : -1;
+    const endMins = startMins >= 0 ? startMins + unit : -1;
+    start = minutesToClock(startMins);
+    end = minutesToClock(endMins);
+  } else if (turn.start) {
+    const startMins = parseClockToMinutes(turn.start);
+    start = minutesToClock(startMins);
+    end = minutesToClock(startMins + unit);
+  }
+  slots.push({
+    index: slots.length,
+    start: start || "",
+    end: end || "",
+    breakAfterMin: 0,
+  });
+  config.turns[turnCode].slots = slots;
+  turnScheduleDraft = normalizeTurnScheduleConfig(config);
+  renderTurnScheduleEditor();
+}
+
+function generateSlotsForTurnFromEditor(turnCode) {
+  const config = readTurnScheduleFromEditor();
+  const turn = config.turns?.[turnCode];
+  if (!turn) {
+    return;
+  }
+  const generated = generateSlotsForTurn(turn.start, turn.end, turn.mode);
+  config.turns[turnCode].slots = generated;
+  turnScheduleDraft = normalizeTurnScheduleConfig(config);
+  renderTurnScheduleEditor();
+}
+
+function removeTurnSlotFromEditor(turnCode, slotIndex) {
+  const config = readTurnScheduleFromEditor();
+  const turn = config.turns?.[turnCode];
+  if (!turn || !Array.isArray(turn.slots)) {
+    return;
+  }
+  const safeIndex = Number(slotIndex);
+  if (!Number.isFinite(safeIndex) || safeIndex < 0 || safeIndex >= turn.slots.length) {
+    return;
+  }
+  turn.slots.splice(safeIndex, 1);
+  turn.slots = turn.slots.map((slot, index) => ({
+    ...slot,
+    index,
+  }));
+  turnScheduleDraft = normalizeTurnScheduleConfig(config);
+  renderTurnScheduleEditor();
+}
+
 function hasSheetGid(sheetUrl) {
   return /[?&#]gid=\d+/.test(String(sheetUrl || ""));
 }
 
 function normalizeTurn(value) {
   const raw = String(value || "").trim().toUpperCase();
+  if (raw === "A" || raw.startsWith("AL")) return "A";
   if (raw.startsWith("M")) return "M";
   if (raw.startsWith("T")) return "T";
   if (raw.startsWith("V")) return "V";
@@ -1042,8 +1644,11 @@ function normalizeTurn(value) {
 
 function normalizeRenderableTurn(value) {
   const raw = String(value || "").trim().toUpperCase();
-  if (raw === "M" || raw === "T" || raw === "V") {
+  if (raw === "M" || raw === "T" || raw === "V" || raw === "A") {
     return raw;
+  }
+  if (raw.startsWith("AL")) {
+    return "A";
   }
   return "";
 }
@@ -1227,7 +1832,7 @@ async function loadCourseButtonsFromFirestore(tenantId) {
         turno: turn,
       });
     }
-    return entries.sort((a, b) => a.course.localeCompare(b.course));
+    return entries.sort((a, b) => compareCourseCodes(a.course, b.course));
   } catch (error) {
     console.error("No se pudieron cargar botones de cursos", error);
     return [];
@@ -1261,8 +1866,11 @@ async function loadTenantHomeCache(tenantId) {
     homeState.docentesByCuil = new Map(Array.isArray(cached.docentesByCuil) ? cached.docentesByCuil : []);
     homeState.docentesByCupof = new Map(Array.isArray(cached.docentesByCupof) ? cached.docentesByCupof : []);
     homeState.docentesAll = Array.isArray(cached.docentesAll) ? cached.docentesAll : [];
+    homeState.turnScheduleConfig = normalizeTurnScheduleConfig(cached.turnScheduleConfig);
+    turnScheduleDraft = clonePlain(homeState.turnScheduleConfig);
     buttonConfigState = normalizeButtonConfig(cached.buttonConfig);
     renderButtonConfigEditor();
+    renderTurnScheduleEditor();
     renderCourseButtons(Array.isArray(cached.courses) ? cached.courses : []);
     renderHomeCourseButtons(Array.isArray(cached.courseButtons) ? cached.courseButtons : []);
     setMsg(homeMsg, "Mostrando datos locales...");
@@ -1322,15 +1930,9 @@ function renderCourseButtons(courses) {
   const safeCourses = sanitizeCourseList(courses).sort(compareCourseCodes);
   courseButtons.innerHTML = "";
   if (!safeCourses.length) {
-    courseButtonsMsg.textContent = "No hay cursos cargados en Firestore. Se creara boton 1A por defecto.";
-    const defaultCourse = "1A";
-    importState.courses = [defaultCourse];
-    setSelectedCourse(defaultCourse);
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = `Cargar ${defaultCourse}`;
-    button.addEventListener("click", () => setSelectedCourse(defaultCourse));
-    courseButtons.appendChild(button);
+    courseButtonsMsg.textContent = "No hay cursos cargados. Debes importarlos en Configuracion.";
+    importState.courses = [];
+    setSelectedCourse("");
     return;
   }
 
@@ -1373,6 +1975,7 @@ function renderHomeCourseButtons(courses) {
     ["M", []],
     ["T", []],
     ["V", []],
+    ["A", []],
   ]);
 
   courses.forEach((entry) => {
@@ -1394,9 +1997,10 @@ function renderHomeCourseButtons(courses) {
     M: "Manana",
     T: "Tarde",
     V: "Vespertino",
+    A: "Alternado",
   };
 
-  ["M", "T", "V"].forEach((turn) => {
+  ["M", "T", "V", "A"].forEach((turn) => {
     const items = byTurn.get(turn) || [];
     if (!items.length) {
       return;
@@ -1413,15 +2017,22 @@ function renderHomeCourseButtons(courses) {
     buttonsWrap.className = "turn-buttons";
 
     items
-      .sort((a, b) => a.course.localeCompare(b.course))
+      .sort((a, b) => compareCourseCodes(a.course, b.course))
       .forEach((item) => {
         const button = document.createElement("button");
         button.type = "button";
         button.className = `course-btn turn-${item.turn.toLowerCase()}`;
         button.dataset.course = item.course;
         button.textContent = item.course;
+        button.disabled = !canUseMainSchedule();
         applyTurnButtonStyle(button, item.turn);
         button.addEventListener("click", async () => {
+          if (!canUseMainSchedule()) {
+            const status = getSetupStatus();
+            const missing = setupMissingSteps(status).join(", ");
+            setMsg(homeMsg, `No disponible. Falta completar: ${missing}.`, true);
+            return;
+          }
           if (homeState.loadingCourseButton) {
             return;
           }
@@ -1488,30 +2099,42 @@ async function buildDocentesByCuilMap(tenantId) {
 }
 
 function renderScheduleTable(curso, items) {
-  const days = ["LUNES", "MARTES", "MIERCOLES", "JUEVES", "VIERNES"];
-  const slots = new Map();
-  const contracturnoByDay = new Map();
-  days.forEach((day) => contracturnoByDay.set(day, []));
-  const allRanges = new Set();
-  let slotIndex = 0;
-  homeState.currentItems = Array.isArray(items) ? items : [];
+  const courseTurn = resolveCourseTurnCode(curso, items);
+  homeState.selectedCourseTurn = courseTurn;
+  const normalizedItems = Array.isArray(items)
+    ? items.map((item) => clonePlain(item || {}))
+    : [];
+  homeState.currentItems = normalizedItems;
   homeState.slotItems = new Map();
 
-  items.forEach((item) => {
-    const isContracturno = normalizeTurn(item?.turno) === "C";
+  const normalizedConfig = normalizeTurnScheduleConfig(homeState.turnScheduleConfig);
+  const turnConfig = normalizedConfig.turns?.[courseTurn] || null;
+  const slotsByTurn = Array.isArray(turnConfig?.slots) ? turnConfig.slots : [];
+  if (!slotsByTurn.length) {
+    courseScheduleWrap.classList.add("is-hidden");
+    setMsg(
+      homeMsg,
+      `No hay bloques configurados para el turno ${courseTurn}. Configura turnos y horarios para continuar.`,
+      true
+    );
+    return;
+  }
+
+  const slots = new Map();
+  let slotRenderIndex = 0;
+
+  normalizedItems.forEach((item) => {
     const dias = Array.isArray(item?.diaHorario?.dias) ? item.diaHorario.dias : [];
     dias.forEach((diaItem) => {
       const day = normalizeDayColumn(diaItem?.dia);
-      const range = normalizeHorarioRange(diaItem?.horario);
-      if (!day || !range) {
+      if (!day) {
         return;
       }
-      if (isContracturno) {
-        contracturnoByDay.get(day)?.push({ item, range });
+      const slotIndex = resolveDiaSlotIndex(diaItem, slotsByTurn);
+      if (slotIndex < 0 || slotIndex >= slotsByTurn.length) {
         return;
       }
-      allRanges.add(range);
-      const key = `${day}__${range}`;
+      const key = `${day}__${slotIndex}`;
       if (!slots.has(key)) {
         slots.set(key, []);
       }
@@ -1519,36 +2142,35 @@ function renderScheduleTable(curso, items) {
     });
   });
 
-  const ranges = Array.from(allRanges).sort((a, b) => {
-    const byTime = parseStartMinutes(a) - parseStartMinutes(b);
-    if (byTime !== 0) {
-      return byTime;
-    }
-    return a.localeCompare(b);
-  });
-
-  const hasContracturno = days.some((day) => (contracturnoByDay.get(day) || []).length > 0);
-
-  if (!ranges.length && !hasContracturno) {
-    courseScheduleWrap.classList.add("is-hidden");
-    setMsg(homeMsg, `El curso ${curso} no tiene horarios cargados`, true);
-    return;
-  }
-
-  const rowsHtml = ranges
-    .map((range) => {
-      const dayCells = days
+  const rowsHtml = slotsByTurn
+    .map((slot, slotIndex) => {
+      const slotRange = slotLabelFromConfig(slot);
+      const breakAfter = Number(slot?.breakAfterMin || 0);
+      const breakText = breakAfter > 0 ? ` (+ recreo ${breakAfter}m)` : "";
+      const rowLabel = `${slotIndex + 1}° ${slotRange}${breakText}`;
+      const dayCells = DAYS
         .map((day) => {
-          const key = `${day}__${range}`;
+          const key = `${day}__${slotIndex}`;
           const dayItems = slots.get(key) || [];
           if (!dayItems.length) {
-            return "<td></td>";
+            return `
+              <td class="schedule-cell-empty">
+                <button
+                  type="button"
+                  class="google-btn designar-slot-btn"
+                  data-day="${esc(day)}"
+                  data-slot-index="${slotIndex}"
+                >
+                  Designar
+                </button>
+              </td>
+            `;
           }
           let firstSlotId = "";
           const slotHtml = dayItems
             .map((item) => {
-              const slotId = `${curso}_${day}_${range}_${slotIndex}`;
-              slotIndex += 1;
+              const slotId = `${curso}_${day}_${slotIndex}_${slotRenderIndex}`;
+              slotRenderIndex += 1;
               homeState.slotItems.set(slotId, item);
               if (!firstSlotId) {
                 firstSlotId = slotId;
@@ -1563,11 +2185,13 @@ function renderScheduleTable(curso, items) {
                 ? `<span class="meta ${suplenteClass}">Suplente: ${esc(suplenteInfo.name)}</span>`
                 : "";
               const cupof = esc(item.cupof || "-");
+              const range = esc(slotRange);
               return `
                 <div class="schedule-slot" data-slot-id="${esc(slotId)}">
                   <span class="title">${materia}</span>
                   <span class="meta docente-main ${titularClass}">${titular}</span>
                   ${suplenteHtml}
+                  <span class="meta horario">Horario: ${range}</span>
                   <span class="meta cupof">CUPOF: ${cupof}</span>
                 </div>
               `;
@@ -1577,58 +2201,13 @@ function renderScheduleTable(curso, items) {
         })
         .join("");
 
-      return `<tr><th>${esc(range)}</th>${dayCells}</tr>`;
+      return `<tr><th>${esc(rowLabel)}</th>${dayCells}</tr>`;
     })
     .join("");
 
-  let contracturnoRowHtml = "";
-  if (hasContracturno) {
-    const contracturnoCells = days
-      .map((day) => {
-        const entries = (contracturnoByDay.get(day) || []).sort(
-          (a, b) => parseStartMinutes(a.range) - parseStartMinutes(b.range)
-        );
-        if (!entries.length) {
-          return "<td></td>";
-        }
-        let firstSlotId = "";
-        const slotHtml = entries
-          .map(({ item, range }) => {
-            const slotId = `${curso}_${day}_CONTRATURNO_${slotIndex}`;
-            slotIndex += 1;
-            homeState.slotItems.set(slotId, item);
-            if (!firstSlotId) {
-              firstSlotId = slotId;
-            }
-            const materia = esc(item.materia || "-");
-            const titularInfo = resolveTitularInfo(item);
-            const suplenteInfo = resolveSuplenteInfo(item);
-            const titularClass = situacionToClass(titularInfo.situacionRevista);
-            const suplenteClass = situacionToClass(suplenteInfo.situacionRevista);
-            const titular = esc(titularInfo.name);
-            const suplenteHtml = suplenteInfo.name
-              ? `<span class="meta ${suplenteClass}">Suplente: ${esc(suplenteInfo.name)}</span>`
-              : "";
-            const cupof = esc(item.cupof || "-");
-            const horario = esc(range);
-            return `
-              <div class="schedule-slot" data-slot-id="${esc(slotId)}">
-                <span class="title">${materia}</span>
-                <span class="meta docente-main ${titularClass}">${titular}</span>
-                ${suplenteHtml}
-                <span class="meta horario">Horario: ${horario}</span>
-                <span class="meta cupof">CUPOF: ${cupof}</span>
-              </div>
-            `;
-          })
-          .join("");
-        return `<td data-slot-id="${esc(firstSlotId)}">${slotHtml}</td>`;
-      })
-      .join("");
-    contracturnoRowHtml = `<tr><th>Contraturno</th>${contracturnoCells}</tr>`;
-  }
-
-  courseScheduleTitle.textContent = `Horario del curso ${curso}`;
+  const turnMeta = SCHEDULE_TURN_META.find((meta) => meta.code === courseTurn);
+  const turnLabel = turnMeta?.label || courseTurn || "-";
+  courseScheduleTitle.textContent = `Horario del curso ${curso} (${turnLabel})`;
   courseScheduleTable.innerHTML = `
     <div class="schedule-table-wrap">
       <table class="schedule-table">
@@ -1642,7 +2221,7 @@ function renderScheduleTable(curso, items) {
             <th>Viernes</th>
           </tr>
         </thead>
-        <tbody>${rowsHtml}${contracturnoRowHtml}</tbody>
+        <tbody>${rowsHtml}</tbody>
       </table>
     </div>
   `;
@@ -1680,6 +2259,237 @@ function applySuplenteSearch(term) {
   homeCommandResults.textContent = matches
     ? `Coincidencias de suplente: ${matches}`
     : "Sin coincidencias para suplente";
+}
+
+function getCurrentCourseSlots() {
+  const normalizedConfig = normalizeTurnScheduleConfig(homeState.turnScheduleConfig);
+  const turnCode = homeState.selectedCourseTurn || resolveCourseTurnCode(homeState.selectedCourse, homeState.currentItems);
+  const turn = normalizedConfig.turns?.[turnCode] || null;
+  const slots = Array.isArray(turn?.slots) ? turn.slots : [];
+  return {
+    turnCode,
+    slots,
+  };
+}
+
+function closeAssignMateriaModal() {
+  assignMateriaState = {
+    day: "",
+    slotIndex: -1,
+    selectedItemId: "",
+    course: "",
+    query: "",
+    saving: false,
+  };
+  if (assignMateriaInput) {
+    assignMateriaInput.value = "";
+  }
+  if (assignMateriaList) {
+    assignMateriaList.innerHTML = "";
+  }
+  if (assignMateriaContext) {
+    assignMateriaContext.textContent = "";
+  }
+  if (assignMateriaModal) {
+    assignMateriaModal.classList.add("is-hidden");
+  }
+  if (assignMateriaSaveBtn) {
+    assignMateriaSaveBtn.disabled = true;
+  }
+}
+
+function getMateriaSelectionOptions() {
+  const list = Array.isArray(homeState.currentItems) ? homeState.currentItems : [];
+  return list
+    .filter((item) => String(item?.materia || "").trim())
+    .map((item, index) => {
+      const materia = String(item?.materia || "").trim();
+      const cupof = String(item?.cupof || "").trim();
+      const id = String(item?.id || "").trim();
+      const titularInfo = resolveTitularInfo(item);
+      const suplenteInfo = resolveSuplenteInfo(item);
+      const titular = String(titularInfo?.name || "").trim();
+      const suplente = String(suplenteInfo?.name || "").trim();
+      return {
+        id,
+        key: id || `${materia}_${cupof}_${index}`,
+        materia,
+        cupof,
+        titular,
+        suplente,
+        item,
+      };
+    })
+    .sort((a, b) => {
+      const byMateria = a.materia.localeCompare(b.materia, "es", { numeric: true, sensitivity: "base" });
+      if (byMateria !== 0) {
+        return byMateria;
+      }
+      return a.cupof.localeCompare(b.cupof, "es", { numeric: true, sensitivity: "base" });
+    });
+}
+
+function renderAssignMateriaList() {
+  if (!assignMateriaList) {
+    return;
+  }
+  const options = getMateriaSelectionOptions();
+  const query = String(assignMateriaState.query || "").trim().toLowerCase();
+  const visible = options
+    .filter((option) => {
+      if (!query) {
+        return true;
+      }
+      const haystack = `${option.materia} ${option.cupof} ${option.titular} ${option.suplente}`.toLowerCase();
+      return haystack.includes(query);
+    })
+    .slice(0, 100);
+
+  if (!visible.length) {
+    assignMateriaList.innerHTML = '<p class="msg">Sin coincidencias para la busqueda actual.</p>';
+    assignMateriaSaveBtn.disabled = true;
+    return;
+  }
+
+  assignMateriaList.innerHTML = visible
+    .map((option) => {
+      const selected = assignMateriaState.selectedItemId === option.id;
+      const selectedClass = selected ? " is-selected" : "";
+      const noIdWarning = option.id ? "" : " (requiere sincronizar para guardar)";
+      const suplenteText = option.suplente ? ` | Suplente: ${option.suplente}` : "";
+      return `
+        <button
+          type="button"
+          class="assign-materia-item${selectedClass}"
+          data-assign-item-id="${esc(option.id)}"
+          data-assign-item-key="${esc(option.key)}"
+        >
+          <span class="main">${esc(option.materia)} | CUPOF ${esc(option.cupof || "-")}${esc(noIdWarning)}</span>
+          <span class="meta">Titular: ${esc(option.titular || "-")}${esc(suplenteText)}</span>
+        </button>
+      `;
+    })
+    .join("");
+  assignMateriaSaveBtn.disabled = !String(assignMateriaState.selectedItemId || "").trim();
+}
+
+function openAssignMateriaModal(day, slotIndex) {
+  if (!canUseMainSchedule()) {
+    const missing = setupMissingSteps(getSetupStatus()).join(", ");
+    setMsg(homeMsg, `No disponible. Falta completar: ${missing}.`, true);
+    return;
+  }
+
+  const normalizedDay = normalizeDayColumn(day);
+  const safeSlotIndex = Number(slotIndex);
+  const { slots } = getCurrentCourseSlots();
+  if (!normalizedDay || !Number.isFinite(safeSlotIndex) || safeSlotIndex < 0 || safeSlotIndex >= slots.length) {
+    setMsg(homeMsg, "No se pudo abrir designacion para ese horario", true);
+    return;
+  }
+
+  assignMateriaState.day = normalizedDay;
+  assignMateriaState.slotIndex = Math.floor(safeSlotIndex);
+  assignMateriaState.selectedItemId = "";
+  assignMateriaState.course = homeState.selectedCourse;
+  assignMateriaState.query = "";
+  assignMateriaState.saving = false;
+
+  const slot = slots[assignMateriaState.slotIndex];
+  const range = slotLabelFromConfig(slot);
+  assignMateriaContext.textContent = `Curso ${homeState.selectedCourse} | ${normalizedDay} | ${assignMateriaState.slotIndex + 1}° hora (${range})`;
+  assignMateriaInput.value = "";
+  renderAssignMateriaList();
+  assignMateriaModal.classList.remove("is-hidden");
+  assignMateriaInput.focus();
+}
+
+async function saveAssignMateriaSelection() {
+  const course = normalizeCourse(assignMateriaState.course);
+  const selectedId = String(assignMateriaState.selectedItemId || "").trim();
+  if (!course || !selectedId) {
+    return;
+  }
+  if (!homeState.tenantId) {
+    throw new Error("No hay tenantId activo");
+  }
+  const { turnCode, slots } = getCurrentCourseSlots();
+  const slot = slots[assignMateriaState.slotIndex];
+  if (!slot) {
+    throw new Error("Horario seleccionado invalido");
+  }
+
+  const targetDay = assignMateriaState.day;
+  const targetSlotIndex = assignMateriaState.slotIndex;
+  const targetRange = slotLabelFromConfig(slot);
+  const nextItems = Array.isArray(homeState.currentItems)
+    ? homeState.currentItems.map((item) => clonePlain(item))
+    : [];
+  const updates = [];
+  let selectedFound = false;
+
+  nextItems.forEach((item) => {
+    const itemId = String(item?.id || "").trim();
+    const dias = Array.isArray(item?.diaHorario?.dias) ? item.diaHorario.dias.map((entry) => clonePlain(entry)) : [];
+    const filteredDias = dias.filter((entry) => {
+      const sameDay = normalizeDayColumn(entry?.dia) === targetDay;
+      if (!sameDay) {
+        return true;
+      }
+      const entryIndex = resolveDiaSlotIndex(entry, slots);
+      return entryIndex !== targetSlotIndex;
+    });
+    let changed = filteredDias.length !== dias.length;
+
+    if (itemId === selectedId) {
+      selectedFound = true;
+      filteredDias.push({
+        dia: targetDay,
+        horario: targetRange,
+        slotIndex: targetSlotIndex,
+        turno: turnCode,
+      });
+      changed = true;
+    }
+
+    if (changed) {
+      item.diaHorario = {
+        ...(item.diaHorario || {}),
+        dias: filteredDias,
+      };
+      updates.push({
+        id: itemId,
+        diaHorario: clonePlain(item.diaHorario),
+      });
+    }
+  });
+
+  if (!selectedFound) {
+    throw new Error("No se encontro la materia seleccionada");
+  }
+  const missingIds = updates.some((entry) => !entry.id);
+  if (missingIds) {
+    throw new Error('Hay materias sin id local. Presiona "Sincronizar" y reintenta.');
+  }
+
+  await Promise.all(
+    updates.map((entry) =>
+      setDoc(
+        doc(db, "tenants", homeState.tenantId, "cursos", course, "items", entry.id),
+        {
+          diaHorario: entry.diaHorario,
+          updatedAt: new Date(),
+        },
+        { merge: true }
+      )
+    )
+  );
+
+  homeState.currentItems = nextItems;
+  await saveCourseScheduleCache(homeState.tenantId, course, nextItems);
+  renderScheduleTable(course, nextItems);
+  closeAssignMateriaModal();
+  setMsg(homeMsg, "Designacion guardada");
 }
 
 function renderPidResults(pid, results) {
@@ -1819,6 +2629,12 @@ async function loadScheduleForCourse(courseName, options = {}) {
   homeState.selectedCourse = course;
   homeSelectedCourse.textContent = `Curso seleccionado: ${course}`;
   updateHomeCourseButtonSelection();
+  if (!canUseMainSchedule()) {
+    const missing = setupMissingSteps(getSetupStatus()).join(", ");
+    setMsg(homeMsg, `No disponible. Falta completar: ${missing}.`, true);
+    courseScheduleWrap.classList.add("is-hidden");
+    return;
+  }
   if (!preferCache) {
     setMsg(homeMsg, `Cargando horario de ${course}...`);
   }
@@ -1831,13 +2647,11 @@ async function loadScheduleForCourse(courseName, options = {}) {
       const cachedItems = await loadCourseScheduleCache(homeState.tenantId, course);
       if (Array.isArray(cachedItems)) {
         hadCachedItems = true;
-      }
-      if (cachedItems && cachedItems.length) {
         renderScheduleTable(course, cachedItems);
         usedCache = true;
-        if (!forceRefresh) {
-          return;
-        }
+      }
+      if (usedCache && !forceRefresh) {
+        return;
       }
     }
     if (usedCache && !forceRefresh) {
@@ -1851,7 +2665,10 @@ async function loadScheduleForCourse(courseName, options = {}) {
       return;
     }
     const itemsSnap = await getDocs(collection(db, "tenants", homeState.tenantId, "cursos", course, "items"));
-    const items = itemsSnap.docs.map((docSnap) => docSnap.data() || {});
+    const items = itemsSnap.docs.map((docSnap) => ({
+      id: docSnap.id,
+      ...(docSnap.data() || {}),
+    }));
     renderScheduleTable(course, items);
     await saveCourseScheduleCache(homeState.tenantId, course, items);
   } catch (error) {
@@ -1866,37 +2683,53 @@ async function loadTenantCourses(tenantId, options = {}) {
   const { forceRefresh = false, allowFirestore = true } = options;
   setLoading(true, "Cargando cursos...");
   try {
+    homeState.tenantId = tenantId;
     const hasCache = await loadTenantHomeCache(tenantId);
-    await loadButtonConfig(tenantId, { allowFirestore: allowFirestore && !hasCache });
+    await loadButtonConfig(tenantId, { allowFirestore: allowFirestore && (!hasCache || forceRefresh) });
     if (hasCache && !forceRefresh) {
-      homeState.tenantId = tenantId;
+      await loadTurnScheduleConfig(tenantId, { allowFirestore: false });
       const sourceCourses = Array.isArray(homeState.courses) ? homeState.courses : [];
       const resolvedFromCache = sourceCourses
         .map((entry) => ({
           course: normalizeCourse(entry?.course || entry),
           turno: pickRenderableTurn([entry?.turno]),
         }))
-        .filter((entry) => entry.course && entry.turno !== "S");
+        .filter((entry) => entry.course);
+
+      applySetupStatus({
+        hasCourses: sourceCourses.length > 0,
+        hasDocentes: Array.isArray(homeState.docentesAll) && homeState.docentesAll.length > 0,
+        hasTurnConfig: isTurnScheduleReady(homeState.turnScheduleConfig),
+      });
       if (resolvedFromCache.length) {
         renderHomeCourseButtons(resolvedFromCache);
       }
+
       const firstCourse = (resolvedFromCache.length ? resolvedFromCache : sourceCourses)[0];
       const firstCourseName = normalizeCourse(firstCourse?.course || firstCourse || "");
-      if (firstCourseName) {
+      if (firstCourseName && canUseMainSchedule()) {
         await loadScheduleForCourse(firstCourseName, {
           preferCache: true,
           forceRefresh: false,
           allowFirestore: false,
         });
+      } else {
+        courseScheduleWrap.classList.add("is-hidden");
       }
       return;
     }
     if (!allowFirestore && !hasCache) {
       homeState.tenantId = tenantId;
       courseScheduleWrap.classList.add("is-hidden");
-      setMsg(homeMsg, 'Sin datos locales. Presiona "Sincronizar" para descargar.', true);
+      applySetupStatus({
+        hasCourses: false,
+        hasDocentes: false,
+        hasTurnConfig: false,
+      });
+      setMsg(homeMsg, 'Sin datos locales. Presiona "Sincronizar" para descargar y habilitar la app.', true);
       return;
     }
+
     await loadButtonConfig(tenantId, { allowFirestore: true });
     const cursosSnap = await getDocs(collection(db, "tenants", tenantId, "cursos"));
     const rawCourses = cursosSnap.docs
@@ -1940,18 +2773,27 @@ async function loadTenantCourses(tenantId, options = {}) {
     const courseButtonsFromDb = await loadCourseButtonsFromFirestore(tenantId);
     renderCourseButtons(unique);
     const buttonsToRender = courseButtonsFromDb.length ? courseButtonsFromDb : homeCourseEntries;
-    renderHomeCourseButtons(buttonsToRender);
     homeState.tenantId = tenantId;
-    if (unique.length) {
-      await buildDocentesByCuilMap(tenantId);
-      await saveTenantHomeCache(tenantId, {
-        courses: unique,
-        courseButtons: buttonsToRender,
-        docentesByCuil: Array.from(homeState.docentesByCuil.entries()),
-        docentesByCupof: Array.from(homeState.docentesByCupof.entries()),
-        docentesAll: homeState.docentesAll,
-      });
-      await loadScheduleForCourse(unique[0], {
+
+    await buildDocentesByCuilMap(tenantId);
+    await loadTurnScheduleConfig(tenantId, { allowFirestore: true });
+
+    applySetupStatus({
+      hasCourses: unique.length > 0,
+      hasDocentes: Array.isArray(homeState.docentesAll) && homeState.docentesAll.length > 0,
+      hasTurnConfig: isTurnScheduleReady(homeState.turnScheduleConfig),
+    });
+    renderHomeCourseButtons(buttonsToRender);
+
+    await saveTenantHomeCache(tenantId, {
+      ...buildTenantCachePayload(),
+      courses: unique,
+      courseButtons: buttonsToRender,
+    });
+
+    const firstCourseName = normalizeCourse(homeState.selectedCourse || unique[0] || "");
+    if (firstCourseName && canUseMainSchedule()) {
+      await loadScheduleForCourse(firstCourseName, {
         preferCache: true,
         forceRefresh: false,
         allowFirestore: true,
@@ -2325,6 +3167,12 @@ saveAllBtn.addEventListener("click", async () => {
     appendPanelLog(
       `Guardado masivo finalizado. Cursos guardados: ${importCursosState.accepted}. Docentes guardados: ${importState.accepted}.`
     );
+    try {
+      await refreshTenantAfterImport();
+    } catch (refreshError) {
+      console.error(refreshError);
+      appendPanelLog("No se pudo recargar el estado del tenant tras el guardado masivo.", true);
+    }
     renderCurrentCurso();
     renderCurrentDocente();
     toggleBulkSaveButton();
@@ -2436,14 +3284,17 @@ refreshFab.addEventListener("click", async () => {
   setLoading(true, "Actualizando datos...");
   try {
     await loadTenantCourses(importState.tenantId, { forceRefresh: true, allowFirestore: true });
-    if (homeState.selectedCourse) {
+    if (homeState.selectedCourse && canUseMainSchedule()) {
       await loadScheduleForCourse(homeState.selectedCourse, {
         preferCache: true,
         forceRefresh: true,
         allowFirestore: true,
       });
+      setMsg(homeMsg, "Datos actualizados");
+    } else if (!canUseMainSchedule()) {
+      const missing = setupMissingSteps(getSetupStatus()).join(", ");
+      setMsg(homeMsg, `Sincronizacion completa. Falta completar: ${missing}.`, true);
     }
-    setMsg(homeMsg, "Datos actualizados");
   } catch (error) {
     console.error(error);
     setMsg(homeMsg, "No se pudo actualizar", true);
@@ -2475,6 +3326,7 @@ saveButtonConfigBtn.addEventListener("click", async () => {
     renderButtonConfigEditor();
     renderHomeCourseButtons(homeState.courses);
     updateHomeCourseButtonSelection();
+    await saveTenantHomeCache(importState.tenantId, buildTenantCachePayload());
     setMsg(buttonConfigMsg, "Configuracion de botones guardada.");
   } catch (error) {
     console.error(error);
@@ -2490,6 +3342,73 @@ reloadButtonConfigBtn.addEventListener("click", async () => {
   await loadButtonConfig(importState.tenantId);
   renderHomeCourseButtons(homeState.courses);
   updateHomeCourseButtonSelection();
+});
+
+turnScheduleEditor.addEventListener("click", (event) => {
+  const generateBtn = event.target.closest("[data-turn-generate]");
+  if (generateBtn) {
+    const turnCode = String(generateBtn.getAttribute("data-turn-generate") || "").trim().toUpperCase();
+    generateSlotsForTurnFromEditor(turnCode);
+    return;
+  }
+  const addBtn = event.target.closest("[data-turn-add-slot]");
+  if (addBtn) {
+    const turnCode = String(addBtn.getAttribute("data-turn-add-slot") || "").trim().toUpperCase();
+    addManualSlotToTurn(turnCode);
+    return;
+  }
+  const removeBtn = event.target.closest("[data-turn-remove-slot]");
+  if (removeBtn) {
+    const turnCode = String(removeBtn.getAttribute("data-turn-remove-slot") || "").trim().toUpperCase();
+    const slotIndex = Number(removeBtn.getAttribute("data-slot-index") || -1);
+    removeTurnSlotFromEditor(turnCode, slotIndex);
+  }
+});
+
+saveTurnScheduleBtn.addEventListener("click", async () => {
+  if (!importState.tenantId) {
+    setMsg(turnScheduleMsg, "No hay tenantId activo para guardar turnos y horarios", true);
+    return;
+  }
+  setButtonBusy(saveTurnScheduleBtn, true);
+  try {
+    await saveTurnScheduleConfig(importState.tenantId);
+    setMsg(turnScheduleMsg, "Turnos y horarios guardados.");
+    if (homeState.selectedCourse && canUseMainSchedule()) {
+      renderScheduleTable(homeState.selectedCourse, homeState.currentItems);
+    }
+  } catch (error) {
+    console.error(error);
+    setMsg(turnScheduleMsg, error.message || "No se pudo guardar turnos y horarios", true);
+  } finally {
+    setButtonBusy(saveTurnScheduleBtn, false);
+  }
+});
+
+reloadTurnScheduleBtn.addEventListener("click", async () => {
+  if (!importState.tenantId) {
+    setMsg(turnScheduleMsg, "No hay tenantId activo para recargar turnos y horarios", true);
+    return;
+  }
+  setButtonBusy(reloadTurnScheduleBtn, true);
+  try {
+    await loadTurnScheduleConfig(importState.tenantId, { allowFirestore: true });
+    applySetupStatus({
+      ...getSetupStatus(),
+      hasTurnConfig: isTurnScheduleReady(homeState.turnScheduleConfig),
+    });
+    renderHomeCourseButtons(homeState.courses);
+    updateHomeCourseButtonSelection();
+    if (homeState.selectedCourse && canUseMainSchedule()) {
+      await loadScheduleForCourse(homeState.selectedCourse, {
+        preferCache: true,
+        forceRefresh: true,
+        allowFirestore: true,
+      });
+    }
+  } finally {
+    setButtonBusy(reloadTurnScheduleBtn, false);
+  }
 });
 
 homeTabBtn.addEventListener("click", () => {
@@ -2547,6 +3466,13 @@ homeSearchInput.addEventListener("keydown", (event) => {
 });
 
 courseScheduleTable.addEventListener("click", (event) => {
+  const designarBtn = event.target.closest(".designar-slot-btn");
+  if (designarBtn) {
+    const day = String(designarBtn.dataset.day || "").trim();
+    const slotIndex = Number(designarBtn.dataset.slotIndex || -1);
+    openAssignMateriaModal(day, slotIndex);
+    return;
+  }
   const slot = event.target.closest(".schedule-slot");
   const cell = event.target.closest("td");
   const slotId = String(slot?.dataset.slotId || cell?.dataset.slotId || "").trim();
@@ -2554,6 +3480,53 @@ courseScheduleTable.addEventListener("click", (event) => {
     return;
   }
   openDocenteEditorBySlot(slotId);
+});
+
+assignMateriaInput.addEventListener("input", () => {
+  assignMateriaState.query = String(assignMateriaInput.value || "");
+  assignMateriaState.selectedItemId = "";
+  renderAssignMateriaList();
+});
+
+assignMateriaList.addEventListener("click", (event) => {
+  const option = event.target.closest("[data-assign-item-id]");
+  if (!option) {
+    return;
+  }
+  const itemId = String(option.getAttribute("data-assign-item-id") || "").trim();
+  if (!itemId) {
+    setMsg(homeMsg, 'La materia seleccionada no tiene id local. Presiona "Sincronizar".', true);
+    return;
+  }
+  assignMateriaState.selectedItemId = itemId;
+  renderAssignMateriaList();
+});
+
+assignMateriaCancelBtn.addEventListener("click", () => {
+  closeAssignMateriaModal();
+});
+
+assignMateriaModal.addEventListener("click", (event) => {
+  if (event.target === assignMateriaModal) {
+    closeAssignMateriaModal();
+  }
+});
+
+assignMateriaSaveBtn.addEventListener("click", async () => {
+  if (assignMateriaState.saving) {
+    return;
+  }
+  assignMateriaState.saving = true;
+  setButtonBusy(assignMateriaSaveBtn, true);
+  try {
+    await saveAssignMateriaSelection();
+  } catch (error) {
+    console.error(error);
+    setMsg(homeMsg, error.message || "No se pudo guardar la designacion", true);
+  } finally {
+    assignMateriaState.saving = false;
+    setButtonBusy(assignMateriaSaveBtn, false);
+  }
 });
 
 docenteCancelBtn.addEventListener("click", () => {
@@ -2695,5 +3668,8 @@ onAuthStateChanged(auth, (user) => {
     });
 });
 
+turnScheduleDraft = createEmptyTurnScheduleConfig();
+homeState.turnScheduleConfig = clonePlain(turnScheduleDraft);
+renderTurnScheduleEditor();
 renderButtonConfigEditor();
 syncBannerLayout();
