@@ -231,22 +231,31 @@ function pickCourseValue(rowObj, values) {
   if (explicit) {
     return normalizeCourse(explicit);
   }
+  const normalizeCourseToken = (value) =>
+    String(value || "")
+      .trim()
+      .toUpperCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^A-Z0-9]+/g, "");
   const yearRaw =
     pickField(rowObj, ["anio", "ano", "grado"]) ||
     String(values[1] || "").trim();
   const sectionRaw =
     pickField(rowObj, ["seccion"]) ||
     String(values[2] || "").trim();
-  const year = String(yearRaw || "").match(/\d+/)?.[0] || "";
-  const section = String(sectionRaw || "")
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "");
-  const fromYearSection = `${year}${section}`.trim();
+  const year = normalizeCourseToken(yearRaw);
+  const section = normalizeCourseToken(sectionRaw);
+  const fromYearSection = year && section ? `${year}${section}` : year;
   if (fromYearSection) {
     return normalizeCourse(fromYearSection);
   }
-  return normalizeCourse(values[0] || "");
+  const fallback = normalizeCourse(values[0] || "");
+  // Evita tomar columnas de sede/ambito como curso.
+  if (!fallback || fallback === "SEDE" || fallback === "AN" || fallback === "EX") {
+    return "";
+  }
+  return fallback;
 }
 
 function parseNombreApellido(rowObj, values) {
@@ -463,6 +472,30 @@ function parseSheetId(sheetUrl) {
 function parseSheetGid(sheetUrl) {
   const match = String(sheetUrl || "").match(/[?&#]gid=(\d+)/);
   return match ? match[1] : "";
+}
+
+function normalizeSituacionRevista(value) {
+  const raw = normalizeHeader(value);
+  if (!raw) {
+    return "";
+  }
+  if (raw.includes("supl")) {
+    return "S";
+  }
+  if (raw.includes("inter")) {
+    return "TI";
+  }
+  if (raw.includes("provis")) {
+    return "P";
+  }
+  if (raw.includes("tit")) {
+    return "T";
+  }
+  if (raw === "t") return "T";
+  if (raw === "ti") return "TI";
+  if (raw === "p") return "P";
+  if (raw === "s") return "S";
+  return "";
 }
 
 async function getUserTenantId(uid) {
@@ -701,10 +734,10 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
 
   const data = request.data || {};
   const sheetUrl = assertString(data.sheetUrl, "sheetUrl", 20, 500);
-  const sheetName = assertString(data.sheetName, "sheetName", 1, 120);
+  const sheetGid = parseSheetGid(sheetUrl);
+  const sheetName = sheetGid ? String(data.sheetName || "").trim() : assertString(data.sheetName, "sheetName", 1, 120);
   const selectedCourse = normalizeCourse(String(data.course || "").trim());
   const sheetId = parseSheetId(sheetUrl);
-  const sheetGid = parseSheetGid(sheetUrl);
 
   if (!sheetId) {
     throw new HttpsError("invalid-argument", "Invalid Google Sheets URL");
@@ -773,23 +806,28 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
         });
       }
 
+      const pid = pickField(rowObj, ["pid", "legajo", "id"]) || "";
+      const espacioCurricular =
+        pickField(rowObj, ["espaciocurricular", "materia"]) || String(values[11] || "").trim();
+      const cupof = pickField(rowObj, ["cupof"]) || String(values[14] || "").trim();
+      if (!cupof || !espacioCurricular) {
+        rejectionStats.emptyDocente += 1;
+        return [];
+      }
       const rawDetectedCourse = pickCourseValue(rowObj, values);
       const detectedCourse = rawDetectedCourse || lastDetectedCourse;
       if (rawDetectedCourse) {
         lastDetectedCourse = rawDetectedCourse;
       }
-      if (detectedCourse) {
-        detectedCoursesSet.add(detectedCourse);
+      if (!detectedCourse) {
+        rejectionStats.byCourse += 1;
+        return [];
       }
+      detectedCoursesSet.add(detectedCourse);
       if (selectedCourse && detectedCourse !== selectedCourse) {
         rejectionStats.byCourse += 1;
         return [];
       }
-
-      const pid = pickField(rowObj, ["pid", "legajo", "id"]) || "";
-      const espacioCurricular =
-        pickField(rowObj, ["espaciocurricular", "materia"]) || String(values[11] || "").trim();
-      const cupof = pickField(rowObj, ["cupof"]) || String(values[14] || "").trim();
       const turno = pickField(rowObj, ["turno"]) || String(values[3] || "").trim();
       const modulosTitular = parseModuleCount(
         pickField(rowObj, ["hsmodt", "t"]) || values[6] || values[15]
@@ -810,6 +848,9 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
       if (modulosProvisional > 0) {
         situacionesActivas.push("P");
       }
+      const situacionFromRow = normalizeSituacionRevista(
+        pickField(rowObj, ["situacionderevista"]) || String(values[16] || "").trim()
+      );
 
       const titularFullName =
         pickField(rowObj, ["apellidoynombre", "docente", "nombreatellido"]) ||
@@ -884,16 +925,32 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
             nombre: variant.nombre,
             cuil: variant.cuil,
             fechaNacimiento,
-            cursoRefs: variant.tipo === "titular"
-              ? buildCursoRefs(
-                cupof,
-                modulosTitular,
-                modulosTitularInterino,
-                modulosProvisional,
-                detectedCourse,
-                espacioCurricular
-              )
-              : buildSuplenteCursoRefs(cupof, detectedCourse, espacioCurricular),
+            cursoRefs: (() => {
+              if (variant.tipo !== "titular") {
+                return buildSuplenteCursoRefs(cupof, detectedCourse, espacioCurricular);
+              }
+              const hasByModules = situacionesActivas.length > 0;
+              if (hasByModules) {
+                return buildCursoRefs(
+                  cupof,
+                  modulosTitular,
+                  modulosTitularInterino,
+                  modulosProvisional,
+                  detectedCourse,
+                  espacioCurricular
+                );
+              }
+              if (situacionFromRow === "TI") {
+                return buildCursoRefs(cupof, 0, 1, 0, detectedCourse, espacioCurricular);
+              }
+              if (situacionFromRow === "P") {
+                return buildCursoRefs(cupof, 0, 0, 1, detectedCourse, espacioCurricular);
+              }
+              if (situacionFromRow === "S") {
+                return buildSuplenteCursoRefs(cupof, detectedCourse, espacioCurricular);
+              }
+              return buildCursoRefs(cupof, 1, 0, 0, detectedCourse, espacioCurricular);
+            })(),
             telefono: variant.telefono,
             correo: variant.correo,
             domicilio: variant.domicilio,
@@ -1048,10 +1105,10 @@ exports.loadCursosFromSheet = onCall(callableOptions, async (request) => {
 
   const data = request.data || {};
   const sheetUrl = assertString(data.sheetUrl, "sheetUrl", 20, 500);
-  const sheetName = assertString(data.sheetName, "sheetName", 1, 120);
+  const sheetGid = parseSheetGid(sheetUrl);
+  const sheetName = sheetGid ? String(data.sheetName || "").trim() : assertString(data.sheetName, "sheetName", 1, 120);
   const selectedCourse = normalizeCourse(String(data.course || "").trim());
   const sheetId = parseSheetId(sheetUrl);
-  const sheetGid = parseSheetGid(sheetUrl);
 
   if (!sheetId) {
     throw new HttpsError("invalid-argument", "Invalid Google Sheets URL");
@@ -1097,18 +1154,6 @@ exports.loadCursosFromSheet = onCall(callableOptions, async (request) => {
         });
       }
 
-      const rawDetectedCourse = pickCourseValue(rowObj, values);
-      const detectedCourse = rawDetectedCourse || lastDetectedCourse;
-      if (rawDetectedCourse) {
-        lastDetectedCourse = rawDetectedCourse;
-      }
-      if (detectedCourse) {
-        detectedCoursesSet.add(detectedCourse);
-      }
-      if (selectedCourse && detectedCourse !== selectedCourse) {
-        return [];
-      }
-
       const cupof = pickField(rowObj, ["cupof"]) || String(values[14] || "").trim();
       const materia =
         pickField(rowObj, ["espaciocurricular", "materia"]) || String(values[11] || "").trim();
@@ -1119,6 +1164,18 @@ exports.loadCursosFromSheet = onCall(callableOptions, async (request) => {
         pickField(rowObj, ["cuilsuplente"]) || (hasHeaders ? "" : String(values[7] || "").trim());
 
       if (!cupof || !materia) {
+        return [];
+      }
+      const rawDetectedCourse = pickCourseValue(rowObj, values);
+      const detectedCourse = rawDetectedCourse || lastDetectedCourse;
+      if (rawDetectedCourse) {
+        lastDetectedCourse = rawDetectedCourse;
+      }
+      if (!detectedCourse) {
+        return [];
+      }
+      detectedCoursesSet.add(detectedCourse);
+      if (selectedCourse && detectedCourse !== selectedCourse) {
         return [];
       }
 
