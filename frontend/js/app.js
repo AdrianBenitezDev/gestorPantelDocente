@@ -897,6 +897,10 @@ function normalizeCourse(value) {
   return String(value || "").trim().toUpperCase();
 }
 
+function hasSheetGid(sheetUrl) {
+  return /[?&#]gid=\d+/.test(String(sheetUrl || ""));
+}
+
 function normalizeTurn(value) {
   const raw = String(value || "").trim().toUpperCase();
   if (raw.startsWith("M")) return "M";
@@ -1979,9 +1983,10 @@ sheetImportForm.addEventListener("submit", async (event) => {
 
   const sheetUrl = sheetUrlInput.value.trim();
   const sheetName = sheetNameInput.value.trim();
+  const byGid = hasSheetGid(sheetUrl);
 
-  if (!sheetUrl || !sheetName) {
-    setMsg(panelMsg, "Completa URL y nombre de hoja", true);
+  if (!sheetUrl || (!sheetName && !byGid)) {
+    setMsg(panelMsg, "Completa URL y nombre de hoja (o usa una URL con gid)", true);
     setLoading(false);
     return;
   }
@@ -2004,7 +2009,7 @@ sheetImportForm.addEventListener("submit", async (event) => {
       const details = [
         "No se encontraron docentes en la hoja actual.",
         detectedCourses.length ? `Cursos detectados en hoja: ${detectedCourses.join(", ")}` : "",
-        debug.hasHeaders === false ? "No se detectaron encabezados validos en la primera fila." : "",
+        debug.hasHeaders === false ? "No se detectaron encabezados validos en las primeras filas de la hoja." : "",
       ]
         .filter(Boolean)
         .join(" ");
@@ -2050,8 +2055,9 @@ loadCursosBtn.addEventListener("click", async () => {
 
   const sheetUrl = sheetUrlInput.value.trim();
   const sheetName = sheetNameInput.value.trim();
-  if (!sheetUrl || !sheetName) {
-    setMsg(panelMsg, "Completa URL y nombre de hoja", true);
+  const byGid = hasSheetGid(sheetUrl);
+  if (!sheetUrl || (!sheetName && !byGid)) {
+    setMsg(panelMsg, "Completa URL y nombre de hoja (o usa una URL con gid)", true);
     setLoading(false);
     return;
   }
