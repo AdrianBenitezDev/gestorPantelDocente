@@ -118,6 +118,25 @@ let importCursosState = {
   selectedCourse: "",
 };
 
+const TURN_ORDER = ["M", "T", "V", "A", "C", "N", "S"];
+const DEFAULT_BUTTON_CONFIG = {
+  M: { label: "Manana", color: "#0f6ab8" },
+  T: { label: "Tarde", color: "#bf5f00" },
+  V: { label: "Vespertino", color: "#6f42c1" },
+  A: { label: "Alternado", color: "#0d9488" },
+  C: { label: "Contraturno", color: "#0f766e" },
+  N: { label: "Noche", color: "#1d3a8a" },
+  S: { label: "Sin turno", color: "#4a5568" },
+};
+const REQUIRED_SCHEDULE_TURNS = ["M", "T", "V"];
+const SCHEDULE_TURN_META = [
+  { code: "M", key: "manana", label: "Manana" },
+  { code: "T", key: "tarde", label: "Tarde" },
+  { code: "V", key: "vespertino", label: "Vespertino" },
+  { code: "A", key: "alternado", label: "Alternado" },
+];
+const DAYS = ["LUNES", "MARTES", "MIERCOLES", "JUEVES", "VIERNES"];
+
 let homeState = {
   tenantId: "",
   courses: [],
@@ -137,25 +156,6 @@ let homeState = {
     hasTurnConfig: false,
   },
 };
-
-const TURN_ORDER = ["M", "T", "V", "A", "C", "N", "S"];
-const DEFAULT_BUTTON_CONFIG = {
-  M: { label: "Manana", color: "#0f6ab8" },
-  T: { label: "Tarde", color: "#bf5f00" },
-  V: { label: "Vespertino", color: "#6f42c1" },
-  A: { label: "Alternado", color: "#0d9488" },
-  C: { label: "Contraturno", color: "#0f766e" },
-  N: { label: "Noche", color: "#1d3a8a" },
-  S: { label: "Sin turno", color: "#4a5568" },
-};
-const REQUIRED_SCHEDULE_TURNS = ["M", "T", "V"];
-const SCHEDULE_TURN_META = [
-  { code: "M", key: "manana", label: "Manana" },
-  { code: "T", key: "tarde", label: "Tarde" },
-  { code: "V", key: "vespertino", label: "Vespertino" },
-  { code: "A", key: "alternado", label: "Alternado" },
-];
-const DAYS = ["LUNES", "MARTES", "MIERCOLES", "JUEVES", "VIERNES"];
 
 let buttonConfigState = clonePlain(DEFAULT_BUTTON_CONFIG);
 let turnScheduleDraft = null;
