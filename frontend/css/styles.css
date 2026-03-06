@@ -491,6 +491,17 @@ button {
   padding: 4px;
 }
 
+.button-config-details > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text);
+  user-select: none;
+}
+
+.button-config-details[open] > summary {
+  margin-bottom: 8px;
+}
+
 .course-btn {
   min-width: 62px;
   min-height: 30px;
@@ -651,6 +662,43 @@ button {
 
 .review-grid .full {
   grid-column: 1 / -1;
+}
+
+.docente-cupof-wrap {
+  margin-top: 10px;
+}
+
+.docente-cupof-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.docente-cupof-table {
+  width: 100%;
+  min-width: 700px;
+  border-collapse: collapse;
+}
+
+.docente-cupof-table th,
+.docente-cupof-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 6px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.docente-cupof-table th {
+  font-size: 12px;
+  color: var(--muted);
+  background: #f2f5fc;
+}
+
+.docente-cupof-table td input {
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 8px;
 }
 
 .mini-title {

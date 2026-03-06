@@ -681,36 +681,79 @@ function toggleBulkSaveButton() {
 }
 
 function renderDocenteCard(docente) {
-  const refs = Array.isArray(docente?.cursoRefs) ? docente.cursoRefs : [];
-  const refsHtml = refs.length
-    ? refs
-      .map((item) => {
-        const cupof = esc(item?.cupof || "-");
-        const curso = esc(item?.curso || "-");
-        const materia = esc(item?.materia || "-");
-        const situacion = esc(item?.situacionRevista || "-");
-        return `
-          <div class="card-chip">
-            <strong>CUPOF ${cupof}</strong>
-            <span>Curso: ${curso}</span>
-            <span>Materia: ${materia}</span>
-            <span>Revista: ${situacion}</span>
-          </div>
-        `;
-      })
-      .join("")
-    : '<p class="msg">Sin cursoRefs detectados</p>';
+  const data = normalizeDocenteForReview(docente);
+  const coreFields = [
+    ["apellido", "Apellido"],
+    ["nombre", "Nombre"],
+    ["cuil", "CUIL"],
+    ["fechaNacimiento", "Fecha Nacimiento"],
+    ["telefono", "Telefono"],
+    ["correo", "Correo"],
+    ["domicilio", "Domicilio"],
+    ["pid", "PID"],
+  ];
 
-  renderEditableCard(reviewDocente, docente);
-  reviewDocente.insertAdjacentHTML(
-    "afterbegin",
-    `
-      <div class="full">
-        <p class="mini-title">Asignaciones detectadas</p>
-        <div class="card-chip-list">${refsHtml}</div>
+  const coreHtml = coreFields
+    .map(([path, label]) => `
+      <label>
+        <span class="mini-title">${esc(label)}</span>
+        <input data-card-path="${esc(path)}" value="${esc(stringifyFieldValue(data?.[path]))}" />
+      </label>
+    `)
+    .join("");
+
+  const corePaths = new Set(coreFields.map(([path]) => path));
+  const extraEntries = flattenEntityFields(data)
+    .filter(({ path }) => path && !path.startsWith("cursoRefs[") && !corePaths.has(path))
+    .sort((a, b) => a.path.localeCompare(b.path, "es", { numeric: true, sensitivity: "base" }));
+  const extraHtml = extraEntries
+    .map(({ path, value }) => {
+      const isLong = String(stringifyFieldValue(value)).length > 80;
+      return `
+        <label class="${isLong ? "full" : ""}">
+          <span class="mini-title">${esc(path)}</span>
+          <input data-card-path="${esc(path)}" value="${esc(stringifyFieldValue(value))}" />
+        </label>
+      `;
+    })
+    .join("");
+
+  const refs = Array.isArray(data?.cursoRefs) ? data.cursoRefs : [];
+  const refsRowsHtml = refs.length
+    ? refs
+      .map((item, index) => `
+        <tr>
+          <td><input data-card-path="cursoRefs[${index}].cupof" value="${esc(stringifyFieldValue(item?.cupof))}" /></td>
+          <td><input data-card-path="cursoRefs[${index}].curso" value="${esc(stringifyFieldValue(item?.curso))}" /></td>
+          <td><input data-card-path="cursoRefs[${index}].materia" value="${esc(stringifyFieldValue(item?.materia))}" /></td>
+          <td><input data-card-path="cursoRefs[${index}].situacionRevista" value="${esc(stringifyFieldValue(item?.situacionRevista))}" /></td>
+        </tr>
+      `)
+      .join("")
+    : '<tr><td colspan="4" class="msg">Sin cursoRefs detectados</td></tr>';
+
+  reviewDocente.innerHTML = `
+    <div class="review-grid docente-core-grid">
+      ${coreHtml}
+    </div>
+    <div class="docente-cupof-wrap">
+      <p class="mini-title">Asignaciones por CUPOF</p>
+      <div class="docente-cupof-table-wrap">
+        <table class="docente-cupof-table">
+          <thead>
+            <tr>
+              <th>CUPOF</th>
+              <th>Curso</th>
+              <th>Materia</th>
+              <th>Revista</th>
+            </tr>
+          </thead>
+          <tbody>${refsRowsHtml}</tbody>
+        </table>
       </div>
-    `
-  );
+    </div>
+    ${extraHtml ? `<div class="review-grid docente-extra-grid">${extraHtml}</div>` : ""}
+  `;
 }
 
 function renderCursoCard(curso) {
@@ -853,7 +896,8 @@ function renderCurrentDocente() {
     return;
   }
 
-  const docente = importState.docentes[importState.index];
+  const docente = normalizeDocenteForReview(importState.docentes[importState.index]);
+  importState.docentes[importState.index] = docente;
   importReview.classList.remove("is-hidden");
   reviewProgress.textContent = `Docente ${importState.index + 1} de ${total}`;
   renderDocenteCard(docente);
@@ -895,6 +939,22 @@ async function checkTenantDataAndToggleImport(tenantId) {
 
 function normalizeCourse(value) {
   return String(value || "").trim().toUpperCase();
+}
+
+function firstNumberInText(value) {
+  const match = String(value || "").match(/\d+/);
+  return match ? Number(match[0]) : Number.POSITIVE_INFINITY;
+}
+
+function compareCourseCodes(a, b) {
+  const left = normalizeCourse(a);
+  const right = normalizeCourse(b);
+  const leftNum = firstNumberInText(left);
+  const rightNum = firstNumberInText(right);
+  if (leftNum !== rightNum) {
+    return leftNum - rightNum;
+  }
+  return left.localeCompare(right, "es", { numeric: true, sensitivity: "base" });
 }
 
 function isLikelyCourseCode(value) {
@@ -944,6 +1004,26 @@ function collectCoursesFromDocentes(docentes) {
 function collectCoursesFromCursos(cursos) {
   const list = Array.isArray(cursos) ? cursos : [];
   return list.map((curso) => curso?.curso);
+}
+
+function sortCursoRefsByCupof(refs) {
+  const list = Array.isArray(refs) ? refs : [];
+  return list.slice().sort((a, b) => {
+    const cupofA = String(a?.cupof || "").trim();
+    const cupofB = String(b?.cupof || "").trim();
+    const numA = firstNumberInText(cupofA);
+    const numB = firstNumberInText(cupofB);
+    if (numA !== numB) {
+      return numA - numB;
+    }
+    return cupofA.localeCompare(cupofB, "es", { numeric: true, sensitivity: "base" });
+  });
+}
+
+function normalizeDocenteForReview(docente) {
+  const normalized = clonePlain(docente || {});
+  normalized.cursoRefs = sortCursoRefsByCupof(normalized.cursoRefs);
+  return normalized;
 }
 
 function hasSheetGid(sheetUrl) {
@@ -1239,7 +1319,7 @@ function setSelectedCourse(courseName) {
 }
 
 function renderCourseButtons(courses) {
-  const safeCourses = sanitizeCourseList(courses);
+  const safeCourses = sanitizeCourseList(courses).sort(compareCourseCodes);
   courseButtons.innerHTML = "";
   if (!safeCourses.length) {
     courseButtonsMsg.textContent = "No hay cursos cargados en Firestore. Se creara boton 1A por defecto.";
