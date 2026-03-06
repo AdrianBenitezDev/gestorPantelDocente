@@ -1,0 +1,68 @@
+Informe de cambios - Integracion hoja Google Sheet (POFA/DATOS)
+Fecha: 2026-03-06
+
+Objetivo solicitado
+- Extraer desde la tabla de Google Sheet (gid 687928343):
+  - cursos (derivados de materia + CUPOF, via Ano + Seccion),
+  - materias con CUPOF,
+  - docentes.
+- No importar horarios desde la hoja (dejar horarios en blanco para carga manual posterior).
+
+Archivo modificado
+- functions/src/index.js
+
+Cambios aplicados
+1) Lectura por gid desde la URL de Google Sheet
+- Se agrego la funcion parseSheetGid(sheetUrl).
+- En loadDocentesFromSheet y loadCursosFromSheet:
+  - Si la URL trae gid, se usa endpoint CSV directo:
+    /export?format=csv&gid=...
+  - Si no trae gid, se mantiene fallback previo por nombre de hoja:
+    /gviz/tq?tqx=out:csv&sheet=...
+
+2) Deteccion de encabezado adaptada a la nueva tabla
+- findHeaderRowIndex ahora escanea hasta 400 filas (antes 4), porque el header real aparece en la fila ~216.
+- hasHeaderRow incorpora claves de la tabla nueva:
+  - ano/anio, seccion, orientacion, cupof, situacionderevista.
+
+3) Derivacion de curso corregida (Ano + Seccion)
+- pickCourseValue fue actualizado para:
+  - priorizar columna explicita de curso cuando exista,
+  - sino construir curso con Ano + Seccion (ej: "1o" + "A" => "1A"),
+  - y como ultimo fallback usar columna 0.
+
+4) Extraccion de CUIL titular corregida
+- pickTitularCuil ahora:
+  - prioriza CUIL directo si ya viene completo (11+ digitos),
+  - para la tabla nueva recompone CUIL desde 3 columnas (prefijo + cuerpo + verificador),
+  - elimina fallback incorrecto que antes podia tomar CUPOF como CUIL.
+
+5) Mapeo de columnas de la tabla nueva
+- En loadDocentesFromSheet:
+  - CUPOF fallback actualizado a columna 14.
+  - Turno fallback actualizado a columna 3.
+  - Modulos T/TI/P mapeados con prioridad a headers hsmodt/hsmodti/hsmodp y fallback a columnas 6/7/8.
+  - pid ya no se inventa por posicion para este formato (queda vacio si no existe campo real).
+
+6) Evitar docentes falsos por columnas no relacionadas
+- Cuando hay headers detectados:
+  - Se desactivaron fallbacks posicionales antiguos para suplente/suplente2 (nombre, cuil, telefono, correo, domicilio),
+  - evitando interpretar modulos u otras columnas como personas.
+
+7) Cursos sin horarios (segun pedido)
+- En loadCursosFromSheet:
+  - Se elimino la construccion desde LUNES-VIERNES.
+  - Se devuelve diaHorario.dias = [] en todos los cursos importados.
+- En saveImportedCurso:
+  - Se quito la validacion obligatoria de dias.length.
+  - Ahora permite guardar curso con cupof + materia + curso, aunque no tenga horarios.
+
+Resultado funcional esperado
+- La importacion toma datos de la tabla del gid indicado.
+- Se extraen docentes y cursos/materias con CUPOF correctamente para el nuevo formato.
+- Los horarios no se importan y quedan vacios para carga manual posterior.
+
+Validacion tecnica
+- Verificacion de sintaxis ejecutada:
+  - node --check functions/src/index.js
+  - Resultado: OK (sin errores de sintaxis).

@@ -126,12 +126,26 @@ function pickTitularCuil(data, values = []) {
     "dni",
     "documento",
   ]);
-  if (direct) {
+  const directDigits = String(direct || "").replace(/\D/g, "");
+  if (directDigits.length >= 11) {
     return direct;
   }
-  const byColumn = String(values[14] || "").trim();
-  if (byColumn) {
-    return byColumn;
+  const prefix = String(values[10] || "").trim();
+  const body = String(values[11] || "").trim();
+  const suffix = String(values[12] || "").trim();
+  const prefixDigits = prefix.replace(/\D/g, "");
+  const bodyDigits = body.replace(/\D/g, "");
+  const suffixDigits = suffix.replace(/\D/g, "");
+  if (
+    prefixDigits.length === 2 &&
+    bodyDigits.length >= 7 &&
+    bodyDigits.length <= 8 &&
+    suffixDigits.length === 1
+  ) {
+    return `${prefixDigits}${bodyDigits}${suffixDigits}`;
+  }
+  if (direct) {
+    return direct;
   }
   const keys = Object.keys(data || {});
   for (const key of keys) {
@@ -164,12 +178,18 @@ function hasHeaderRow(firstRow = []) {
   const normalized = firstRow.map((cell) => normalizeHeader(cell));
   const knownHeaders = [
     "curso",
+    "ano",
+    "anio",
+    "seccion",
+    "orientacion",
     "lunes",
     "martes",
     "miercoles",
     "jueves",
     "viernes",
     "espaciocurricular",
+    "cupof",
+    "situacionderevista",
     "apellidoynombre",
     "suplente",
     "cuilsuplente",
@@ -197,7 +217,7 @@ function hasHeaderRow(firstRow = []) {
 }
 
 function findHeaderRowIndex(rows = []) {
-  const maxScan = Math.min(rows.length, 4);
+  const maxScan = Math.min(rows.length, 400);
   for (let idx = 0; idx < maxScan; idx += 1) {
     if (hasHeaderRow(rows[idx])) {
       return idx;
@@ -207,11 +227,26 @@ function findHeaderRowIndex(rows = []) {
 }
 
 function pickCourseValue(rowObj, values) {
-  return normalizeCourse(
-    pickField(rowObj, ["curso", "cursos", "division", "seccion", "grado", "anio"]) ||
-      values[0] ||
-      ""
-  );
+  const explicit = pickField(rowObj, ["curso", "cursos", "division"]);
+  if (explicit) {
+    return normalizeCourse(explicit);
+  }
+  const yearRaw =
+    pickField(rowObj, ["anio", "ano", "grado"]) ||
+    String(values[1] || "").trim();
+  const sectionRaw =
+    pickField(rowObj, ["seccion"]) ||
+    String(values[2] || "").trim();
+  const year = String(yearRaw || "").match(/\d+/)?.[0] || "";
+  const section = String(sectionRaw || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+  const fromYearSection = `${year}${section}`.trim();
+  if (fromYearSection) {
+    return normalizeCourse(fromYearSection);
+  }
+  return normalizeCourse(values[0] || "");
 }
 
 function parseNombreApellido(rowObj, values) {
@@ -422,6 +457,11 @@ function buildDocenteKey({ cuil, apellido, nombre, pid, keyHint }) {
 
 function parseSheetId(sheetUrl) {
   const match = String(sheetUrl || "").match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  return match ? match[1] : "";
+}
+
+function parseSheetGid(sheetUrl) {
+  const match = String(sheetUrl || "").match(/[?&#]gid=(\d+)/);
   return match ? match[1] : "";
 }
 
@@ -664,16 +704,19 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
   const sheetName = assertString(data.sheetName, "sheetName", 1, 120);
   const selectedCourse = normalizeCourse(String(data.course || "").trim());
   const sheetId = parseSheetId(sheetUrl);
+  const sheetGid = parseSheetGid(sheetUrl);
 
   if (!sheetId) {
     throw new HttpsError("invalid-argument", "Invalid Google Sheets URL");
   }
 
-  const endpoint =
-    `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+  const endpoint = sheetGid
+    ? `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${sheetGid}`
+    : `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
   logger.info("loadDocentesFromSheet: start", {
     uid,
     sheetId,
+    sheetGid,
     sheetName,
     selectedCourse,
   });
@@ -743,14 +786,20 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
         return [];
       }
 
-      const pid = pickField(rowObj, ["pid", "legajo", "id"]) || String(values[10] || "").trim();
+      const pid = pickField(rowObj, ["pid", "legajo", "id"]) || "";
       const espacioCurricular =
         pickField(rowObj, ["espaciocurricular", "materia"]) || String(values[11] || "").trim();
-      const cupof = pickField(rowObj, ["cupof"]) || String(values[12] || "").trim();
-      const turno = pickField(rowObj, ["turno"]) || String(values[18] || "").trim();
-      const modulosTitular = parseModuleCount(pickField(rowObj, ["t"]) || values[15]);
-      const modulosTitularInterino = parseModuleCount(pickField(rowObj, ["ti"]) || values[16]);
-      const modulosProvisional = parseModuleCount(pickField(rowObj, ["p"]) || values[17]);
+      const cupof = pickField(rowObj, ["cupof"]) || String(values[14] || "").trim();
+      const turno = pickField(rowObj, ["turno"]) || String(values[3] || "").trim();
+      const modulosTitular = parseModuleCount(
+        pickField(rowObj, ["hsmodt", "t"]) || values[6] || values[15]
+      );
+      const modulosTitularInterino = parseModuleCount(
+        pickField(rowObj, ["hsmodti", "ti"]) || values[7] || values[16]
+      );
+      const modulosProvisional = parseModuleCount(
+        pickField(rowObj, ["hsmodp", "p"]) || values[8] || values[17]
+      );
       const situacionesActivas = [];
       if (modulosTitular > 0) {
         situacionesActivas.push("T");
@@ -775,10 +824,10 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
       ]) || "";
 
       const suplenteParsed = parseFullName(
-        pickField(rowObj, ["suplente"]) || String(values[6] || "").trim()
+        pickField(rowObj, ["suplente"]) || (hasHeaders ? "" : String(values[6] || "").trim())
       );
       const suplente2Parsed = parseFullName(
-        pickField(rowObj, ["suplente2"]) || String(values[8] || "").trim()
+        pickField(rowObj, ["suplente2"]) || (hasHeaders ? "" : String(values[8] || "").trim())
       );
 
       const docenteVariants = [
@@ -787,27 +836,27 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
           apellido: titularParsed.apellido,
           nombre: titularParsed.nombre,
           cuil: titularCuil,
-          telefono: pickField(rowObj, ["telefonotitular"]) || String(values[19] || "").trim(),
-          correo: pickField(rowObj, ["correoabctitular"]) || String(values[20] || "").trim(),
-          domicilio: pickField(rowObj, ["domiciliotitular"]) || String(values[21] || "").trim(),
+          telefono: pickField(rowObj, ["telefonotitular"]) || (!hasHeaders ? String(values[19] || "").trim() : ""),
+          correo: pickField(rowObj, ["correoabctitular"]) || (!hasHeaders ? String(values[20] || "").trim() : ""),
+          domicilio: pickField(rowObj, ["domiciliotitular"]) || (!hasHeaders ? String(values[21] || "").trim() : ""),
         },
         {
           tipo: "suplente",
           apellido: suplenteParsed.apellido,
           nombre: suplenteParsed.nombre,
-          cuil: pickField(rowObj, ["cuilsuplente"]) || String(values[7] || "").trim(),
-          telefono: pickField(rowObj, ["telefonosuplente"]) || String(values[22] || "").trim(),
-          correo: pickField(rowObj, ["correoabcsuplente"]) || String(values[23] || "").trim(),
-          domicilio: pickField(rowObj, ["domiciliosuplente"]) || String(values[24] || "").trim(),
+          cuil: pickField(rowObj, ["cuilsuplente"]) || (!hasHeaders ? String(values[7] || "").trim() : ""),
+          telefono: pickField(rowObj, ["telefonosuplente"]) || (!hasHeaders ? String(values[22] || "").trim() : ""),
+          correo: pickField(rowObj, ["correoabcsuplente"]) || (!hasHeaders ? String(values[23] || "").trim() : ""),
+          domicilio: pickField(rowObj, ["domiciliosuplente"]) || (!hasHeaders ? String(values[24] || "").trim() : ""),
         },
         {
           tipo: "suplente2",
           apellido: suplente2Parsed.apellido,
           nombre: suplente2Parsed.nombre,
-          cuil: pickField(rowObj, ["cuilsuplente2"]) || String(values[9] || "").trim(),
-          telefono: pickField(rowObj, ["telefonosuplente2"]) || String(values[25] || "").trim(),
-          correo: pickField(rowObj, ["correoabcsuplente2"]) || String(values[26] || "").trim(),
-          domicilio: pickField(rowObj, ["domiciliosuplente2"]) || String(values[27] || "").trim(),
+          cuil: pickField(rowObj, ["cuilsuplente2"]) || (!hasHeaders ? String(values[9] || "").trim() : ""),
+          telefono: pickField(rowObj, ["telefonosuplente2"]) || (!hasHeaders ? String(values[25] || "").trim() : ""),
+          correo: pickField(rowObj, ["correoabcsuplente2"]) || (!hasHeaders ? String(values[26] || "").trim() : ""),
+          domicilio: pickField(rowObj, ["domiciliosuplente2"]) || (!hasHeaders ? String(values[27] || "").trim() : ""),
         },
       ];
 
@@ -1002,13 +1051,15 @@ exports.loadCursosFromSheet = onCall(callableOptions, async (request) => {
   const sheetName = assertString(data.sheetName, "sheetName", 1, 120);
   const selectedCourse = normalizeCourse(String(data.course || "").trim());
   const sheetId = parseSheetId(sheetUrl);
+  const sheetGid = parseSheetGid(sheetUrl);
 
   if (!sheetId) {
     throw new HttpsError("invalid-argument", "Invalid Google Sheets URL");
   }
 
-  const endpoint =
-    `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+  const endpoint = sheetGid
+    ? `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${sheetGid}`
+    : `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
 
   let csvText = "";
   try {
@@ -1058,40 +1109,16 @@ exports.loadCursosFromSheet = onCall(callableOptions, async (request) => {
         return [];
       }
 
-      const cupof = pickField(rowObj, ["cupof"]) || String(values[12] || "").trim();
+      const cupof = pickField(rowObj, ["cupof"]) || String(values[14] || "").trim();
       const materia =
         pickField(rowObj, ["espaciocurricular", "materia"]) || String(values[11] || "").trim();
-      const pid = pickField(rowObj, ["pid", "legajo", "id"]) || String(values[10] || "").trim();
-      const turno = pickField(rowObj, ["turno"]) || String(values[18] || "").trim();
+      const pid = pickField(rowObj, ["pid", "legajo", "id"]) || "";
+      const turno = pickField(rowObj, ["turno"]) || String(values[3] || "").trim();
       const docenteCuil = pickTitularCuil(rowObj, values);
-      const suplenteCuil = pickField(rowObj, ["cuilsuplente"]) || String(values[7] || "").trim();
+      const suplenteCuil =
+        pickField(rowObj, ["cuilsuplente"]) || (hasHeaders ? "" : String(values[7] || "").trim());
 
       if (!cupof || !materia) {
-        return [];
-      }
-
-      const dias = [
-        { key: "lunes", fallback: String(values[1] || "").trim() },
-        { key: "martes", fallback: String(values[2] || "").trim() },
-        { key: "miercoles", fallback: String(values[3] || "").trim() },
-        { key: "jueves", fallback: String(values[4] || "").trim() },
-        { key: "viernes", fallback: String(values[5] || "").trim() },
-      ];
-
-      const diasHorario = dias
-        .map(({ key, fallback }) => {
-          const cellValue = pickField(rowObj, [key]) || fallback;
-          if (!cellValue) {
-            return null;
-          }
-          return {
-            dia: normalizeDayName(key),
-            horario: normalizeHorarioRange(cellValue),
-          };
-        })
-        .filter((item) => item && item.horario);
-
-      if (!diasHorario.length) {
         return [];
       }
 
@@ -1102,7 +1129,7 @@ exports.loadCursosFromSheet = onCall(callableOptions, async (request) => {
         pid,
         turno,
         diaHorario: {
-          dias: diasHorario,
+          dias: [],
           aclaracion: "",
         },
         docenteCuil,
@@ -1151,7 +1178,7 @@ exports.saveImportedCurso = onCall(callableOptions, async (request) => {
     : [];
   const aclaracion = String(diaHorario.aclaracion || "").trim();
 
-  if (!cursoNombre || !cupof || !materia || !dias.length) {
+  if (!cursoNombre || !cupof || !materia) {
     throw new HttpsError("invalid-argument", "Curso incompleto para guardar");
   }
 
