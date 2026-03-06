@@ -886,8 +886,9 @@ function renderCurrentCurso() {
 }
 
 async function checkTenantDataAndToggleImport(tenantId) {
-  const docentesRef = collection(db, "tenants", tenantId, "docentes");
-  await getDocs(query(docentesRef, limit(1)));
+  if (!tenantId) {
+    return;
+  }
   tenantEmptyImport.classList.remove("is-hidden");
   setMsg(panelMsg, "");
 }
@@ -1036,9 +1037,14 @@ function readButtonConfigFromEditor() {
   return output;
 }
 
-async function loadButtonConfig(tenantId) {
+async function loadButtonConfig(tenantId, options = {}) {
+  const { allowFirestore = true } = options;
   if (!tenantId) {
     buttonConfigState = clonePlain(DEFAULT_BUTTON_CONFIG);
+    renderButtonConfigEditor();
+    return;
+  }
+  if (!allowFirestore) {
     renderButtonConfigEditor();
     return;
   }
@@ -1122,6 +1128,8 @@ async function loadTenantHomeCache(tenantId) {
     homeState.docentesByCuil = new Map(Array.isArray(cached.docentesByCuil) ? cached.docentesByCuil : []);
     homeState.docentesByCupof = new Map(Array.isArray(cached.docentesByCupof) ? cached.docentesByCupof : []);
     homeState.docentesAll = Array.isArray(cached.docentesAll) ? cached.docentesAll : [];
+    buttonConfigState = normalizeButtonConfig(cached.buttonConfig);
+    renderButtonConfigEditor();
     renderCourseButtons(Array.isArray(cached.courses) ? cached.courses : []);
     renderHomeCourseButtons(Array.isArray(cached.courseButtons) ? cached.courseButtons : []);
     setMsg(homeMsg, "Mostrando datos locales...");
@@ -1137,6 +1145,7 @@ async function saveTenantHomeCache(tenantId, payload) {
     await idbSet("tenant_home", {
       tenantId,
       updatedAt: Date.now(),
+      buttonConfig: clonePlain(buttonConfigState),
       ...payload,
     });
   } catch (error) {
@@ -1285,7 +1294,11 @@ function renderHomeCourseButtons(courses) {
           homeState.loadingCourseButton = item.course;
           button.classList.add("is-loading");
           try {
-            await loadScheduleForCourse(item.course, { preferCache: true, forceRefresh: false });
+            await loadScheduleForCourse(item.course, {
+              preferCache: true,
+              forceRefresh: false,
+              allowFirestore: false,
+            });
           } finally {
             homeState.loadingCourseButton = "";
             button.classList.remove("is-loading");
@@ -1658,13 +1671,13 @@ async function saveDocenteEditorChanges() {
   await setDoc(doc(db, "tenants", homeState.tenantId, "docentes", editing.id), updates, { merge: true });
   await buildDocentesByCuilMap(homeState.tenantId);
   if (homeState.selectedCourse) {
-    await loadScheduleForCourse(homeState.selectedCourse, { preferCache: false });
+    await loadScheduleForCourse(homeState.selectedCourse, { preferCache: false, allowFirestore: true });
   }
   closeDocenteEditor();
 }
 
 async function loadScheduleForCourse(courseName, options = {}) {
-  const { preferCache = true, forceRefresh = false } = options;
+  const { preferCache = true, forceRefresh = false, allowFirestore = false } = options;
   if (!homeState.tenantId) {
     return;
   }
@@ -1679,8 +1692,12 @@ async function loadScheduleForCourse(courseName, options = {}) {
 
   try {
     let usedCache = false;
+    let hadCachedItems = false;
     if (preferCache) {
       const cachedItems = await loadCourseScheduleCache(homeState.tenantId, course);
+      if (Array.isArray(cachedItems)) {
+        hadCachedItems = true;
+      }
       if (cachedItems && cachedItems.length) {
         renderScheduleTable(course, cachedItems);
         usedCache = true;
@@ -1690,6 +1707,13 @@ async function loadScheduleForCourse(courseName, options = {}) {
       }
     }
     if (usedCache && !forceRefresh) {
+      return;
+    }
+    if (!allowFirestore) {
+      if (!hadCachedItems) {
+        courseScheduleWrap.classList.add("is-hidden");
+        setMsg(homeMsg, `No hay cache local para ${course}. Presiona "Sincronizar".`, true);
+      }
       return;
     }
     const itemsSnap = await getDocs(collection(db, "tenants", homeState.tenantId, "cursos", course, "items"));
@@ -1705,37 +1729,41 @@ async function loadScheduleForCourse(courseName, options = {}) {
 }
 
 async function loadTenantCourses(tenantId, options = {}) {
-  const { forceRefresh = false } = options;
+  const { forceRefresh = false, allowFirestore = true } = options;
   setLoading(true, "Cargando cursos...");
   try {
     const hasCache = await loadTenantHomeCache(tenantId);
-    await loadButtonConfig(tenantId);
+    await loadButtonConfig(tenantId, { allowFirestore: allowFirestore && !hasCache });
     if (hasCache && !forceRefresh) {
       homeState.tenantId = tenantId;
       const sourceCourses = Array.isArray(homeState.courses) ? homeState.courses : [];
-      const resolvedFromCache = [];
-      for (let i = 0; i < sourceCourses.length; i += 1) {
-        const entry = sourceCourses[i];
-        const course = normalizeCourse(entry?.course || entry);
-        if (!course) {
-          continue;
-        }
-        const turn = await resolveCourseButtonTurn(tenantId, course, [entry?.turno]);
-        if (turn === "S") {
-          continue;
-        }
-        resolvedFromCache.push({ course, turno: turn });
-      }
+      const resolvedFromCache = sourceCourses
+        .map((entry) => ({
+          course: normalizeCourse(entry?.course || entry),
+          turno: pickRenderableTurn([entry?.turno]),
+        }))
+        .filter((entry) => entry.course && entry.turno !== "S");
       if (resolvedFromCache.length) {
         renderHomeCourseButtons(resolvedFromCache);
       }
       const firstCourse = (resolvedFromCache.length ? resolvedFromCache : sourceCourses)[0];
       const firstCourseName = normalizeCourse(firstCourse?.course || firstCourse || "");
       if (firstCourseName) {
-        await loadScheduleForCourse(firstCourseName, { preferCache: true, forceRefresh: false });
+        await loadScheduleForCourse(firstCourseName, {
+          preferCache: true,
+          forceRefresh: false,
+          allowFirestore: false,
+        });
       }
       return;
     }
+    if (!allowFirestore && !hasCache) {
+      homeState.tenantId = tenantId;
+      courseScheduleWrap.classList.add("is-hidden");
+      setMsg(homeMsg, 'Sin datos locales. Presiona "Sincronizar" para descargar.', true);
+      return;
+    }
+    await loadButtonConfig(tenantId, { allowFirestore: true });
     const cursosSnap = await getDocs(collection(db, "tenants", tenantId, "cursos"));
     const rawCourses = cursosSnap.docs
       .map((docSnap) => {
@@ -1789,7 +1817,11 @@ async function loadTenantCourses(tenantId, options = {}) {
         docentesByCupof: Array.from(homeState.docentesByCupof.entries()),
         docentesAll: homeState.docentesAll,
       });
-      await loadScheduleForCourse(unique[0], { preferCache: true, forceRefresh: false });
+      await loadScheduleForCourse(unique[0], {
+        preferCache: true,
+        forceRefresh: false,
+        allowFirestore: true,
+      });
     } else {
       courseScheduleWrap.classList.add("is-hidden");
     }
@@ -2259,9 +2291,13 @@ refreshFab.addEventListener("click", async () => {
   setRefreshFabLoading(true);
   setLoading(true, "Actualizando datos...");
   try {
-    await loadTenantCourses(importState.tenantId, { forceRefresh: true });
+    await loadTenantCourses(importState.tenantId, { forceRefresh: true, allowFirestore: true });
     if (homeState.selectedCourse) {
-      await loadScheduleForCourse(homeState.selectedCourse, { preferCache: true, forceRefresh: true });
+      await loadScheduleForCourse(homeState.selectedCourse, {
+        preferCache: true,
+        forceRefresh: true,
+        allowFirestore: true,
+      });
     }
     setMsg(homeMsg, "Datos actualizados");
   } catch (error) {
