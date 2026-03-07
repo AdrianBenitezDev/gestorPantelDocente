@@ -2185,13 +2185,11 @@ function renderScheduleTable(curso, items) {
                 ? `<span class="meta ${suplenteClass}">Suplente: ${esc(suplenteInfo.name)}</span>`
                 : "";
               const cupof = esc(item.cupof || "-");
-              const range = esc(slotRange);
               return `
                 <div class="schedule-slot" data-slot-id="${esc(slotId)}">
                   <span class="title">${materia}</span>
                   <span class="meta docente-main ${titularClass}">${titular}</span>
                   ${suplenteHtml}
-                  <span class="meta horario">Horario: ${range}</span>
                   <span class="meta cupof">CUPOF: ${cupof}</span>
                 </div>
               `;
@@ -2566,14 +2564,12 @@ function renderDocenteEditorForm(data) {
     .map(([key, label]) => {
       const value = esc(data?.[key] || "");
       return `
-        <label class="docente-field-row">
-          <span>${label}</span>
-          <div class="docente-field-actions">
-            <input type="text" data-docente-key="${key}" value="${value}" />
-            <button type="button" class="google-btn field-copy-btn" data-docente-field="${key}">Copiar</button>
-            <button type="button" class="google-btn field-paste-btn" data-docente-field="${key}">Pegar</button>
-          </div>
-        </label>
+        <div class="docente-field-row">
+          <span class="docente-field-label">${label}</span>
+          <input type="text" data-docente-key="${key}" value="${value}" />
+          <button type="button" class="google-btn field-copy-btn" data-docente-field="${key}">Copiar</button>
+          <button type="button" class="google-btn field-paste-btn" data-docente-field="${key}">Pegar</button>
+        </div>
       `;
     })
     .join("");
@@ -3500,9 +3496,12 @@ assignMateriaInput.addEventListener("input", () => {
   renderAssignMateriaList();
 });
 
-assignMateriaList.addEventListener("click", (event) => {
+assignMateriaList.addEventListener("click", async (event) => {
   const option = event.target.closest("[data-assign-item-id]");
   if (!option) {
+    return;
+  }
+  if (assignMateriaState.saving) {
     return;
   }
   const itemId = String(option.getAttribute("data-assign-item-id") || "").trim();
@@ -3512,6 +3511,17 @@ assignMateriaList.addEventListener("click", (event) => {
   }
   assignMateriaState.selectedItemId = itemId;
   renderAssignMateriaList();
+  assignMateriaState.saving = true;
+  setButtonBusy(assignMateriaSaveBtn, true);
+  try {
+    await saveAssignMateriaSelection();
+  } catch (error) {
+    console.error(error);
+    setMsg(homeMsg, error.message || "No se pudo guardar la designacion", true);
+  } finally {
+    assignMateriaState.saving = false;
+    setButtonBusy(assignMateriaSaveBtn, false);
+  }
 });
 
 assignMateriaCancelBtn.addEventListener("click", () => {

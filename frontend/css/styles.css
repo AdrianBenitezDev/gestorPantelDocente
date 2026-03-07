@@ -320,24 +320,27 @@ button {
 }
 
 .schedule-table tbody th.schedule-row-header {
-  min-width: 150px;
+  min-width: 170px;
   padding: 0;
+  position: relative;
   background: #f7fbff;
+  vertical-align: top;
 }
 
 .schedule-row-header {
-  display: flex;
-  align-items: stretch;
-  min-height: 100%;
+  display: block;
 }
 
 .schedule-row-index {
-  min-width: 44px;
-  padding: 8px 6px;
-  display: inline-flex;
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 48px;
+  display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 24px;
+  font-size: 28px;
   font-weight: 800;
   color: #1f4b8f;
   background: #e9f0ff;
@@ -345,10 +348,10 @@ button {
 }
 
 .schedule-row-range {
-  flex: 1;
-  padding: 8px 10px;
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  min-height: 100%;
+  padding: 8px 10px 8px 58px;
   font-weight: 600;
 }
 
@@ -663,14 +666,15 @@ button {
 
 .docente-field-row {
   display: grid;
-  gap: 6px;
-}
-
-.docente-field-actions {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: 140px minmax(0, 1fr) auto auto;
   gap: 6px;
   align-items: center;
+}
+
+.docente-field-label {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 600;
 }
 
 .assign-materia-modal {
@@ -823,10 +827,6 @@ button {
 
   .home-command-actions {
     justify-content: flex-start;
-  }
-
-  .docente-field-actions {
-    grid-template-columns: 1fr;
   }
 
   .turn-schedule-header {
