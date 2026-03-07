@@ -2182,7 +2182,7 @@ function renderScheduleTable(curso, items) {
               const suplenteClass = situacionToClass(suplenteInfo.situacionRevista);
               const titular = esc(titularInfo.name);
               const suplenteHtml = suplenteInfo.name
-                ? `<span class="meta ${suplenteClass}">Suplente: ${esc(suplenteInfo.name)}</span>`
+                ? `<span class="meta ${suplenteClass}">${esc(suplenteInfo.name)}</span>`
                 : "";
               const cupof = esc(item.cupof || "-");
               return `
