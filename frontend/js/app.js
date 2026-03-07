@@ -2146,8 +2146,8 @@ function renderScheduleTable(curso, items) {
     .map((slot, slotIndex) => {
       const slotRange = slotLabelFromConfig(slot);
       const breakAfter = Number(slot?.breakAfterMin || 0);
-      const breakText = breakAfter > 0 ? ` (+ recreo ${breakAfter}m)` : "";
-      const rowLabel = `${slotIndex + 1}° ${slotRange}${breakText}`;
+      const rowIndexLabel = String(slotIndex + 1);
+      const rowRangeLabel = String(slotRange || "-");
       const dayCells = DAYS
         .map((day) => {
           const key = `${day}__${slotIndex}`;
@@ -2201,7 +2201,19 @@ function renderScheduleTable(curso, items) {
         })
         .join("");
 
-      return `<tr><th>${esc(rowLabel)}</th>${dayCells}</tr>`;
+      const horarioRow = `
+        <tr>
+          <th class="schedule-row-header">
+            <span class="schedule-row-index">${esc(rowIndexLabel)}</span>
+            <span class="schedule-row-range">${esc(rowRangeLabel)}</span>
+          </th>
+          ${dayCells}
+        </tr>
+      `;
+      if (breakAfter > 0) {
+        return `${horarioRow}<tr class="recreo-row"><td colspan="6">RECREO</td></tr>`;
+      }
+      return horarioRow;
     })
     .join("");
 

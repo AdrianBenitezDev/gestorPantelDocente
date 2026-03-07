@@ -315,12 +315,56 @@ button {
   font-size: 13px;
 }
 
+.schedule-table tbody th {
+  text-align: left;
+}
+
+.schedule-table tbody th.schedule-row-header {
+  min-width: 150px;
+  padding: 0;
+  background: #f7fbff;
+}
+
+.schedule-row-header {
+  display: flex;
+  align-items: stretch;
+  min-height: 100%;
+}
+
+.schedule-row-index {
+  min-width: 44px;
+  padding: 8px 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 800;
+  color: #1f4b8f;
+  background: #e9f0ff;
+  border-right: 1px solid var(--border);
+}
+
+.schedule-row-range {
+  flex: 1;
+  padding: 8px 10px;
+  display: inline-flex;
+  align-items: center;
+  font-weight: 600;
+}
+
 .schedule-table thead th {
   background: #ffe9d6;
   color: #8a2c0a;
   position: sticky;
   top: 0;
   z-index: 2;
+}
+
+.schedule-table .recreo-row td {
+  background: #fff6d8;
+  color: #8a2c0a;
+  font-weight: 700;
+  text-align: center;
 }
 
 #course-schedule-wrap {
