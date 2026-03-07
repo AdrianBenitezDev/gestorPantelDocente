@@ -120,7 +120,7 @@ let importCursosState = {
 
 const TURN_ORDER = ["M", "T", "V", "A", "C", "N", "S"];
 const DEFAULT_BUTTON_CONFIG = {
-  M: { label: "Manana", color: "#0f6ab8" },
+  M: { label: "Mañana", color: "#0f6ab8" },
   T: { label: "Tarde", color: "#bf5f00" },
   V: { label: "Vespertino", color: "#6f42c1" },
   A: { label: "Alternado", color: "#0d9488" },
@@ -130,7 +130,7 @@ const DEFAULT_BUTTON_CONFIG = {
 };
 const REQUIRED_SCHEDULE_TURNS = ["M", "T", "V"];
 const SCHEDULE_TURN_META = [
-  { code: "M", key: "manana", label: "Manana" },
+  { code: "M", key: "manana", label: "Mañana" },
   { code: "T", key: "tarde", label: "Tarde" },
   { code: "V", key: "vespertino", label: "Vespertino" },
   { code: "A", key: "alternado", label: "Alternado" },
@@ -1994,7 +1994,7 @@ function renderHomeCourseButtons(courses) {
   });
 
   const turnLabels = {
-    M: "Manana",
+    M: "Mañana",
     T: "Tarde",
     V: "Vespertino",
     A: "Alternado",
