@@ -52,6 +52,13 @@ function sanitize(value) {
   return String(value || "").replace(/[<>&]/g, "");
 }
 
+function formatListAsText(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || "").trim()).filter(Boolean).join("; ");
+  }
+  return String(value || "").trim();
+}
+
 function renderRows(rows = []) {
   const safeRows = Array.isArray(rows) ? rows : [];
   if (!safeRows.length) {
@@ -187,9 +194,9 @@ async function runPacProcess(previewOnly) {
     }
     if (
       String(result.mode || "") === "interinos_docx" &&
-      !/filename:docx/i.test(String(payload.gmailQuery || ""))
+      /has:attachment/i.test(String(payload.gmailQuery || ""))
     ) {
-      summaryText += " | Sugerencia: agrega filename:docx al query";
+      summaryText += " | Sugerencia: si los archivos vienen por link de Drive, quita has:attachment";
     }
     setMsg(summaryMsg, summaryText);
 
@@ -202,8 +209,20 @@ async function runPacProcess(previewOnly) {
         const from = String(item.from || "(sin remitente)");
         const date = String(item.date || "(sin fecha)");
         const attachments = String(item.attachmentsSummary || "");
+        const driveLinks = String(item.driveLinksSummary || "");
+        const sourceErrors = formatListAsText(item.sourceErrors || "");
         const base = `- ${id} | ${subject} | ${from} | ${date}`;
-        const extra = attachments ? `\n  Adjuntos detectados: ${attachments}` : "";
+        const lines = [];
+        if (attachments) {
+          lines.push(`Adjuntos detectados: ${attachments}`);
+        }
+        if (driveLinks) {
+          lines.push(`Links Drive detectados: ${driveLinks}`);
+        }
+        if (sourceErrors) {
+          lines.push(`Detalle fuente: ${sourceErrors}`);
+        }
+        const extra = lines.length ? `\n  ${lines.join("\n  ")}` : "";
         return `${base}\n  Motivo: ${reason}${extra}`;
       });
       setMsg(errorsMsg, `Errores detectados:\n${lines.join("\n")}`, true);
@@ -232,6 +251,7 @@ connectBtn.addEventListener("click", async () => {
     const provider = new GoogleAuthProvider();
     provider.addScope("https://www.googleapis.com/auth/gmail.readonly");
     provider.addScope("https://www.googleapis.com/auth/spreadsheets");
+    provider.addScope("https://www.googleapis.com/auth/drive.readonly");
     provider.setCustomParameters({
       prompt: "consent",
       include_granted_scopes: "true",
@@ -241,13 +261,13 @@ connectBtn.addEventListener("click", async () => {
     const credential = GoogleAuthProvider.credentialFromResult(result);
     const accessToken = credential?.accessToken || "";
     if (!accessToken) {
-      throw new Error("No se obtuvo accessToken para Gmail/Sheets");
+      throw new Error("No se obtuvo accessToken para Gmail/Sheets/Drive");
     }
     state.accessToken = accessToken;
-    setMsg(authMsg, "Permisos Gmail + Sheets autorizados.");
+    setMsg(authMsg, "Permisos Gmail + Sheets + Drive autorizados.");
   } catch (error) {
     console.error(error);
-    setMsg(authMsg, error.message || "No se pudo autorizar Gmail + Sheets", true);
+    setMsg(authMsg, error.message || "No se pudo autorizar Gmail + Sheets + Drive", true);
   }
 });
 
@@ -280,7 +300,7 @@ onAuthStateChanged(auth, (user) => {
     userNameEl.textContent = "Sin sesion";
     userEmailEl.textContent = "-";
     if (!state.accessToken) {
-      setMsg(authMsg, "Inicia sesion con Google y luego autoriza Gmail + Sheets.");
+      setMsg(authMsg, "Inicia sesion con Google y luego autoriza Gmail + Sheets + Drive.");
     }
     return;
   }
@@ -288,7 +308,7 @@ onAuthStateChanged(auth, (user) => {
   userNameEl.textContent = user.displayName || user.email || "Usuario";
   userEmailEl.textContent = user.email || "-";
   if (!state.accessToken) {
-    setMsg(authMsg, "Sesion iniciada. Falta autorizar Gmail + Sheets.");
+    setMsg(authMsg, "Sesion iniciada. Falta autorizar Gmail + Sheets + Drive.");
   }
 });
 

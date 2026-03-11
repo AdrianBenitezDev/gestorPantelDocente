@@ -1492,11 +1492,57 @@ function pacHeaderValue(headers, headerName) {
   return pacNormalizeText(found?.value || "");
 }
 
+function pacExtractUrlsFromText(text) {
+  const value = String(text || "");
+  if (!value) {
+    return [];
+  }
+  const matches = value.match(/https?:\/\/[^\s<>"')]+/gi);
+  if (!matches) {
+    return [];
+  }
+  return matches
+    .map((item) => String(item || "").trim().replace(/[),.;]+$/g, ""))
+    .filter(Boolean);
+}
+
+function pacExtractUrlsFromHtml(htmlText) {
+  const value = String(htmlText || "");
+  if (!value) {
+    return [];
+  }
+  const urls = [];
+  const hrefRegex = /href\s*=\s*["']([^"']+)["']/gi;
+  let match = hrefRegex.exec(value);
+  while (match) {
+    const href = String(match[1] || "").trim();
+    if (/^https?:\/\//i.test(href)) {
+      urls.push(href);
+    }
+    match = hrefRegex.exec(value);
+  }
+  return urls;
+}
+
+function pacPushUniqueUrl(target, seen, url) {
+  const safe = String(url || "").trim();
+  if (!safe) {
+    return;
+  }
+  if (seen.has(safe)) {
+    return;
+  }
+  seen.add(safe);
+  target.push(safe);
+}
+
 function pacCollectMessageContent(payload) {
   const plainChunks = [];
   const htmlChunks = [];
   const attachments = [];
   const seenAttachments = new Set();
+  const urls = [];
+  const seenUrls = new Set();
 
   function visitPart(part) {
     if (!part || typeof part !== "object") {
@@ -1518,8 +1564,10 @@ function pacCollectMessageContent(payload) {
       const decoded = pacDecodeBase64UrlToText(dataChunk);
       if (mimeType.includes("text/plain")) {
         plainChunks.push(decoded);
+        pacExtractUrlsFromText(decoded).forEach((url) => pacPushUniqueUrl(urls, seenUrls, url));
       } else if (mimeType.includes("text/html")) {
         htmlChunks.push(decoded);
+        pacExtractUrlsFromHtml(decoded).forEach((url) => pacPushUniqueUrl(urls, seenUrls, url));
       }
     }
 
@@ -1547,6 +1595,7 @@ function pacCollectMessageContent(payload) {
     plainText: plainChunks.join("\n").trim(),
     htmlText: htmlChunks.join("\n").trim(),
     attachments,
+    urls,
   };
 }
 
@@ -1573,6 +1622,170 @@ function pacBuildAttachmentSummary(attachments) {
       return `${filename} [${mimeType}] (${sourceType})`;
     })
     .join(", ");
+}
+
+function pacExtractDriveFileIdFromUrl(rawUrl) {
+  const url = String(rawUrl || "").trim();
+  if (!url) {
+    return "";
+  }
+
+  const patterns = [
+    /docs\.google\.com\/document\/d\/([a-zA-Z0-9_-]{20,})/i,
+    /drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]{20,})/i,
+    /[?&]id=([a-zA-Z0-9_-]{20,})/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match && match[1]) {
+      return String(match[1]).trim();
+    }
+  }
+
+  return "";
+}
+
+function pacExtractDriveFileRefs(sourceText, sourceUrls = []) {
+  const refs = [];
+  const seenIds = new Set();
+
+  function pushRef(fileId, url, source) {
+    const id = String(fileId || "").trim();
+    if (!id || seenIds.has(id)) {
+      return;
+    }
+    seenIds.add(id);
+    refs.push({
+      fileId: id,
+      url: String(url || "").trim(),
+      source: String(source || ""),
+    });
+  }
+
+  const text = String(sourceText || "");
+  const combinedUrls = [
+    ...pacExtractUrlsFromText(text),
+    ...(Array.isArray(sourceUrls) ? sourceUrls : []),
+  ];
+
+  combinedUrls.forEach((rawUrl) => {
+    let candidates = [String(rawUrl || "").trim()];
+    try {
+      const parsed = new URL(String(rawUrl || "").trim());
+      const host = String(parsed.hostname || "").toLowerCase();
+      if (host === "www.google.com" && parsed.pathname === "/url") {
+        const nested = parsed.searchParams.get("q") || parsed.searchParams.get("url");
+        if (nested) {
+          candidates.push(String(nested || "").trim());
+        }
+      }
+    } catch (error) {
+      // Ignorar URLs no parseables
+    }
+
+    candidates.forEach((candidateUrl) => {
+      const fileId = pacExtractDriveFileIdFromUrl(candidateUrl);
+      if (fileId) {
+        pushRef(fileId, candidateUrl, "url");
+      }
+    });
+  });
+
+  const directTextPatterns = [
+    /docs\.google\.com\/document\/d\/([a-zA-Z0-9_-]{20,})/gi,
+    /drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]{20,})/gi,
+  ];
+  directTextPatterns.forEach((pattern) => {
+    let match = pattern.exec(text);
+    while (match) {
+      pushRef(match[1], match[0], "text");
+      match = pattern.exec(text);
+    }
+  });
+
+  return refs;
+}
+
+function pacBuildDriveRefsSummary(driveRefs) {
+  const list = Array.isArray(driveRefs) ? driveRefs : [];
+  if (!list.length) {
+    return "Sin enlaces Drive detectados";
+  }
+  return list
+    .slice(0, 8)
+    .map((ref) => {
+      const fileId = String(ref?.fileId || "").trim();
+      const url = String(ref?.url || "").trim();
+      return `${fileId}${url ? ` -> ${url}` : ""}`;
+    })
+    .join(", ");
+}
+
+async function pacFetchBinary(url, accessToken, options = {}, apiContext = "") {
+  const requestHeaders = {
+    Authorization: `Bearer ${accessToken}`,
+    ...(options.headers || {}),
+  };
+
+  const response = await fetch(url, {
+    ...options,
+    headers: requestHeaders,
+  });
+
+  if (!response.ok) {
+    const rawText = await response.text();
+    let payload = {};
+    if (rawText) {
+      try {
+        payload = JSON.parse(rawText);
+      } catch (parseError) {
+        payload = { raw: rawText };
+      }
+    }
+    const err = new Error(
+      payload?.error?.message || payload?.raw || `Google API status ${response.status}`
+    );
+    err.name = "PacGoogleApiError";
+    err.status = response.status;
+    err.apiContext = apiContext;
+    err.url = String(url || "");
+    err.googleStatus = String(payload?.error?.status || "");
+    err.googleErrorMessage = String(payload?.error?.message || "");
+    err.googleReason = String(payload?.error?.errors?.[0]?.reason || payload?.error?.details?.[0]?.reason || "");
+    err.googleDomain = String(payload?.error?.errors?.[0]?.domain || "");
+    err.googlePayload = payload;
+    throw err;
+  }
+
+  const arr = await response.arrayBuffer();
+  return Buffer.from(arr);
+}
+
+async function pacGetDriveFileMetadata(accessToken, fileId) {
+  const endpoint =
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}` +
+    "?fields=id,name,mimeType,webViewLink";
+  return pacFetchJson(endpoint, accessToken, {}, "drive.getFileMetadata");
+}
+
+async function pacGetDriveDocxBuffer(accessToken, fileMeta) {
+  const fileId = String(fileMeta?.id || "").trim();
+  const mimeType = String(fileMeta?.mimeType || "").trim().toLowerCase();
+  if (!fileId) {
+    throw new Error("Drive file id invalido");
+  }
+
+  if (mimeType === "application/vnd.google-apps.document") {
+    const endpoint =
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}` +
+      "/export?mimeType=application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    return pacFetchBinary(endpoint, accessToken, {}, "drive.exportDocx");
+  }
+
+  const endpoint =
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`;
+  return pacFetchBinary(endpoint, accessToken, {}, "drive.downloadFile");
 }
 
 function pacPushMailError(target, metadata, reason, extra = {}) {
@@ -2204,6 +2417,9 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
   if (!previewOnly) {
     requiredScopes.push("https://www.googleapis.com/auth/spreadsheets");
   }
+  if (mode === "interinos_docx") {
+    requiredScopes.push("https://www.googleapis.com/auth/drive.readonly");
+  }
 
   let tokenInfo = null;
   try {
@@ -2332,57 +2548,97 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
         const docxAttachments = content.attachments.filter((attachment) =>
           pacIsDocxAttachment(attachment)
         );
+        const driveRefs = pacExtractDriveFileRefs(
+          `${String(content?.plainText || "")}\n${String(content?.htmlText || "")}\n${subject}`,
+          content.urls
+        );
 
-        if (!docxAttachments.length) {
-          pacPushMailError(errors, mailMetadata, "No se encontro adjunto DOCX", {
+        const sourceCandidates = [
+          ...docxAttachments.map((attachment) => ({
+            type: "attachment",
+            label: String(attachment?.filename || "").trim() || String(attachment?.mimeType || "adjunto"),
+            attachment,
+          })),
+          ...driveRefs.map((ref) => ({
+            type: "drive",
+            label: `drive:${ref.fileId}`,
+            driveRef: ref,
+          })),
+        ];
+
+        if (!sourceCandidates.length) {
+          pacPushMailError(errors, mailMetadata, "No se encontro adjunto DOCX ni enlace a Google Docs/Drive", {
             attachmentsDetected: content.attachments.length,
             attachmentsSummary: pacBuildAttachmentSummary(content.attachments),
+            driveLinksDetected: driveRefs.length,
+            driveLinksSummary: pacBuildDriveRefsSummary(driveRefs),
           });
           continue;
         }
 
         let bestRow = null;
         let bestScore = -1;
-        let bestError = "";
+        const sourceErrors = [];
 
-        for (const attachment of docxAttachments) {
+        for (const source of sourceCandidates) {
           try {
-            let attachmentData = String(attachment?.inlineDataChunk || "");
-            if (!attachmentData) {
-              const attachmentPayload = await pacGetAttachment(
-                accessToken,
-                messageId,
-                attachment.attachmentId
-              );
-              attachmentData = String(attachmentPayload?.data || "");
+            let docxBuffer = null;
+            let sourceName = source.label;
+
+            if (source.type === "attachment") {
+              const attachment = source.attachment || {};
+              let attachmentData = String(attachment?.inlineDataChunk || "");
+              if (!attachmentData) {
+                const attachmentPayload = await pacGetAttachment(
+                  accessToken,
+                  messageId,
+                  attachment.attachmentId
+                );
+                attachmentData = String(attachmentPayload?.data || "");
+              }
+              if (!attachmentData) {
+                throw new Error("Adjunto vacio");
+              }
+              docxBuffer = pacDecodeBase64Url(attachmentData, true);
+              sourceName = String(attachment?.filename || sourceName || "").trim() || sourceName;
+            } else {
+              const ref = source.driveRef || {};
+              const metadata = await pacGetDriveFileMetadata(accessToken, ref.fileId);
+              docxBuffer = await pacGetDriveDocxBuffer(accessToken, metadata);
+              sourceName = String(metadata?.name || source.label || "").trim() || source.label;
             }
-            if (!attachmentData) {
-              throw new Error("Adjunto vacio");
-            }
-            const docxBuffer = pacDecodeBase64Url(attachmentData, true);
+
             const docxText = pacExtractDocxText(docxBuffer);
             const row = pacExtractPacRow(docxText, {
               messageId,
               subject,
               from,
               date,
-              attachmentName: attachment.filename,
+              attachmentName: sourceName,
             });
             const score = pacFieldScore(row);
             if (score > bestScore) {
               bestRow = row;
               bestScore = score;
             }
-          } catch (attachmentError) {
-            bestError = String(attachmentError?.message || "No se pudo leer adjunto DOCX");
+          } catch (sourceError) {
+            sourceErrors.push(`${source.label}: ${String(sourceError?.message || "Error sin detalle")}`);
           }
         }
 
         if (!bestRow) {
-          pacPushMailError(errors, mailMetadata, bestError || "No se pudo extraer datos del adjunto DOCX", {
+          pacPushMailError(
+            errors,
+            mailMetadata,
+            sourceErrors[0] || "No se pudo extraer datos del adjunto DOCX o del enlace Drive",
+            {
             attachmentsDetected: content.attachments.length,
             attachmentsSummary: pacBuildAttachmentSummary(content.attachments),
-          });
+            driveLinksDetected: driveRefs.length,
+            driveLinksSummary: pacBuildDriveRefsSummary(driveRefs),
+            sourceErrors: sourceErrors.slice(0, 5),
+            }
+          );
           continue;
         }
 
