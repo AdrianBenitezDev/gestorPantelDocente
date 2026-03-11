@@ -1508,6 +1508,11 @@ function pacCollectMessageContent(payload) {
     const body = part.body && typeof part.body === "object" ? part.body : {};
     const dataChunk = typeof body.data === "string" ? body.data : "";
     const attachmentId = String(body.attachmentId || "").trim();
+    const size = Number(body.size || 0);
+    const isTextPayload =
+      mimeType.includes("text/plain") ||
+      mimeType.includes("text/html") ||
+      mimeType.includes("multipart/");
 
     if (dataChunk) {
       const decoded = pacDecodeBase64UrlToText(dataChunk);
@@ -1518,13 +1523,18 @@ function pacCollectMessageContent(payload) {
       }
     }
 
-    if (attachmentId && filename && !seenAttachments.has(attachmentId)) {
+    const isBinaryPayload = Boolean(attachmentId) || (Boolean(dataChunk) && !isTextPayload);
+    const attachmentKey = attachmentId || `${filename}|${mimeType}|${size}|${dataChunk.length}`;
+    if (isBinaryPayload && !seenAttachments.has(attachmentKey)) {
       attachments.push({
         attachmentId,
         filename,
         mimeType,
+        size,
+        inlineData: !attachmentId && Boolean(dataChunk),
+        inlineDataChunk: !attachmentId && dataChunk ? dataChunk : "",
       });
-      seenAttachments.add(attachmentId);
+      seenAttachments.add(attachmentKey);
     }
 
     const children = Array.isArray(part.parts) ? part.parts : [];
@@ -1538,6 +1548,44 @@ function pacCollectMessageContent(payload) {
     htmlText: htmlChunks.join("\n").trim(),
     attachments,
   };
+}
+
+function pacIsDocxAttachment(attachment) {
+  const filename = String(attachment?.filename || "").toLowerCase();
+  const mimeType = String(attachment?.mimeType || "").toLowerCase();
+  return (
+    filename.endsWith(".docx") ||
+    mimeType.includes("application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+  );
+}
+
+function pacBuildAttachmentSummary(attachments) {
+  const list = Array.isArray(attachments) ? attachments : [];
+  if (!list.length) {
+    return "Sin adjuntos detectados";
+  }
+  return list
+    .slice(0, 8)
+    .map((attachment) => {
+      const filename = String(attachment?.filename || "").trim() || "(sin nombre)";
+      const mimeType = String(attachment?.mimeType || "").trim() || "mime-desconocido";
+      const sourceType = attachment?.inlineData ? "inline" : "adjunto";
+      return `${filename} [${mimeType}] (${sourceType})`;
+    })
+    .join(", ");
+}
+
+function pacPushMailError(target, metadata, reason, extra = {}) {
+  const output = Array.isArray(target) ? target : [];
+  output.push({
+    messageId: String(metadata?.messageId || ""),
+    threadId: String(metadata?.threadId || ""),
+    subject: String(metadata?.subject || ""),
+    from: String(metadata?.from || ""),
+    date: String(metadata?.date || ""),
+    reason: String(reason || "Sin detalle"),
+    ...extra,
+  });
 }
 
 function pacDecodeHtmlEntities(value) {
@@ -2270,17 +2318,25 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
       const subject = pacHeaderValue(headers, "Subject");
       const from = pacHeaderValue(headers, "From");
       const date = pacHeaderValue(headers, "Date");
+      const threadId = String(fullMessage?.threadId || item?.threadId || "");
+      const mailMetadata = {
+        messageId,
+        threadId,
+        subject,
+        from,
+        date,
+      };
       const content = pacCollectMessageContent(fullMessage?.payload || {});
 
       if (mode === "interinos_docx") {
         const docxAttachments = content.attachments.filter((attachment) =>
-          String(attachment?.filename || "").toLowerCase().endsWith(".docx")
+          pacIsDocxAttachment(attachment)
         );
 
         if (!docxAttachments.length) {
-          errors.push({
-            messageId,
-            reason: "No se encontro adjunto DOCX",
+          pacPushMailError(errors, mailMetadata, "No se encontro adjunto DOCX", {
+            attachmentsDetected: content.attachments.length,
+            attachmentsSummary: pacBuildAttachmentSummary(content.attachments),
           });
           continue;
         }
@@ -2291,12 +2347,15 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
 
         for (const attachment of docxAttachments) {
           try {
-            const attachmentPayload = await pacGetAttachment(
-              accessToken,
-              messageId,
-              attachment.attachmentId
-            );
-            const attachmentData = String(attachmentPayload?.data || "");
+            let attachmentData = String(attachment?.inlineDataChunk || "");
+            if (!attachmentData) {
+              const attachmentPayload = await pacGetAttachment(
+                accessToken,
+                messageId,
+                attachment.attachmentId
+              );
+              attachmentData = String(attachmentPayload?.data || "");
+            }
             if (!attachmentData) {
               throw new Error("Adjunto vacio");
             }
@@ -2320,9 +2379,9 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
         }
 
         if (!bestRow) {
-          errors.push({
-            messageId,
-            reason: bestError || "No se pudo extraer datos del adjunto DOCX",
+          pacPushMailError(errors, mailMetadata, bestError || "No se pudo extraer datos del adjunto DOCX", {
+            attachmentsDetected: content.attachments.length,
+            attachmentsSummary: pacBuildAttachmentSummary(content.attachments),
           });
           continue;
         }
@@ -2333,9 +2392,9 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
 
       const bodyText = pacPickMessageBodyText(content);
       if (!bodyText) {
-        errors.push({
-          messageId,
-          reason: "El mail no tiene cuerpo de texto util",
+        pacPushMailError(errors, mailMetadata, "El mail no tiene cuerpo de texto util", {
+          attachmentsDetected: content.attachments.length,
+          attachmentsSummary: pacBuildAttachmentSummary(content.attachments),
         });
         continue;
       }
@@ -2351,9 +2410,11 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
       );
     } catch (messageError) {
       logger.error("runPacProcess message error", { messageId, messageError });
-      errors.push({
+      pacPushMailError(errors, {
         messageId,
-        reason: String(messageError?.message || "No se pudo procesar el mail"),
+        threadId: String(item?.threadId || ""),
+      }, String(messageError?.message || "No se pudo procesar el mail"), {
+        debugMessage: String(messageError?.message || ""),
       });
     }
   }

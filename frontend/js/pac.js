@@ -185,6 +185,12 @@ async function runPacProcess(previewOnly) {
     if (Array.isArray(result?.diagnostics?.missingScopes) && result.diagnostics.missingScopes.length) {
       summaryText += ` | Scopes faltantes: ${result.diagnostics.missingScopes.join(", ")}`;
     }
+    if (
+      String(result.mode || "") === "interinos_docx" &&
+      !/filename:docx/i.test(String(payload.gmailQuery || ""))
+    ) {
+      summaryText += " | Sugerencia: agrega filename:docx al query";
+    }
     setMsg(summaryMsg, summaryText);
 
     const errors = Array.isArray(result.errors) ? result.errors : [];
@@ -192,7 +198,13 @@ async function runPacProcess(previewOnly) {
       const lines = errors.slice(0, 25).map((item) => {
         const id = String(item.messageId || "-");
         const reason = String(item.reason || "Sin detalle");
-        return `- ${id}: ${reason}`;
+        const subject = String(item.subject || "(sin asunto)");
+        const from = String(item.from || "(sin remitente)");
+        const date = String(item.date || "(sin fecha)");
+        const attachments = String(item.attachmentsSummary || "");
+        const base = `- ${id} | ${subject} | ${from} | ${date}`;
+        const extra = attachments ? `\n  Adjuntos detectados: ${attachments}` : "";
+        return `${base}\n  Motivo: ${reason}${extra}`;
       });
       setMsg(errorsMsg, `Errores detectados:\n${lines.join("\n")}`, true);
     } else {
