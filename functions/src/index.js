@@ -2184,30 +2184,34 @@ function pacFieldScore(row) {
 function pacBuildFieldMapFromHeaders(headerRows) {
   const defaults = {
     cupof: 0,
-    dni: 1,
-    fechaNacimiento: 2,
-    apellidoNombre: 3,
+    dni: 2,
+    fechaNacimiento: 5,
+    apellidoNombre: 6,
     pid: 4,
-    cargoModulosHoras: 5,
-    curso: 6,
-    division: 7,
+    cargoModulosHoras: 10,
+    curso: 12,
+    division: 13,
   };
 
-  const row12 = Array.isArray(headerRows?.[0]) ? headerRows[0] : [];
-  const row13 = Array.isArray(headerRows?.[1]) ? headerRows[1] : [];
-  const maxLen = Math.max(row12.length, row13.length, 0);
+  const row11 = Array.isArray(headerRows?.[0]) ? headerRows[0] : [];
+  const row12 = Array.isArray(headerRows?.[1]) ? headerRows[1] : [];
+  const row13 = Array.isArray(headerRows?.[2]) ? headerRows[2] : [];
+  const maxLen = Math.max(row11.length, row12.length, row13.length, 0);
   if (!maxLen) {
     return defaults;
   }
 
   const labels = [];
   for (let i = 0; i < maxLen; i += 1) {
-    const merged = `${String(row12[i] || "")} ${String(row13[i] || "")}`;
+    const merged = `${String(row11[i] || "")} ${String(row12[i] || "")} ${String(row13[i] || "")}`;
     labels.push(pacNormalizeComparable(merged));
   }
 
-  function findColumn(keywords) {
+  function findColumn(keywords, used) {
     for (let index = 0; index < labels.length; index += 1) {
+      if (used && used.has(index)) {
+        continue;
+      }
       const label = labels[index];
       if (!label) {
         continue;
@@ -2221,23 +2225,44 @@ function pacBuildFieldMapFromHeaders(headerRows) {
     return -1;
   }
 
+  const used = new Set();
+  function pickColumn(keywords, fallback) {
+    const found = findColumn(keywords, used);
+    if (found >= 0) {
+      used.add(found);
+      return found;
+    }
+    if (!used.has(fallback)) {
+      used.add(fallback);
+      return fallback;
+    }
+    for (let index = 0; index < labels.length; index += 1) {
+      if (!used.has(index)) {
+        used.add(index);
+        return index;
+      }
+    }
+    return fallback;
+  }
+
   return {
-    cupof: findColumn(["cupof"]) >= 0 ? findColumn(["cupof"]) : defaults.cupof,
-    dni: findColumn(["dni", "documento"]) >= 0 ? findColumn(["dni", "documento"]) : defaults.dni,
-    fechaNacimiento: findColumn(["fecha de nacimiento", "fecha nacimiento", "nacimiento"]) >= 0
-      ? findColumn(["fecha de nacimiento", "fecha nacimiento", "nacimiento"])
-      : defaults.fechaNacimiento,
-    apellidoNombre: findColumn(["apellido y nombre", "apellidos y nombres", "nombre y apellido"]) >= 0
-      ? findColumn(["apellido y nombre", "apellidos y nombres", "nombre y apellido"])
-      : defaults.apellidoNombre,
-    pid: findColumn(["pid"]) >= 0 ? findColumn(["pid"]) : defaults.pid,
-    cargoModulosHoras: findColumn(["cargo/modulos/horas", "cargo modulos horas", "cargo", "modulos", "horas"]) >= 0
-      ? findColumn(["cargo/modulos/horas", "cargo modulos horas", "cargo", "modulos", "horas"])
-      : defaults.cargoModulosHoras,
-    curso: findColumn(["curso"]) >= 0 ? findColumn(["curso"]) : defaults.curso,
-    division: findColumn(["division", "seccion"]) >= 0
-      ? findColumn(["division", "seccion"])
-      : defaults.division,
+    cupof: pickColumn(["cupof"], defaults.cupof),
+    dni: pickColumn(["dni", "documento"], defaults.dni),
+    fechaNacimiento: pickColumn(
+      ["fecha de nacimiento", "fecha nacimiento", "fecha nac", "nacimiento"],
+      defaults.fechaNacimiento
+    ),
+    apellidoNombre: pickColumn(
+      ["apellido y nombre", "apellidos y nombres", "nombre y apellido"],
+      defaults.apellidoNombre
+    ),
+    pid: pickColumn(["pid", "sec"], defaults.pid),
+    cargoModulosHoras: pickColumn(
+      ["cargo/modulos/horas", "cargo modulos horas", "hs/mod/car", "hs mod car"],
+      defaults.cargoModulosHoras
+    ),
+    curso: pickColumn(["curso", "ano", "año"], defaults.curso),
+    division: pickColumn(["division", "seccion"], defaults.division),
   };
 }
 
@@ -2257,7 +2282,7 @@ function pacColumnIndexToLetter(index) {
 
 async function pacReadSheetHeaderRows(accessToken, sheetId, sheetName) {
   const escapedSheet = pacEscapeSheetName(sheetName);
-  const range = `'${escapedSheet}'!12:13`;
+  const range = `'${escapedSheet}'!11:13`;
   const endpoint =
     `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}` +
     `/values/${encodeURIComponent(range)}`;
