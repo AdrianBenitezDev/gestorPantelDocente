@@ -2022,16 +2022,16 @@ function pacNormalizeDate(value) {
 function pacBuildCargoModulosHoras(text) {
   const raw = String(text || "");
   const mergedLine = pacFindFirst(raw, [
-    /cargo\s*\/\s*m[oó]dulos?\s*\/\s*horas?\s*[:\-]?\s*([^\n\r]+)/i,
-    /cargo\/modulos\/horas\s*[:\-]?\s*([^\n\r]+)/i,
+    /cargo\s*\/\s*m[^\s/]{0,2}dulos?\s*\/\s*horas?\s*[:\-]?\s*([^\n\r]+)/i,
+    /cargo\/m[^\s/]{0,2}dulos\/horas\s*[:\-]?\s*([^\n\r]+)/i,
   ]);
   if (mergedLine) {
     return mergedLine;
   }
 
-  const cargo = pacFindFirst(raw, [/cargo\s*[:\-]?\s*([^\n\r]+)/i]);
-  const modulos = pacFindFirst(raw, [/m[oó]dulos?\s*[:\-]?\s*([^\n\r]+)/i]);
-  const horas = pacFindFirst(raw, [/horas?\s*[:\-]?\s*([^\n\r]+)/i]);
+  const cargo = pacFindFirst(raw, [/cargo\s*[:\-]\s*([^\n\r]+)/i]);
+  const modulos = pacFindFirst(raw, [/m[^\s/]{0,2}dulos?\s*[:\-]\s*([^\n\r]+)/i]);
+  const horas = pacFindFirst(raw, [/horas?\s*[:\-]\s*([^\n\r]+)/i]);
 
   const parts = [];
   if (cargo) {
@@ -2080,7 +2080,7 @@ function pacExtractPacRow(text, meta = {}) {
   ]);
 
   const cuilRaw = pacFindFirst(source, [
-    /cuil(?:\s*(?:nro|numero|n[oú]mero))?\s*[:\-]?\s*([0-9]{2}\D?[0-9]{7,8}\D?[0-9])/i,
+    /cuil(?:\s*(?:nro|numero|n[uú]mero))?\s*[:\-]?\s*([0-9]{2}\D?[0-9]{7,8}\D?[0-9])/i,
     /(?:^|\D)([0-9]{2}\D?[0-9]{7,8}\D?[0-9])(?:\D|$)/,
   ]);
   const cuil = pacNormalizeCuil(cuilRaw);
@@ -2095,27 +2095,40 @@ function pacExtractPacRow(text, meta = {}) {
     ])
   );
 
-  const apellidoNombre = pacFindFirst(source, [
-    /apellido(?:s)?\s*y?\s*nombre(?:s)?\s*[:\-]?\s*([^\n\r]+)/i,
-    /nombre(?:s)?\s+y?\s*apellido(?:s)?\s*[:\-]?\s*([^\n\r]+)/i,
+  const apellidoNombreRaw = pacFindFirst(source, [
+    /apellido(?:s)?\s*y?\s*nombre(?:s|\s*\/\s*s)?\s*[:\-]?\s*([^\n\r]+)/i,
+    /nombre(?:s|\s*\/\s*s)?\s+y?\s*apellido(?:s)?\s*[:\-]?\s*([^\n\r]+)/i,
     /docente\s*[:\-]?\s*([^\n\r]+)/i,
   ]);
+  const apellidoNombre = pacNormalizeText(
+    String(apellidoNombreRaw || "").replace(/^\/\s*s\s*[:\-]\s*/i, "")
+  );
 
   const pid = pacFindFirst(source, [/pid\s*[:\-]?\s*([A-Za-z0-9./_-]+)/i]);
   const cargoModulosHoras = pacBuildCargoModulosHoras(source);
 
-  const cursoLabel = pacFindFirst(source, [/curso\s*[:\-]?\s*([^\n\r]+)/i]);
-  const divisionLabel = pacFindFirst(source, [/divisi[oó]n\s*[:\-]?\s*([^\n\r]+)/i]);
+  const cursoLabel = pacFindFirst(source, [
+    /\bcurso\b(?!\s*(?:y|\/)\s*divisi[oóÓ]n)\s*[:\-]?\s*([^\n\r]+)/i,
+  ]);
+  const divisionLabel = pacFindFirst(source, [/\bdivisi[oóÓ]n\b\s*[:\-]?\s*([^\n\r]+)/i]);
   const cursoDivisionLine = pacFindFirst(source, [
-    /curso\s*(?:y|\/)\s*divisi[oó]n\s*[:\-]?\s*([^\n\r]+)/i,
+    /\bcurso\b\s*(?:y|\/)\s*divisi[oóÓ]n\s*[:\-]?\s*([^\n\r]+)/i,
   ]);
 
-  const parsedCursoDivision = pacParseCursoDivision(
-    `${cursoDivisionLine || ""} ${cursoLabel || ""} ${divisionLabel || ""}`
-  );
+  const parsedCursoDivisionLine = pacParseCursoDivision(cursoDivisionLine);
+  const parsedCursoLabel = pacParseCursoDivision(cursoLabel);
+  const parsedDivisionLabel = pacParseCursoDivision(divisionLabel);
 
-  const curso = pacNormalizeText(cursoLabel || parsedCursoDivision.curso);
-  const division = pacNormalizeText(divisionLabel || parsedCursoDivision.division);
+  const curso = pacNormalizeText(
+    parsedCursoDivisionLine.curso ||
+      parsedCursoLabel.curso ||
+      parsedDivisionLabel.curso
+  );
+  const division = pacNormalizeText(
+    parsedCursoDivisionLine.division ||
+      parsedDivisionLabel.division ||
+      parsedCursoLabel.division
+  );
 
   const row = {
     cupof,
@@ -2737,3 +2750,4 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
     writeSummary,
   };
 });
+
