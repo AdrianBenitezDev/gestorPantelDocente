@@ -1360,7 +1360,68 @@ function pacParseSheetId(value) {
   return "";
 }
 
-async function pacFetchJson(url, accessToken, options = {}) {
+function pacNormalizeScopeList(rawScopes) {
+  if (Array.isArray(rawScopes)) {
+    return rawScopes
+      .map((scope) => String(scope || "").trim())
+      .filter(Boolean)
+      .sort();
+  }
+  return String(rawScopes || "")
+    .split(/\s+/)
+    .map((scope) => scope.trim())
+    .filter(Boolean)
+    .sort();
+}
+
+function pacBuildErrorMetadata(error) {
+  const metadata = {
+    message: String(error?.message || "Unknown error"),
+    code: String(error?.code || ""),
+    status: Number(error?.status) || null,
+    apiContext: String(error?.apiContext || ""),
+    googleStatus: String(error?.googleStatus || ""),
+    googleReason: String(error?.googleReason || ""),
+    googleDomain: String(error?.googleDomain || ""),
+    googleErrorMessage: String(error?.googleErrorMessage || ""),
+  };
+
+  return metadata;
+}
+
+async function pacFetchTokenInfo(accessToken) {
+  const endpoint =
+    `https://oauth2.googleapis.com/tokeninfo?access_token=` +
+    encodeURIComponent(String(accessToken || "").trim());
+  const response = await fetch(endpoint);
+  const rawText = await response.text();
+  let payload = {};
+  if (rawText) {
+    try {
+      payload = JSON.parse(rawText);
+    } catch (parseError) {
+      payload = { raw: rawText };
+    }
+  }
+
+  if (!response.ok) {
+    const detail =
+      payload?.error_description ||
+      payload?.error ||
+      payload?.raw ||
+      `status ${response.status}`;
+    throw new Error(`tokeninfo failed: ${detail}`);
+  }
+
+  return {
+    audience: String(payload?.aud || ""),
+    email: String(payload?.email || ""),
+    expiresIn: Number(payload?.expires_in || 0),
+    scopeList: pacNormalizeScopeList(payload?.scope || ""),
+  };
+}
+
+async function pacFetchJson(url, accessToken, options = {}, apiContext = "") {
   const requestHeaders = {
     Authorization: `Bearer ${accessToken}`,
     ...(options.headers || {}),
@@ -1386,8 +1447,19 @@ async function pacFetchJson(url, accessToken, options = {}) {
   }
 
   if (!response.ok) {
-    const detail = payload?.error?.message || payload?.raw || `status ${response.status}`;
-    throw new Error(`Google API error: ${detail}`);
+    const err = new Error(
+      payload?.error?.message || payload?.raw || `Google API status ${response.status}`
+    );
+    err.name = "PacGoogleApiError";
+    err.status = response.status;
+    err.apiContext = apiContext;
+    err.url = String(url || "");
+    err.googleStatus = String(payload?.error?.status || "");
+    err.googleErrorMessage = String(payload?.error?.message || "");
+    err.googleReason = String(payload?.error?.errors?.[0]?.reason || payload?.error?.details?.[0]?.reason || "");
+    err.googleDomain = String(payload?.error?.errors?.[0]?.domain || "");
+    err.googlePayload = payload;
+    throw err;
   }
 
   return payload;
@@ -1397,20 +1469,20 @@ async function pacListMessages(accessToken, queryText, maxResults) {
   const query = encodeURIComponent(String(queryText || "").trim());
   const safeMax = Math.max(1, Math.min(100, Number(maxResults) || 30));
   const endpoint = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${query}&maxResults=${safeMax}`;
-  const data = await pacFetchJson(endpoint, accessToken);
+  const data = await pacFetchJson(endpoint, accessToken, {}, "gmail.listMessages");
   return Array.isArray(data.messages) ? data.messages : [];
 }
 
 async function pacGetMessage(accessToken, messageId) {
   const endpoint = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}?format=full`;
-  return pacFetchJson(endpoint, accessToken);
+  return pacFetchJson(endpoint, accessToken, {}, "gmail.getMessage");
 }
 
 async function pacGetAttachment(accessToken, messageId, attachmentId) {
   const endpoint =
     `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}` +
     `/attachments/${encodeURIComponent(attachmentId)}`;
-  return pacFetchJson(endpoint, accessToken);
+  return pacFetchJson(endpoint, accessToken, {}, "gmail.getAttachment");
 }
 
 function pacHeaderValue(headers, headerName) {
@@ -1915,7 +1987,7 @@ async function pacReadSheetHeaderRows(accessToken, sheetId, sheetName) {
   const endpoint =
     `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}` +
     `/values/${encodeURIComponent(range)}`;
-  const payload = await pacFetchJson(endpoint, accessToken);
+  const payload = await pacFetchJson(endpoint, accessToken, {}, "sheets.readHeaderRows");
   return Array.isArray(payload.values) ? payload.values : [];
 }
 
@@ -1928,7 +2000,7 @@ async function pacResolveSheetName(accessToken, sheetId, requestedName) {
   const endpoint =
     `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}` +
     "?fields=sheets.properties.title";
-  const payload = await pacFetchJson(endpoint, accessToken);
+  const payload = await pacFetchJson(endpoint, accessToken, {}, "sheets.resolveSheetName");
   const sheets = Array.isArray(payload?.sheets) ? payload.sheets : [];
   const firstTitle = pacNormalizeText(sheets[0]?.properties?.title || "");
   if (!firstTitle) {
@@ -1944,7 +2016,7 @@ async function pacFindFirstInsertRow(accessToken, sheetId, sheetName, startRow) 
   const endpoint =
     `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}` +
     `/values/${encodeURIComponent(range)}`;
-  const payload = await pacFetchJson(endpoint, accessToken);
+  const payload = await pacFetchJson(endpoint, accessToken, {}, "sheets.findFirstInsertRow");
   const values = Array.isArray(payload.values) ? payload.values : [];
 
   let occupied = 0;
@@ -2024,7 +2096,7 @@ async function pacWriteRowsToSheet(accessToken, sheetId, sheetName, startRow, ro
   await pacFetchJson(endpoint, accessToken, {
     method: "PUT",
     body: JSON.stringify({ values }),
-  });
+  }, "sheets.writeRows");
 
   return {
     rowsWritten: values.length,
@@ -2080,14 +2152,85 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
     logger.warn("runPacProcess email outside abc.gob.ar domain", { email: authEmail });
   }
 
+  const requiredScopes = ["https://www.googleapis.com/auth/gmail.readonly"];
+  if (!previewOnly) {
+    requiredScopes.push("https://www.googleapis.com/auth/spreadsheets");
+  }
+
+  let tokenInfo = null;
+  try {
+    tokenInfo = await pacFetchTokenInfo(accessToken);
+  } catch (tokenInfoError) {
+    logger.warn("runPacProcess tokeninfo unavailable", {
+      message: String(tokenInfoError?.message || "tokeninfo failed"),
+      mode,
+      previewOnly,
+      authEmail,
+    });
+  }
+
+  const grantedScopes = tokenInfo?.scopeList || [];
+  const missingScopes = requiredScopes.filter((scope) => !grantedScopes.includes(scope));
+
+  if (tokenInfo && missingScopes.length) {
+    logger.warn("runPacProcess missing scopes", {
+      mode,
+      previewOnly,
+      authEmail,
+      requiredScopes,
+      grantedScopes,
+      missingScopes,
+      tokenAudience: tokenInfo.audience,
+      tokenEmail: tokenInfo.email,
+    });
+    throw new HttpsError(
+      "failed-precondition",
+      "El token de Google no tiene permisos suficientes para este proceso.",
+      {
+        errorType: "missing_scopes",
+        mode,
+        previewOnly,
+        requiredScopes,
+        grantedScopes,
+        missingScopes,
+        tokenAudience: tokenInfo.audience,
+        tokenEmail: tokenInfo.email,
+      }
+    );
+  }
+
   let messages = [];
   try {
     messages = await pacListMessages(accessToken, gmailQuery, maxResults);
   } catch (error) {
-    logger.error("runPacProcess list messages error", error);
+    const errorMetadata = pacBuildErrorMetadata(error);
+    logger.error("runPacProcess list messages error", {
+      ...errorMetadata,
+      mode,
+      previewOnly,
+      authEmail,
+      gmailQuery,
+      requiredScopes,
+      grantedScopes,
+      missingScopes,
+      tokenAudience: tokenInfo?.audience || "",
+      tokenEmail: tokenInfo?.email || "",
+    });
     throw new HttpsError(
       "failed-precondition",
-      `No se pudo leer Gmail. Reautoriza permisos e intenta nuevamente. ${error.message || ""}`
+      `No se pudo leer Gmail. Reautoriza permisos e intenta nuevamente. ${error.message || ""}`,
+      {
+        errorType: "gmail_list_failed",
+        mode,
+        previewOnly,
+        gmailQuery,
+        requiredScopes,
+        grantedScopes,
+        missingScopes,
+        tokenAudience: tokenInfo?.audience || "",
+        tokenEmail: tokenInfo?.email || "",
+        ...errorMetadata,
+      }
     );
   }
 
@@ -2099,9 +2242,16 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
     try {
       sheetName = await pacResolveSheetName(accessToken, sheetId, requestedSheetName);
     } catch (sheetNameError) {
+      const errorMetadata = pacBuildErrorMetadata(sheetNameError);
       throw new HttpsError(
         "failed-precondition",
-        `No se pudo resolver la hoja destino: ${sheetNameError.message || "sin detalle"}`
+        `No se pudo resolver la hoja destino: ${sheetNameError.message || "sin detalle"}`,
+        {
+          errorType: "sheet_name_failed",
+          sheetId,
+          requestedSheetName,
+          ...errorMetadata,
+        }
       );
     }
   } else if (!sheetName) {
@@ -2213,10 +2363,23 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
     try {
       writeSummary = await pacWriteRowsToSheet(accessToken, sheetId, sheetName, startRow, rows);
     } catch (writeError) {
-      logger.error("runPacProcess write sheet error", writeError);
+      const errorMetadata = pacBuildErrorMetadata(writeError);
+      logger.error("runPacProcess write sheet error", {
+        ...errorMetadata,
+        sheetId,
+        sheetName,
+        startRow,
+      });
       throw new HttpsError(
         "failed-precondition",
-        `No se pudo escribir en Google Sheet: ${writeError.message || "sin detalle"}`
+        `No se pudo escribir en Google Sheet: ${writeError.message || "sin detalle"}`,
+        {
+          errorType: "sheet_write_failed",
+          sheetId,
+          sheetName,
+          startRow,
+          ...errorMetadata,
+        }
       );
     }
   }
@@ -2247,6 +2410,13 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
     errorsCount: errors.length,
     rows: safeRows,
     errors: errors.slice(0, 100),
+    diagnostics: {
+      requiredScopes,
+      grantedScopes,
+      missingScopes,
+      tokenAudience: tokenInfo?.audience || "",
+      tokenEmail: tokenInfo?.email || "",
+    },
     writeSummary,
   };
 });

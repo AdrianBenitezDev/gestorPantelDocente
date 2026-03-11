@@ -110,6 +110,39 @@ function formatSummary(result, previewOnly) {
   return parts.join(" | ");
 }
 
+function formatCallableError(error) {
+  const base = String(error?.message || "No se pudo ejecutar el proceso PAC");
+  const details = error?.details && typeof error.details === "object" ? error.details : null;
+  if (!details) {
+    return base;
+  }
+
+  const lines = [];
+  if (details.errorType) {
+    lines.push(`Tipo: ${String(details.errorType)}`);
+  }
+  if (Array.isArray(details.missingScopes) && details.missingScopes.length) {
+    lines.push(`Scopes faltantes: ${details.missingScopes.join(", ")}`);
+  }
+  if (Array.isArray(details.grantedScopes) && details.grantedScopes.length) {
+    lines.push(`Scopes del token: ${details.grantedScopes.join(", ")}`);
+  }
+  if (details.apiContext) {
+    lines.push(`API: ${String(details.apiContext)}`);
+  }
+  if (details.status) {
+    lines.push(`HTTP status: ${String(details.status)}`);
+  }
+  if (details.googleReason) {
+    lines.push(`Google reason: ${String(details.googleReason)}`);
+  }
+  if (details.googleErrorMessage) {
+    lines.push(`Google message: ${String(details.googleErrorMessage)}`);
+  }
+
+  return lines.length ? `${base}\n${lines.join("\n")}` : base;
+}
+
 async function runPacProcess(previewOnly) {
   if (state.busy) {
     return;
@@ -145,7 +178,14 @@ async function runPacProcess(previewOnly) {
     const result = response.data || {};
     state.rows = Array.isArray(result.rows) ? result.rows : [];
     renderRows(state.rows);
-    setMsg(summaryMsg, formatSummary(result, previewOnly));
+    let summaryText = formatSummary(result, previewOnly);
+    if (result?.diagnostics?.tokenEmail) {
+      summaryText += ` | Token: ${String(result.diagnostics.tokenEmail)}`;
+    }
+    if (Array.isArray(result?.diagnostics?.missingScopes) && result.diagnostics.missingScopes.length) {
+      summaryText += ` | Scopes faltantes: ${result.diagnostics.missingScopes.join(", ")}`;
+    }
+    setMsg(summaryMsg, summaryText);
 
     const errors = Array.isArray(result.errors) ? result.errors : [];
     if (errors.length) {
@@ -161,8 +201,13 @@ async function runPacProcess(previewOnly) {
 
     setMsg(runMsg, previewOnly ? "Prueba finalizada" : "PAC generado correctamente");
   } catch (error) {
-    console.error(error);
-    setMsg(runMsg, error.message || "No se pudo ejecutar el proceso PAC", true);
+    console.error("PAC callable error", {
+      code: error?.code || "",
+      message: error?.message || "",
+      details: error?.details || null,
+      customData: error?.customData || null,
+    });
+    setMsg(runMsg, formatCallableError(error), true);
   } finally {
     state.busy = false;
     setBusy(previewBtn, false);
@@ -175,6 +220,10 @@ connectBtn.addEventListener("click", async () => {
     const provider = new GoogleAuthProvider();
     provider.addScope("https://www.googleapis.com/auth/gmail.readonly");
     provider.addScope("https://www.googleapis.com/auth/spreadsheets");
+    provider.setCustomParameters({
+      prompt: "consent",
+      include_granted_scopes: "true",
+    });
 
     const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
