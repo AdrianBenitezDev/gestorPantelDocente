@@ -66,7 +66,8 @@ label {
   font-size: 14px;
 }
 
-input {
+input,
+select {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px;
@@ -940,4 +941,62 @@ button {
 
 .refresh-fab-icon.is-spinning {
   animation: spin 0.9s linear infinite;
+}
+
+a.link-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  border-radius: 8px;
+  padding: 10px 14px;
+  text-decoration: none;
+  font-size: 14px;
+}
+
+a.link-btn:hover {
+  filter: brightness(0.95);
+}
+
+.pac-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.pac-inline-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pac-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.pac-table {
+  width: 100%;
+  min-width: 900px;
+  border-collapse: collapse;
+}
+
+.pac-table th,
+.pac-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 8px;
+  text-align: left;
+  vertical-align: top;
+  font-size: 13px;
+}
+
+.pac-table th {
+  background: #f2f5fc;
+  color: var(--muted);
+  font-size: 12px;
 }

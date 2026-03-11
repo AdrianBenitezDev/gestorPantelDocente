@@ -1,6 +1,7 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
+const zlib = require("zlib");
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -1305,4 +1306,947 @@ exports.saveImportedCurso = onCall(callableOptions, async (request) => {
   );
 
   return { ok: true, tenantId, cursoId, cursoCollection: cursoNombre };
+});
+
+function pacDecodeBase64Url(rawValue, returnBuffer = false) {
+  const raw = String(rawValue || "").trim();
+  if (!raw) {
+    return returnBuffer ? Buffer.from("") : "";
+  }
+  let value = raw.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = value.length % 4;
+  if (pad) {
+    value += "=".repeat(4 - pad);
+  }
+  const buffer = Buffer.from(value, "base64");
+  return returnBuffer ? buffer : buffer.toString("utf8");
+}
+
+function pacDecodeBase64UrlToText(rawValue) {
+  return String(pacDecodeBase64Url(rawValue, false) || "");
+}
+
+function pacNormalizeText(value) {
+  return String(value || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .trim();
+}
+
+function pacNormalizeComparable(value) {
+  return pacNormalizeText(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function pacEscapeSheetName(value) {
+  const name = String(value || "").trim() || "Hoja 1";
+  return name.replace(/'/g, "''");
+}
+
+function pacParseSheetId(value) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+  const fromUrl = parseSheetId(text);
+  if (fromUrl) {
+    return fromUrl;
+  }
+  if (/^[a-zA-Z0-9-_]{20,}$/.test(text)) {
+    return text;
+  }
+  return "";
+}
+
+async function pacFetchJson(url, accessToken, options = {}) {
+  const requestHeaders = {
+    Authorization: `Bearer ${accessToken}`,
+    ...(options.headers || {}),
+  };
+
+  if (options.body && !requestHeaders["Content-Type"]) {
+    requestHeaders["Content-Type"] = "application/json";
+  }
+
+  const response = await fetch(url, {
+    ...options,
+    headers: requestHeaders,
+  });
+
+  const rawText = await response.text();
+  let payload = {};
+  if (rawText) {
+    try {
+      payload = JSON.parse(rawText);
+    } catch (parseError) {
+      payload = { raw: rawText };
+    }
+  }
+
+  if (!response.ok) {
+    const detail = payload?.error?.message || payload?.raw || `status ${response.status}`;
+    throw new Error(`Google API error: ${detail}`);
+  }
+
+  return payload;
+}
+
+async function pacListMessages(accessToken, queryText, maxResults) {
+  const query = encodeURIComponent(String(queryText || "").trim());
+  const safeMax = Math.max(1, Math.min(100, Number(maxResults) || 30));
+  const endpoint = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${query}&maxResults=${safeMax}`;
+  const data = await pacFetchJson(endpoint, accessToken);
+  return Array.isArray(data.messages) ? data.messages : [];
+}
+
+async function pacGetMessage(accessToken, messageId) {
+  const endpoint = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}?format=full`;
+  return pacFetchJson(endpoint, accessToken);
+}
+
+async function pacGetAttachment(accessToken, messageId, attachmentId) {
+  const endpoint =
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}` +
+    `/attachments/${encodeURIComponent(attachmentId)}`;
+  return pacFetchJson(endpoint, accessToken);
+}
+
+function pacHeaderValue(headers, headerName) {
+  const list = Array.isArray(headers) ? headers : [];
+  const key = String(headerName || "").trim().toLowerCase();
+  const found = list.find((header) => String(header?.name || "").trim().toLowerCase() === key);
+  return pacNormalizeText(found?.value || "");
+}
+
+function pacCollectMessageContent(payload) {
+  const plainChunks = [];
+  const htmlChunks = [];
+  const attachments = [];
+  const seenAttachments = new Set();
+
+  function visitPart(part) {
+    if (!part || typeof part !== "object") {
+      return;
+    }
+
+    const mimeType = String(part.mimeType || "").toLowerCase();
+    const filename = String(part.filename || "").trim();
+    const body = part.body && typeof part.body === "object" ? part.body : {};
+    const dataChunk = typeof body.data === "string" ? body.data : "";
+    const attachmentId = String(body.attachmentId || "").trim();
+
+    if (dataChunk) {
+      const decoded = pacDecodeBase64UrlToText(dataChunk);
+      if (mimeType.includes("text/plain")) {
+        plainChunks.push(decoded);
+      } else if (mimeType.includes("text/html")) {
+        htmlChunks.push(decoded);
+      }
+    }
+
+    if (attachmentId && filename && !seenAttachments.has(attachmentId)) {
+      attachments.push({
+        attachmentId,
+        filename,
+        mimeType,
+      });
+      seenAttachments.add(attachmentId);
+    }
+
+    const children = Array.isArray(part.parts) ? part.parts : [];
+    children.forEach((child) => visitPart(child));
+  }
+
+  visitPart(payload);
+
+  return {
+    plainText: plainChunks.join("\n").trim(),
+    htmlText: htmlChunks.join("\n").trim(),
+    attachments,
+  };
+}
+
+function pacDecodeHtmlEntities(value) {
+  return String(value || "")
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => {
+      const code = parseInt(hex, 16);
+      return Number.isFinite(code) ? String.fromCharCode(code) : "";
+    })
+    .replace(/&#(\d+);/g, (_, dec) => {
+      const code = parseInt(dec, 10);
+      return Number.isFinite(code) ? String.fromCharCode(code) : "";
+    })
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
+function pacStripHtml(htmlText) {
+  const html = String(htmlText || "");
+  if (!html) {
+    return "";
+  }
+  const withoutScript = html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ");
+
+  const withBreaks = withoutScript
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<\/div>/gi, "\n");
+
+  const withoutTags = withBreaks.replace(/<[^>]+>/g, " ");
+  return pacDecodeHtmlEntities(withoutTags)
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .map((line) => pacNormalizeText(line))
+    .filter(Boolean)
+    .join("\n");
+}
+
+function pacPickMessageBodyText(content) {
+  const plainText = pacNormalizeText(content?.plainText || "");
+  if (plainText) {
+    return String(content.plainText || "").trim();
+  }
+  const htmlAsText = pacStripHtml(content?.htmlText || "");
+  return String(htmlAsText || "").trim();
+}
+
+function pacDecodeXmlEntities(value) {
+  return String(value || "")
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => {
+      const code = parseInt(hex, 16);
+      return Number.isFinite(code) ? String.fromCharCode(code) : "";
+    })
+    .replace(/&#(\d+);/g, (_, dec) => {
+      const code = parseInt(dec, 10);
+      return Number.isFinite(code) ? String.fromCharCode(code) : "";
+    })
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
+function pacReadZipEntry(zipBuffer, entryName) {
+  if (!Buffer.isBuffer(zipBuffer) || zipBuffer.length < 22) {
+    throw new Error("DOCX invalido");
+  }
+
+  const minOffset = Math.max(0, zipBuffer.length - 66000);
+  let eocdOffset = -1;
+  for (let cursor = zipBuffer.length - 22; cursor >= minOffset; cursor -= 1) {
+    if (zipBuffer.readUInt32LE(cursor) === 0x06054b50) {
+      eocdOffset = cursor;
+      break;
+    }
+  }
+
+  if (eocdOffset < 0) {
+    throw new Error("No se encontro cabecera ZIP en DOCX");
+  }
+
+  const totalEntries = zipBuffer.readUInt16LE(eocdOffset + 10);
+  const centralDirOffset = zipBuffer.readUInt32LE(eocdOffset + 16);
+  let cursor = centralDirOffset;
+
+  for (let i = 0; i < totalEntries; i += 1) {
+    if (cursor + 46 > zipBuffer.length) {
+      break;
+    }
+    if (zipBuffer.readUInt32LE(cursor) !== 0x02014b50) {
+      break;
+    }
+
+    const compressionMethod = zipBuffer.readUInt16LE(cursor + 10);
+    const compressedSize = zipBuffer.readUInt32LE(cursor + 20);
+    const fileNameLength = zipBuffer.readUInt16LE(cursor + 28);
+    const extraLength = zipBuffer.readUInt16LE(cursor + 30);
+    const commentLength = zipBuffer.readUInt16LE(cursor + 32);
+    const localHeaderOffset = zipBuffer.readUInt32LE(cursor + 42);
+    const nameStart = cursor + 46;
+    const nameEnd = nameStart + fileNameLength;
+
+    if (nameEnd > zipBuffer.length) {
+      break;
+    }
+
+    const fileName = zipBuffer.toString("utf8", nameStart, nameEnd);
+    cursor = nameEnd + extraLength + commentLength;
+
+    if (fileName !== entryName) {
+      continue;
+    }
+
+    if (localHeaderOffset + 30 > zipBuffer.length) {
+      throw new Error("Cabecera local ZIP invalida");
+    }
+
+    if (zipBuffer.readUInt32LE(localHeaderOffset) !== 0x04034b50) {
+      throw new Error("Firma local ZIP invalida");
+    }
+
+    const localNameLength = zipBuffer.readUInt16LE(localHeaderOffset + 26);
+    const localExtraLength = zipBuffer.readUInt16LE(localHeaderOffset + 28);
+    const dataStart = localHeaderOffset + 30 + localNameLength + localExtraLength;
+    const dataEnd = dataStart + compressedSize;
+
+    if (dataEnd > zipBuffer.length) {
+      throw new Error("Datos ZIP truncados");
+    }
+
+    const compressed = zipBuffer.subarray(dataStart, dataEnd);
+    if (compressionMethod === 0) {
+      return Buffer.from(compressed);
+    }
+    if (compressionMethod === 8) {
+      return zlib.inflateRawSync(compressed);
+    }
+    throw new Error(`Metodo de compresion ZIP no soportado: ${compressionMethod}`);
+  }
+
+  throw new Error(`No se encontro ${entryName} en el DOCX`);
+}
+
+function pacExtractDocxText(docxBuffer) {
+  const xmlBuffer = pacReadZipEntry(docxBuffer, "word/document.xml");
+  const xml = xmlBuffer.toString("utf8");
+
+  const withBreaks = xml
+    .replace(/<w:tab\/>/g, "\t")
+    .replace(/<w:br[^>]*\/>/g, "\n")
+    .replace(/<\/w:p>/g, "\n");
+
+  const plain = withBreaks.replace(/<[^>]+>/g, " ");
+  return pacDecodeXmlEntities(plain)
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .map((line) => pacNormalizeText(line))
+    .filter(Boolean)
+    .join("\n");
+}
+
+function pacFindFirst(text, regexList) {
+  const value = String(text || "");
+  for (const regex of regexList) {
+    const match = value.match(regex);
+    if (match && match[1]) {
+      return pacNormalizeText(match[1]);
+    }
+  }
+  return "";
+}
+
+function pacNormalizeCuil(value) {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (digits.length === 11) {
+    return digits;
+  }
+  return "";
+}
+
+function pacDniFromCuil(cuilDigits) {
+  const digits = String(cuilDigits || "").replace(/\D/g, "");
+  if (digits.length !== 11) {
+    return "";
+  }
+  return digits.slice(2, 10);
+}
+
+function pacNormalizeDate(value) {
+  const text = String(value || "").trim();
+  const match = text.match(/([0-3]?\d)[\/\-.]([01]?\d)[\/\-.]((?:19|20)\d{2})/);
+  if (!match) {
+    return "";
+  }
+
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+
+  if (
+    !Number.isFinite(day) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(year) ||
+    day < 1 ||
+    day > 31 ||
+    month < 1 ||
+    month > 12
+  ) {
+    return "";
+  }
+
+  return `${String(day).padStart(2, "0")}/${String(month).padStart(2, "0")}/${year}`;
+}
+
+function pacBuildCargoModulosHoras(text) {
+  const raw = String(text || "");
+  const mergedLine = pacFindFirst(raw, [
+    /cargo\s*\/\s*m[oó]dulos?\s*\/\s*horas?\s*[:\-]?\s*([^\n\r]+)/i,
+    /cargo\/modulos\/horas\s*[:\-]?\s*([^\n\r]+)/i,
+  ]);
+  if (mergedLine) {
+    return mergedLine;
+  }
+
+  const cargo = pacFindFirst(raw, [/cargo\s*[:\-]?\s*([^\n\r]+)/i]);
+  const modulos = pacFindFirst(raw, [/m[oó]dulos?\s*[:\-]?\s*([^\n\r]+)/i]);
+  const horas = pacFindFirst(raw, [/horas?\s*[:\-]?\s*([^\n\r]+)/i]);
+
+  const parts = [];
+  if (cargo) {
+    parts.push(`Cargo: ${cargo}`);
+  }
+  if (modulos) {
+    parts.push(`Modulos: ${modulos}`);
+  }
+  if (horas) {
+    parts.push(`Horas: ${horas}`);
+  }
+
+  return parts.join(" | ");
+}
+
+function pacParseCursoDivision(rawValue) {
+  const raw = pacNormalizeText(rawValue).toUpperCase();
+  if (!raw) {
+    return { curso: "", division: "" };
+  }
+
+  const matchCompact = raw.match(/(\d{1,2})\s*(?:[°º]|ERO|RO|DO|TO)?\s*([A-Z0-9]{1,3})\b/);
+  if (matchCompact) {
+    return {
+      curso: pacNormalizeText(matchCompact[1]),
+      division: pacNormalizeText(matchCompact[2]),
+    };
+  }
+
+  const tokens = raw.split(/[\s,;:/_-]+/).filter(Boolean);
+  const cursoToken = tokens.find((token) => /^\d{1,2}$/.test(token));
+  const divisionToken = tokens.find((token) => /^[A-Z]{1,3}$/.test(token));
+
+  return {
+    curso: pacNormalizeText(cursoToken || ""),
+    division: pacNormalizeText(divisionToken || ""),
+  };
+}
+
+function pacExtractPacRow(text, meta = {}) {
+  const source = String(text || "").replace(/\r/g, "\n");
+
+  const cupof = pacFindFirst(source, [
+    /cu\.?p\.?o\.?f\.?\s*(?:n[º°o])?\s*[:\-]?\s*([0-9]{4,})/i,
+    /cupof\s*[:\-]?\s*([0-9]{4,})/i,
+  ]);
+
+  const cuilRaw = pacFindFirst(source, [
+    /cuil(?:\s*(?:nro|numero|n[oú]mero))?\s*[:\-]?\s*([0-9]{2}\D?[0-9]{7,8}\D?[0-9])/i,
+    /(?:^|\D)([0-9]{2}\D?[0-9]{7,8}\D?[0-9])(?:\D|$)/,
+  ]);
+  const cuil = pacNormalizeCuil(cuilRaw);
+
+  const dniByLabel = pacFindFirst(source, [/dni\s*[:\-]?\s*([0-9]{7,8})/i]);
+  const dni = dniByLabel || pacDniFromCuil(cuil);
+
+  const fechaNacimiento = pacNormalizeDate(
+    pacFindFirst(source, [
+      /fecha(?:\s+de)?\s+nac(?:imiento)?\s*[:\-]?\s*([0-3]?\d[\/\-.][01]?\d[\/\-.](?:19|20)\d{2})/i,
+      /nac(?:imiento)?\s*[:\-]?\s*([0-3]?\d[\/\-.][01]?\d[\/\-.](?:19|20)\d{2})/i,
+    ])
+  );
+
+  const apellidoNombre = pacFindFirst(source, [
+    /apellido(?:s)?\s*y?\s*nombre(?:s)?\s*[:\-]?\s*([^\n\r]+)/i,
+    /nombre(?:s)?\s+y?\s*apellido(?:s)?\s*[:\-]?\s*([^\n\r]+)/i,
+    /docente\s*[:\-]?\s*([^\n\r]+)/i,
+  ]);
+
+  const pid = pacFindFirst(source, [/pid\s*[:\-]?\s*([A-Za-z0-9./_-]+)/i]);
+  const cargoModulosHoras = pacBuildCargoModulosHoras(source);
+
+  const cursoLabel = pacFindFirst(source, [/curso\s*[:\-]?\s*([^\n\r]+)/i]);
+  const divisionLabel = pacFindFirst(source, [/divisi[oó]n\s*[:\-]?\s*([^\n\r]+)/i]);
+  const cursoDivisionLine = pacFindFirst(source, [
+    /curso\s*(?:y|\/)\s*divisi[oó]n\s*[:\-]?\s*([^\n\r]+)/i,
+  ]);
+
+  const parsedCursoDivision = pacParseCursoDivision(
+    `${cursoDivisionLine || ""} ${cursoLabel || ""} ${divisionLabel || ""}`
+  );
+
+  const curso = pacNormalizeText(cursoLabel || parsedCursoDivision.curso);
+  const division = pacNormalizeText(divisionLabel || parsedCursoDivision.division);
+
+  const row = {
+    cupof,
+    dni,
+    fechaNacimiento,
+    apellidoNombre,
+    pid,
+    cargoModulosHoras,
+    curso,
+    division,
+    cuil,
+    messageId: String(meta.messageId || ""),
+    subject: String(meta.subject || ""),
+    from: String(meta.from || ""),
+    date: String(meta.date || ""),
+    attachmentName: String(meta.attachmentName || ""),
+  };
+
+  const requiredFields = [
+    ["cupof", "cupof"],
+    ["dni", "dni"],
+    ["fechaNacimiento", "fechaNacimiento"],
+    ["apellidoNombre", "apellidoNombre"],
+    ["pid", "pid"],
+    ["cargoModulosHoras", "cargoModulosHoras"],
+    ["curso", "curso"],
+    ["division", "division"],
+  ];
+
+  row.missingFields = requiredFields
+    .filter(([key]) => !pacNormalizeText(row[key]))
+    .map(([, label]) => label);
+
+  return row;
+}
+
+function pacFieldScore(row) {
+  const fields = [
+    "cupof",
+    "dni",
+    "fechaNacimiento",
+    "apellidoNombre",
+    "pid",
+    "cargoModulosHoras",
+    "curso",
+    "division",
+  ];
+  return fields.reduce((total, key) => {
+    return total + (pacNormalizeText(row?.[key] || "") ? 1 : 0);
+  }, 0);
+}
+
+function pacBuildFieldMapFromHeaders(headerRows) {
+  const defaults = {
+    cupof: 0,
+    dni: 1,
+    fechaNacimiento: 2,
+    apellidoNombre: 3,
+    pid: 4,
+    cargoModulosHoras: 5,
+    curso: 6,
+    division: 7,
+  };
+
+  const row12 = Array.isArray(headerRows?.[0]) ? headerRows[0] : [];
+  const row13 = Array.isArray(headerRows?.[1]) ? headerRows[1] : [];
+  const maxLen = Math.max(row12.length, row13.length, 0);
+  if (!maxLen) {
+    return defaults;
+  }
+
+  const labels = [];
+  for (let i = 0; i < maxLen; i += 1) {
+    const merged = `${String(row12[i] || "")} ${String(row13[i] || "")}`;
+    labels.push(pacNormalizeComparable(merged));
+  }
+
+  function findColumn(keywords) {
+    for (let index = 0; index < labels.length; index += 1) {
+      const label = labels[index];
+      if (!label) {
+        continue;
+      }
+      for (const keyword of keywords) {
+        if (label.includes(pacNormalizeComparable(keyword))) {
+          return index;
+        }
+      }
+    }
+    return -1;
+  }
+
+  return {
+    cupof: findColumn(["cupof"]) >= 0 ? findColumn(["cupof"]) : defaults.cupof,
+    dni: findColumn(["dni", "documento"]) >= 0 ? findColumn(["dni", "documento"]) : defaults.dni,
+    fechaNacimiento: findColumn(["fecha de nacimiento", "fecha nacimiento", "nacimiento"]) >= 0
+      ? findColumn(["fecha de nacimiento", "fecha nacimiento", "nacimiento"])
+      : defaults.fechaNacimiento,
+    apellidoNombre: findColumn(["apellido y nombre", "apellidos y nombres", "nombre y apellido"]) >= 0
+      ? findColumn(["apellido y nombre", "apellidos y nombres", "nombre y apellido"])
+      : defaults.apellidoNombre,
+    pid: findColumn(["pid"]) >= 0 ? findColumn(["pid"]) : defaults.pid,
+    cargoModulosHoras: findColumn(["cargo/modulos/horas", "cargo modulos horas", "cargo", "modulos", "horas"]) >= 0
+      ? findColumn(["cargo/modulos/horas", "cargo modulos horas", "cargo", "modulos", "horas"])
+      : defaults.cargoModulosHoras,
+    curso: findColumn(["curso"]) >= 0 ? findColumn(["curso"]) : defaults.curso,
+    division: findColumn(["division", "seccion"]) >= 0
+      ? findColumn(["division", "seccion"])
+      : defaults.division,
+  };
+}
+
+function pacColumnIndexToLetter(index) {
+  let num = Number(index);
+  if (!Number.isFinite(num) || num < 0) {
+    return "A";
+  }
+
+  let letter = "";
+  while (num >= 0) {
+    letter = String.fromCharCode((num % 26) + 65) + letter;
+    num = Math.floor(num / 26) - 1;
+  }
+  return letter;
+}
+
+async function pacReadSheetHeaderRows(accessToken, sheetId, sheetName) {
+  const escapedSheet = pacEscapeSheetName(sheetName);
+  const range = `'${escapedSheet}'!12:13`;
+  const endpoint =
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}` +
+    `/values/${encodeURIComponent(range)}`;
+  const payload = await pacFetchJson(endpoint, accessToken);
+  return Array.isArray(payload.values) ? payload.values : [];
+}
+
+async function pacResolveSheetName(accessToken, sheetId, requestedName) {
+  const explicitName = pacNormalizeText(requestedName || "");
+  if (explicitName) {
+    return explicitName;
+  }
+
+  const endpoint =
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}` +
+    "?fields=sheets.properties.title";
+  const payload = await pacFetchJson(endpoint, accessToken);
+  const sheets = Array.isArray(payload?.sheets) ? payload.sheets : [];
+  const firstTitle = pacNormalizeText(sheets[0]?.properties?.title || "");
+  if (!firstTitle) {
+    throw new Error("No se encontro ninguna hoja en la plantilla");
+  }
+  return firstTitle;
+}
+
+async function pacFindFirstInsertRow(accessToken, sheetId, sheetName, startRow) {
+  const safeStartRow = Math.max(1, Number(startRow) || 14);
+  const escapedSheet = pacEscapeSheetName(sheetName);
+  const range = `'${escapedSheet}'!A${safeStartRow}:A`;
+  const endpoint =
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}` +
+    `/values/${encodeURIComponent(range)}`;
+  const payload = await pacFetchJson(endpoint, accessToken);
+  const values = Array.isArray(payload.values) ? payload.values : [];
+
+  let occupied = 0;
+  for (let i = 0; i < values.length; i += 1) {
+    const firstCell = pacNormalizeText(values[i]?.[0] || "");
+    if (!firstCell) {
+      break;
+    }
+    occupied += 1;
+  }
+
+  return safeStartRow + occupied;
+}
+
+function pacBuildSheetValues(rows, fieldMap) {
+  const map = fieldMap || {
+    cupof: 0,
+    dni: 1,
+    fechaNacimiento: 2,
+    apellidoNombre: 3,
+    pid: 4,
+    cargoModulosHoras: 5,
+    curso: 6,
+    division: 7,
+  };
+
+  const width = Math.max(
+    Number(map.cupof || 0),
+    Number(map.dni || 1),
+    Number(map.fechaNacimiento || 2),
+    Number(map.apellidoNombre || 3),
+    Number(map.pid || 4),
+    Number(map.cargoModulosHoras || 5),
+    Number(map.curso || 6),
+    Number(map.division || 7),
+    7
+  ) + 1;
+
+  return rows.map((row) => {
+    const line = new Array(width).fill("");
+    line[map.cupof] = String(row?.cupof || "");
+    line[map.dni] = String(row?.dni || "");
+    line[map.fechaNacimiento] = String(row?.fechaNacimiento || "");
+    line[map.apellidoNombre] = String(row?.apellidoNombre || "");
+    line[map.pid] = String(row?.pid || "");
+    line[map.cargoModulosHoras] = String(row?.cargoModulosHoras || "");
+    line[map.curso] = String(row?.curso || "");
+    line[map.division] = String(row?.division || "");
+    return line;
+  });
+}
+
+async function pacWriteRowsToSheet(accessToken, sheetId, sheetName, startRow, rows) {
+  const headerRows = await pacReadSheetHeaderRows(accessToken, sheetId, sheetName);
+  const fieldMap = pacBuildFieldMapFromHeaders(headerRows);
+  const values = pacBuildSheetValues(rows, fieldMap);
+
+  if (!values.length) {
+    return {
+      rowsWritten: 0,
+      range: "",
+      startRow: Math.max(1, Number(startRow) || 14),
+      endRow: Math.max(1, Number(startRow) || 14),
+      fieldMap,
+    };
+  }
+
+  const insertRow = await pacFindFirstInsertRow(accessToken, sheetId, sheetName, startRow);
+  const endRow = insertRow + values.length - 1;
+  const endCol = pacColumnIndexToLetter(values[0].length - 1);
+  const escapedSheet = pacEscapeSheetName(sheetName);
+  const range = `'${escapedSheet}'!A${insertRow}:${endCol}${endRow}`;
+  const endpoint =
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}` +
+    `/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`;
+
+  await pacFetchJson(endpoint, accessToken, {
+    method: "PUT",
+    body: JSON.stringify({ values }),
+  });
+
+  return {
+    rowsWritten: values.length,
+    range,
+    startRow: insertRow,
+    endRow,
+    fieldMap,
+  };
+}
+
+exports.runPacProcess = onCall(callableOptions, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Auth required");
+  }
+
+  const data = request.data || {};
+  const requestedMode = String(data.mode || "interinos_docx").trim().toLowerCase();
+  const mode =
+    requestedMode === "designacion_body"
+      ? "designacion_body"
+      : requestedMode === "interinos_docx"
+        ? "interinos_docx"
+        : "";
+
+  if (!mode) {
+    throw new HttpsError("invalid-argument", "mode must be interinos_docx or designacion_body");
+  }
+
+  const accessToken = assertString(data.accessToken, "accessToken", 20, 10000);
+  const maxResultsRaw = Number(data.maxResults);
+  const maxResults = Number.isFinite(maxResultsRaw)
+    ? Math.max(1, Math.min(100, Math.floor(maxResultsRaw)))
+    : 30;
+  const startRowRaw = Number(data.startRow);
+  const startRow = Number.isFinite(startRowRaw) && startRowRaw > 0 ? Math.floor(startRowRaw) : 14;
+  const previewOnly = Boolean(data.previewOnly);
+
+  const defaultQuery = mode === "interinos_docx"
+    ? "has:attachment filename:docx newer_than:30d"
+    : "newer_than:30d";
+  const gmailQuery = pacNormalizeText(data.gmailQuery || "") || defaultQuery;
+
+  const sheetUrl = String(data.sheetUrl || "").trim();
+  const requestedSheetName = pacNormalizeText(data.sheetName || "");
+  const sheetId = pacParseSheetId(sheetUrl);
+
+  if (!previewOnly && !sheetId) {
+    throw new HttpsError("invalid-argument", "Invalid Google Sheet URL/ID");
+  }
+
+  const authEmail = normalizeEmail(request.auth.token?.email || "");
+  if (authEmail && !authEmail.endsWith("@abc.gob.ar")) {
+    logger.warn("runPacProcess email outside abc.gob.ar domain", { email: authEmail });
+  }
+
+  let messages = [];
+  try {
+    messages = await pacListMessages(accessToken, gmailQuery, maxResults);
+  } catch (error) {
+    logger.error("runPacProcess list messages error", error);
+    throw new HttpsError(
+      "failed-precondition",
+      `No se pudo leer Gmail. Reautoriza permisos e intenta nuevamente. ${error.message || ""}`
+    );
+  }
+
+  const rows = [];
+  const errors = [];
+
+  let sheetName = requestedSheetName;
+  if (!previewOnly && sheetId) {
+    try {
+      sheetName = await pacResolveSheetName(accessToken, sheetId, requestedSheetName);
+    } catch (sheetNameError) {
+      throw new HttpsError(
+        "failed-precondition",
+        `No se pudo resolver la hoja destino: ${sheetNameError.message || "sin detalle"}`
+      );
+    }
+  } else if (!sheetName) {
+    sheetName = "Hoja 1";
+  }
+
+  for (const item of messages) {
+    const messageId = String(item?.id || "").trim();
+    if (!messageId) {
+      continue;
+    }
+
+    try {
+      const fullMessage = await pacGetMessage(accessToken, messageId);
+      const headers = Array.isArray(fullMessage?.payload?.headers) ? fullMessage.payload.headers : [];
+      const subject = pacHeaderValue(headers, "Subject");
+      const from = pacHeaderValue(headers, "From");
+      const date = pacHeaderValue(headers, "Date");
+      const content = pacCollectMessageContent(fullMessage?.payload || {});
+
+      if (mode === "interinos_docx") {
+        const docxAttachments = content.attachments.filter((attachment) =>
+          String(attachment?.filename || "").toLowerCase().endsWith(".docx")
+        );
+
+        if (!docxAttachments.length) {
+          errors.push({
+            messageId,
+            reason: "No se encontro adjunto DOCX",
+          });
+          continue;
+        }
+
+        let bestRow = null;
+        let bestScore = -1;
+        let bestError = "";
+
+        for (const attachment of docxAttachments) {
+          try {
+            const attachmentPayload = await pacGetAttachment(
+              accessToken,
+              messageId,
+              attachment.attachmentId
+            );
+            const attachmentData = String(attachmentPayload?.data || "");
+            if (!attachmentData) {
+              throw new Error("Adjunto vacio");
+            }
+            const docxBuffer = pacDecodeBase64Url(attachmentData, true);
+            const docxText = pacExtractDocxText(docxBuffer);
+            const row = pacExtractPacRow(docxText, {
+              messageId,
+              subject,
+              from,
+              date,
+              attachmentName: attachment.filename,
+            });
+            const score = pacFieldScore(row);
+            if (score > bestScore) {
+              bestRow = row;
+              bestScore = score;
+            }
+          } catch (attachmentError) {
+            bestError = String(attachmentError?.message || "No se pudo leer adjunto DOCX");
+          }
+        }
+
+        if (!bestRow) {
+          errors.push({
+            messageId,
+            reason: bestError || "No se pudo extraer datos del adjunto DOCX",
+          });
+          continue;
+        }
+
+        rows.push(bestRow);
+        continue;
+      }
+
+      const bodyText = pacPickMessageBodyText(content);
+      if (!bodyText) {
+        errors.push({
+          messageId,
+          reason: "El mail no tiene cuerpo de texto util",
+        });
+        continue;
+      }
+
+      rows.push(
+        pacExtractPacRow(bodyText, {
+          messageId,
+          subject,
+          from,
+          date,
+          attachmentName: "",
+        })
+      );
+    } catch (messageError) {
+      logger.error("runPacProcess message error", { messageId, messageError });
+      errors.push({
+        messageId,
+        reason: String(messageError?.message || "No se pudo procesar el mail"),
+      });
+    }
+  }
+
+  let writeSummary = null;
+  if (!previewOnly && rows.length) {
+    try {
+      writeSummary = await pacWriteRowsToSheet(accessToken, sheetId, sheetName, startRow, rows);
+    } catch (writeError) {
+      logger.error("runPacProcess write sheet error", writeError);
+      throw new HttpsError(
+        "failed-precondition",
+        `No se pudo escribir en Google Sheet: ${writeError.message || "sin detalle"}`
+      );
+    }
+  }
+
+  const safeRows = rows.map((row) => ({
+    cupof: String(row.cupof || ""),
+    dni: String(row.dni || ""),
+    fechaNacimiento: String(row.fechaNacimiento || ""),
+    apellidoNombre: String(row.apellidoNombre || ""),
+    pid: String(row.pid || ""),
+    cargoModulosHoras: String(row.cargoModulosHoras || ""),
+    curso: String(row.curso || ""),
+    division: String(row.division || ""),
+    messageId: String(row.messageId || ""),
+    subject: String(row.subject || ""),
+    from: String(row.from || ""),
+    date: String(row.date || ""),
+    attachmentName: String(row.attachmentName || ""),
+    missingFields: Array.isArray(row.missingFields) ? row.missingFields : [],
+  }));
+
+  return {
+    ok: true,
+    mode,
+    gmailQuery,
+    totalMessages: messages.length,
+    rowsExtracted: safeRows.length,
+    errorsCount: errors.length,
+    rows: safeRows,
+    errors: errors.slice(0, 100),
+    writeSummary,
+  };
 });

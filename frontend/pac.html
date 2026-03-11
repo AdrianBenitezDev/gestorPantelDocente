@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Crear PAC</title>
+  <link rel="stylesheet" href="./css/styles.css" />
+</head>
+<body>
+  <header class="top-banner">
+    <div class="brand-block">
+      <span class="brand-icon" aria-hidden="true">&#127891;</span>
+      <span class="brand-name">Crear PAC</span>
+    </div>
+    <div class="user-block">
+      <div class="user-meta">
+        <span class="user-icon" aria-hidden="true">&#128100;</span>
+        <span id="pac-user-name" class="user-name">Sin sesion</span>
+        <span id="pac-user-email" class="user-email">-</span>
+      </div>
+      <button id="pac-logout-btn" type="button" class="google-btn">Cerrar sesion</button>
+      <a href="/index.html" class="link-btn">Volver</a>
+    </div>
+  </header>
+
+  <main class="app">
+    <section class="card">
+      <h1>Crear PAC</h1>
+      <p class="subtitle">
+        Flujo disponible: destino definitivo/interinos (adjunto DOCX) y designacion (datos en cuerpo del mail).
+      </p>
+      <div class="pac-inline-actions">
+        <button id="pac-connect-btn" type="button">Conectar Gmail + Sheets</button>
+      </div>
+      <p id="pac-auth-msg" class="msg"></p>
+    </section>
+
+    <section class="card">
+      <h2>Configuracion</h2>
+      <form id="pac-form" class="pac-grid">
+        <label>
+          Proceso
+          <select id="pac-mode">
+            <option value="interinos_docx">Crear PAC destino definitivo/interinos (DOCX adjunto)</option>
+            <option value="designacion_body">Crear PAC designacion (cuerpo del mail)</option>
+          </select>
+        </label>
+        <label>
+          Query Gmail
+          <input
+            id="pac-gmail-query"
+            type="text"
+            placeholder="from:... subject:... newer_than:30d"
+            value="newer_than:30d"
+          />
+        </label>
+        <label>
+          Max mails a leer
+          <input id="pac-max-results" type="number" min="1" max="100" value="30" />
+        </label>
+        <label>
+          URL plantilla Google Sheet
+          <input
+            id="pac-sheet-url"
+            type="url"
+            value="https://docs.google.com/spreadsheets/d/1UP0FlTWQdHciMe1dbpj2i1dhsQAk4EsxCtq2Bvxlv2U/edit?usp=sharing"
+            required
+          />
+        </label>
+        <label>
+          Hoja destino
+          <input id="pac-sheet-name" type="text" value="" placeholder="Opcional: si esta vacio se usa la primera hoja" />
+        </label>
+        <label>
+          Fila inicial
+          <input id="pac-start-row" type="number" min="1" value="14" required />
+        </label>
+      </form>
+      <div class="review-actions">
+        <button id="pac-preview-btn" type="button" class="google-btn">Probar extraccion</button>
+        <button id="pac-run-btn" type="button">Crear PAC</button>
+      </div>
+      <p id="pac-run-msg" class="msg"></p>
+    </section>
+
+    <section class="card">
+      <h2>Resultado</h2>
+      <p id="pac-summary-msg" class="msg"></p>
+      <p id="pac-errors-msg" class="msg"></p>
+      <div class="pac-table-wrap">
+        <table class="pac-table">
+          <thead>
+            <tr>
+              <th>CUPOF</th>
+              <th>DNI</th>
+              <th>Fecha Nac.</th>
+              <th>Apellido y Nombre</th>
+              <th>PID</th>
+              <th>Cargo/Modulos/Horas</th>
+              <th>Curso</th>
+              <th>Division</th>
+              <th>Asunto</th>
+            </tr>
+          </thead>
+          <tbody id="pac-results-body">
+            <tr>
+              <td colspan="9">Sin datos</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="./js/pac.js"></script>
+</body>
+</html>

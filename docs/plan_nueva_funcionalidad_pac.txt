@@ -1,0 +1,157 @@
+PLAN NUEVA FUNCIONALIDAD PAC
+Fecha: 2026-03-11
+
+OBJETIVO
+- Implementar en la web un modulo PAC en /pac.html con dos procesos:
+  1) "Crear PAC destino definitivo/interinos" (datos en adjunto .docx)
+  2) "Crear PAC designacion" (datos en el cuerpo del mail)
+- Tomar mails de la cuenta institucional del usuario con permiso de solo lectura.
+- Extraer campos, normalizarlos y volcarlos en la plantilla existente.
+
+ALCANCE FUNCIONAL DEFINIDO
+- Fuente de mails: Gmail del usuario autenticado.
+- Permiso requerido: gmail.readonly.
+- Campos a extraer:
+  - cupof
+  - dni (viene en CUIL y se transforma a DNI)
+  - fecha de nacimiento
+  - apellido y nombre (viene junto)
+  - pid
+  - cargo/modulos/horas
+  - curso y division (vienen juntos y se separan)
+- Plantilla:
+  - archivo actual: pac/plantilla (se asume .xlsx)
+  - plantilla oficial Google Sheet:
+    https://docs.google.com/spreadsheets/d/1UP0FlTWQdHciMe1dbpj2i1dhsQAk4EsxCtq2Bvxlv2U/edit?usp=sharing
+  - encabezados en filas 12 y 13
+  - carga de datos desde fila 14 en adelante
+
+RECOMENDACION: EXCEL VS GOOGLE SHEET
+- Recomendacion principal: usar GOOGLE SHEET para el proceso interno.
+- Motivos:
+  - Integracion mas simple con Firebase Functions y OAuth de Google.
+  - Menos riesgo de romper formato al insertar filas masivas.
+  - Mejor trazabilidad, colaboracion y reintentos.
+  - Menos complejidad operativa que escribir binarios .xlsx en backend.
+- Recomendacion practica:
+  - Opcion A (recomendada): clonar la plantilla en Google Sheets, cargar datos ahi, y si hace falta exportar a .xlsx al final.
+  - Opcion B: mantener .xlsx como destino directo con ExcelJS (mas complejo, mas fragil para formatos).
+
+ARQUITECTURA PROPUESTA
+- Frontend:
+  - Nueva pagina: /pac.html
+  - Script: frontend/js/pac.js
+  - UI con selector de proceso:
+    - destino definitivo/interinos (adjunto docx)
+    - designacion (texto en cuerpo de mail)
+  - Filtros de busqueda de mails (fecha, asunto, remitente, texto, etc).
+- Backend (Cloud Functions):
+  - Nueva callable function: runPacProcess
+  - Responsabilidades:
+    - validar usuario autenticado
+    - validar dominio permitido (abc.gob.ar)
+    - leer mails con Gmail API segun filtros
+    - procesar fuente segun modo (docx/body)
+    - extraer/normalizar campos
+    - escribir resultados en destino (Google Sheet o Excel)
+
+PASOS DE IMPLEMENTACION EN LA WEB
+1. Crear /pac.html con:
+   - selector de proceso (interinos vs designacion)
+   - formulario de filtros de mails
+   - selector de destino (Google Sheet id/url o descarga Excel final)
+   - tabla de previsualizacion de filas extraidas
+   - botones: "Buscar mails", "Procesar", "Generar PAC"
+
+2. Autenticacion y permisos:
+   - reutilizar login Google existente
+   - solicitar scopes extra en flujo PAC:
+     - https://www.googleapis.com/auth/gmail.readonly
+     - https://www.googleapis.com/auth/spreadsheets (si destino Google Sheet)
+     - drive.file (solo si se copia plantilla desde Drive)
+   - exigir confirmacion explicita del usuario antes de procesar.
+
+3. Crear runPacProcess en Functions:
+   - input:
+     - mode: "interinos_docx" | "designacion_body"
+     - gmailQuery / filtros
+     - destino (sheetId o modo excel)
+   - output:
+     - filas generadas
+     - errores por mail
+     - resumen de procesamiento
+
+4. Busqueda de mails:
+   - usar users.messages.list con query Gmail (q) + paginacion.
+   - limitar cantidad por ejecucion (ejemplo: 50/100) para control de tiempos.
+
+5. Extraccion segun proceso:
+   - interinos_docx:
+     - detectar adjunto .docx
+     - descargar adjunto
+     - convertir .docx a texto (libreria tipo mammoth)
+     - parsear campos desde texto
+   - designacion_body:
+     - leer subject + body (text/plain o html -> texto)
+     - parsear campos desde el mensaje
+
+6. Normalizacion de campos:
+   - cupof: limpiar espacios y caracteres extra.
+   - dni desde CUIL:
+     - extraer solo digitos
+     - de 11 digitos, tomar bloque central (dni).
+   - fecha de nacimiento:
+     - parsear formatos comunes (dd/mm/yyyy, dd-mm-yyyy).
+   - apellido y nombre:
+     - separar segun delimitadores (coma, guion, multiples espacios).
+   - pid: extraer por etiqueta/patron.
+   - cargo/modulos/horas:
+     - mantener string unificado o separar en columnas segun plantilla.
+   - curso y division:
+     - separar tokens para dejar cada dato en su columna.
+
+7. Escritura de salida:
+   - si Google Sheet:
+     - posicion inicial: fila 14
+     - respetar cabeceras existentes (filas 12 y 13)
+     - append de filas en bloque
+   - si Excel (.xlsx):
+     - abrir plantilla con ExcelJS
+     - insertar filas desde 14
+     - preservar estilos/merged cells
+     - devolver archivo generado para descarga
+
+8. Registro y auditoria:
+   - guardar log por ejecucion:
+     - usuario
+     - fecha/hora
+     - modo
+     - cantidad de mails leidos
+     - filas generadas
+     - errores
+
+9. QA y validacion:
+   - set de mails de prueba por cada modo
+   - pruebas con variantes reales de formato
+   - validacion de campos obligatorios
+   - revision manual de muestra antes de generar PAC final
+
+REGLAS DE PARSEO (BASE)
+- Definir un catalogo de regex por campo con prioridad.
+- Si falla regex principal, probar regex alternas.
+- Si falta un campo obligatorio, registrar error y continuar con el siguiente mail.
+- Agregar columna "observaciones" para casos ambiguos.
+
+RIESGOS Y MITIGACIONES
+- Riesgo: formatos distintos de docx/cuerpo.
+  - Mitigacion: parser por reglas + tabla de excepciones.
+- Riesgo: limites de cuota Gmail API.
+  - Mitigacion: paginacion, lotes, reintentos.
+- Riesgo: permisos de dominio abc.gob.ar.
+  - Mitigacion: validar habilitacion con admin IT al inicio.
+- Riesgo: perdida de formato en Excel.
+  - Mitigacion: preferir Google Sheet como motor y exportar al final.
+
+DECISION RECOMENDADA (RESUMEN)
+- Implementar primero con Google Sheet como destino principal.
+- Mantener exportacion final a Excel solo como salida final cuando sea necesario.
