@@ -30,7 +30,7 @@
         Flujo disponible: destino definitivo/interinos (adjunto DOCX) y designacion (datos en cuerpo del mail).
       </p>
       <div class="pac-inline-actions">
-        <button id="pac-connect-btn" type="button">Conectar Gmail + Sheets</button>
+        <button id="pac-connect-btn" type="button">Conectar Gmail + Sheets + Drive</button>
       </div>
       <p id="pac-auth-msg" class="msg"></p>
     </section>
@@ -78,7 +78,7 @@
       </form>
       <div class="review-actions">
         <button id="pac-preview-btn" type="button" class="google-btn">Probar extraccion</button>
-        <button id="pac-run-btn" type="button">Crear PAC</button>
+        <button id="pac-run-btn" type="button">Guardar seleccion en Drive</button>
       </div>
       <p id="pac-run-msg" class="msg"></p>
     </section>
@@ -87,10 +87,17 @@
       <h2>Resultado</h2>
       <p id="pac-summary-msg" class="msg"></p>
       <p id="pac-errors-msg" class="msg"></p>
+      <div class="pac-table-toolbar">
+        <button id="pac-select-all-btn" type="button" class="google-btn">Seleccionar todo</button>
+        <span id="pac-selected-count" class="subtitle">Filas seleccionadas: 0</span>
+      </div>
       <div class="pac-table-wrap">
         <table class="pac-table">
           <thead>
             <tr>
+              <th style="width: 42px;">
+                <input id="pac-select-all-checkbox" type="checkbox" aria-label="Seleccionar todo" />
+              </th>
               <th>CUPOF</th>
               <th>DNI</th>
               <th>Fecha Nac.</th>
@@ -104,13 +111,20 @@
           </thead>
           <tbody id="pac-results-body">
             <tr>
-              <td colspan="9">Sin datos</td>
+              <td colspan="10">Sin datos</td>
             </tr>
           </tbody>
         </table>
       </div>
     </section>
   </main>
+
+  <div id="pac-floating-actions" class="pac-floating-actions" hidden>
+    <button id="pac-float-cancel-btn" type="button">Cancelar</button>
+    <button id="pac-float-download-btn" type="button" class="google-btn">Descargar archivo</button>
+    <button id="pac-float-save-btn" type="button">Guardar en Drive</button>
+    <button id="pac-float-preview-btn" type="button" class="google-btn">Vista previa</button>
+  </div>
 
   <script type="module" src="./js/pac.js"></script>
 </body>

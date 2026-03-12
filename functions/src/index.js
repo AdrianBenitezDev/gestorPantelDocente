@@ -1374,6 +1374,34 @@ function pacNormalizeScopeList(rawScopes) {
     .sort();
 }
 
+function pacScopeGranted(grantedScopes, requiredScope) {
+  const granted = Array.isArray(grantedScopes) ? grantedScopes : [];
+  const required = String(requiredScope || "").trim();
+  if (!required) {
+    return true;
+  }
+  if (granted.includes(required)) {
+    return true;
+  }
+
+  const impliedBy = {
+    "https://www.googleapis.com/auth/drive.readonly": [
+      "https://www.googleapis.com/auth/drive",
+    ],
+    "https://www.googleapis.com/auth/drive.file": [
+      "https://www.googleapis.com/auth/drive",
+    ],
+  };
+
+  const superscopes = Array.isArray(impliedBy[required]) ? impliedBy[required] : [];
+  return superscopes.some((scope) => granted.includes(scope));
+}
+
+function pacComputeMissingScopes(requiredScopes, grantedScopes) {
+  const required = Array.isArray(requiredScopes) ? requiredScopes : [];
+  return required.filter((scope) => !pacScopeGranted(grantedScopes, scope));
+}
+
 function pacBuildErrorMetadata(error) {
   const metadata = {
     message: String(error?.message || "Unknown error"),
@@ -2427,6 +2455,78 @@ async function pacWriteRowsToSheet(accessToken, sheetId, sheetName, startRow, ro
   };
 }
 
+function pacNormalizeRowsForWrite(rawRows) {
+  const list = Array.isArray(rawRows) ? rawRows : [];
+  return list
+    .slice(0, 500)
+    .map((item) => ({
+      cupof: pacNormalizeText(item?.cupof || ""),
+      dni: pacNormalizeText(item?.dni || ""),
+      fechaNacimiento: pacNormalizeText(item?.fechaNacimiento || ""),
+      apellidoNombre: pacNormalizeText(item?.apellidoNombre || ""),
+      pid: pacNormalizeText(item?.pid || ""),
+      cargoModulosHoras: pacNormalizeText(item?.cargoModulosHoras || ""),
+      curso: pacNormalizeText(item?.curso || ""),
+      division: pacNormalizeText(item?.division || ""),
+      cuil: pacNormalizeText(item?.cuil || ""),
+      messageId: pacNormalizeText(item?.messageId || ""),
+      subject: pacNormalizeText(item?.subject || ""),
+      from: pacNormalizeText(item?.from || ""),
+      date: pacNormalizeText(item?.date || ""),
+      attachmentName: pacNormalizeText(item?.attachmentName || ""),
+      missingFields: Array.isArray(item?.missingFields)
+        ? item.missingFields.map((field) => pacNormalizeText(field)).filter(Boolean)
+        : [],
+    }))
+    .filter((row) =>
+      Boolean(
+        row.cupof ||
+        row.dni ||
+        row.apellidoNombre ||
+        row.pid ||
+        row.cargoModulosHoras ||
+        row.curso ||
+        row.division
+      )
+    );
+}
+
+function pacBuildOutputSheetTitle(mode) {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const hh = String(now.getHours()).padStart(2, "0");
+  const mi = String(now.getMinutes()).padStart(2, "0");
+  const base = mode === "designacion_body"
+    ? "PAC Designacion"
+    : "PAC Destino Definitivo Interinos";
+  return `${base} ${yyyy}-${mm}-${dd} ${hh}${mi}`;
+}
+
+async function pacCopySpreadsheetTemplate(accessToken, templateSheetId, outputTitle) {
+  const endpoint =
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(templateSheetId)}` +
+    "/copy?fields=id,name,webViewLink";
+  const payload = await pacFetchJson(endpoint, accessToken, {
+    method: "POST",
+    body: JSON.stringify({
+      name: pacNormalizeText(outputTitle || "") || pacBuildOutputSheetTitle("interinos_docx"),
+    }),
+  }, "drive.copyTemplate");
+
+  const copiedId = pacNormalizeText(payload?.id || "");
+  if (!copiedId) {
+    throw new Error("No se pudo crear la copia de la plantilla");
+  }
+
+  return {
+    id: copiedId,
+    name: pacNormalizeText(payload?.name || ""),
+    webViewLink: pacNormalizeText(payload?.webViewLink || ""),
+  };
+}
+
 exports.runPacProcess = onCall(callableOptions, async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Auth required");
@@ -2493,7 +2593,7 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
   }
 
   const grantedScopes = tokenInfo?.scopeList || [];
-  const missingScopes = requiredScopes.filter((scope) => !grantedScopes.includes(scope));
+  const missingScopes = pacComputeMissingScopes(requiredScopes, grantedScopes);
 
   if (tokenInfo && missingScopes.length) {
     logger.warn("runPacProcess missing scopes", {
@@ -2795,5 +2895,110 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
     },
     writeSummary,
   };
+});
+
+exports.savePacRowsToDrive = onCall(callableOptions, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Auth required");
+  }
+
+  const data = request.data || {};
+  const accessToken = assertString(data.accessToken, "accessToken", 20, 10000);
+  const sheetUrl = String(data.sheetUrl || "").trim();
+  const templateSheetId = pacParseSheetId(sheetUrl);
+  if (!templateSheetId) {
+    throw new HttpsError("invalid-argument", "Invalid Google Sheet URL/ID");
+  }
+
+  const rows = pacNormalizeRowsForWrite(data.rows || []);
+  if (!rows.length) {
+    throw new HttpsError("invalid-argument", "No hay filas seleccionadas para guardar");
+  }
+
+  const requestedSheetName = pacNormalizeText(data.sheetName || "");
+  const startRowRaw = Number(data.startRow);
+  const startRow = Number.isFinite(startRowRaw) && startRowRaw > 0 ? Math.floor(startRowRaw) : 14;
+  const mode = pacNormalizeText(data.mode || "interinos_docx").toLowerCase();
+  const outputTitle =
+    pacNormalizeText(data.outputTitle || "") ||
+    pacBuildOutputSheetTitle(mode === "designacion_body" ? "designacion_body" : "interinos_docx");
+
+  const requiredScopes = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+  ];
+
+  let tokenInfo = null;
+  try {
+    tokenInfo = await pacFetchTokenInfo(accessToken);
+  } catch (tokenInfoError) {
+    logger.warn("savePacRowsToDrive tokeninfo unavailable", {
+      message: String(tokenInfoError?.message || "tokeninfo failed"),
+      authEmail: normalizeEmail(request.auth.token?.email || ""),
+    });
+  }
+
+  const grantedScopes = tokenInfo?.scopeList || [];
+  const missingScopes = pacComputeMissingScopes(requiredScopes, grantedScopes);
+  if (tokenInfo && missingScopes.length) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Faltan permisos para guardar en Drive. Reautoriza Gmail + Sheets + Drive e intenta nuevamente.",
+      {
+        errorType: "missing_scopes_save_drive",
+        requiredScopes,
+        grantedScopes,
+        missingScopes,
+        tokenAudience: tokenInfo?.audience || "",
+        tokenEmail: tokenInfo?.email || "",
+      }
+    );
+  }
+
+  try {
+    const copied = await pacCopySpreadsheetTemplate(accessToken, templateSheetId, outputTitle);
+    const targetSheetName = await pacResolveSheetName(accessToken, copied.id, requestedSheetName);
+    const writeSummary = await pacWriteRowsToSheet(accessToken, copied.id, targetSheetName, startRow, rows);
+    const outputSheetUrl = `https://docs.google.com/spreadsheets/d/${copied.id}/edit`;
+
+    return {
+      ok: true,
+      rowsReceived: rows.length,
+      rowsWritten: Number(writeSummary?.rowsWritten || 0),
+      sheetId: copied.id,
+      sheetName: targetSheetName,
+      sheetUrl: outputSheetUrl,
+      downloadXlsxUrl: `https://docs.google.com/spreadsheets/d/${copied.id}/export?format=xlsx`,
+      writeSummary,
+      diagnostics: {
+        requiredScopes,
+        grantedScopes,
+        missingScopes,
+        tokenAudience: tokenInfo?.audience || "",
+        tokenEmail: tokenInfo?.email || "",
+      },
+    };
+  } catch (error) {
+    const errorMetadata = pacBuildErrorMetadata(error);
+    logger.error("savePacRowsToDrive error", {
+      templateSheetId,
+      requestedSheetName,
+      startRow,
+      rowsCount: rows.length,
+      ...errorMetadata,
+    });
+    throw new HttpsError(
+      "failed-precondition",
+      `No se pudo guardar el archivo PAC en Drive: ${error.message || "sin detalle"}`,
+      {
+        errorType: "save_pac_drive_failed",
+        templateSheetId,
+        requestedSheetName,
+        startRow,
+        rowsCount: rows.length,
+        ...errorMetadata,
+      }
+    );
+  }
 });
 

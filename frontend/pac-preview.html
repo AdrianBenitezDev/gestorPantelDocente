@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vista Previa PAC</title>
+  <link rel="stylesheet" href="./css/styles.css" />
+</head>
+<body>
+  <main class="app">
+    <section class="card">
+      <h1>Vista previa PAC</h1>
+      <p class="subtitle" id="pac-preview-subtitle">Se muestran solo las filas seleccionadas.</p>
+      <div class="review-actions">
+        <button id="preview-save-btn" type="button">Guardar en Google Drive</button>
+        <button id="preview-download-btn" type="button" class="google-btn">Descargar</button>
+        <button id="preview-cancel-btn" type="button" class="google-btn">Cancelar</button>
+      </div>
+      <p id="preview-msg" class="msg"></p>
+    </section>
+
+    <section class="card">
+      <div class="pac-table-wrap">
+        <table class="pac-table">
+          <thead>
+            <tr>
+              <th>CUPOF</th>
+              <th>DNI</th>
+              <th>Fecha Nac.</th>
+              <th>Apellido y Nombre</th>
+              <th>PID</th>
+              <th>Cargo/Modulos/Horas</th>
+              <th>Curso</th>
+              <th>Division</th>
+              <th>Asunto</th>
+            </tr>
+          </thead>
+          <tbody id="preview-results-body">
+            <tr>
+              <td colspan="9">Sin datos</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="./js/pacPreview.js"></script>
+</body>
+</html>
