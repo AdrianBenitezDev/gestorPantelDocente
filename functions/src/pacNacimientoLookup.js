@@ -1,0 +1,121 @@
+const UNKNOWN_BIRTHDATE = "??/??/???";
+
+function normalizeDni(value) {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (digits.length < 7 || digits.length > 8) {
+    return "";
+  }
+  return digits;
+}
+
+function normalizeDate(value) {
+  const raw = String(value || "").trim();
+  const match = raw.match(/^([0-3]?\d)[\/\-.]([01]?\d)[\/\-.]((?:19|20)?\d{2})$/);
+  if (!match) {
+    return "";
+  }
+
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  let year = Number(match[3]);
+  if (!Number.isFinite(day) || !Number.isFinite(month) || !Number.isFinite(year)) {
+    return "";
+  }
+  if (year < 100) {
+    year += year >= 30 ? 1900 : 2000;
+  }
+  if (day < 1 || day > 31 || month < 1 || month > 12 || year < 1900 || year > 2100) {
+    return "";
+  }
+
+  return `${String(day).padStart(2, "0")}/${String(month).padStart(2, "0")}/${String(year)}`;
+}
+
+function decodeHtmlEntities(value) {
+  return String(value || "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+}
+
+function extractBirthDateFromHtml(htmlText) {
+  const source = decodeHtmlEntities(String(htmlText || ""));
+  if (!source) {
+    return UNKNOWN_BIRTHDATE;
+  }
+
+  const labeledPatterns = [
+    /fecha\s*de\s*nac(?:imiento)?[^0-9]{0,50}([0-3]?\d[\/\-.][01]?\d[\/\-.](?:19|20)?\d{2})/i,
+    /fec\.?\s*nac\.?[^0-9]{0,30}([0-3]?\d[\/\-.][01]?\d[\/\-.](?:19|20)?\d{2})/i,
+    /nac(?:imiento)?[^0-9]{0,30}([0-3]?\d[\/\-.][01]?\d[\/\-.](?:19|20)?\d{2})/i,
+  ];
+  for (const pattern of labeledPatterns) {
+    const match = source.match(pattern);
+    const parsed = normalizeDate(match?.[1] || "");
+    if (parsed) {
+      return parsed;
+    }
+  }
+
+  const allDates = source.match(/\b[0-3]?\d[\/\-.][01]?\d[\/\-.](?:19|20)?\d{2}\b/g) || [];
+  for (const item of allDates) {
+    const parsed = normalizeDate(item);
+    if (parsed) {
+      return parsed;
+    }
+  }
+
+  return UNKNOWN_BIRTHDATE;
+}
+
+function buildLookupUrl(dniDigits) {
+  const dniBase64 = Buffer.from(String(dniDigits), "utf8")
+    .toString("base64")
+    .replace(/=+$/g, "");
+  return (
+    "http://servicios.abc.gov.ar/servaddo/puntaje.ingreso.docencia/ingreso.servaddo.cfm" +
+    `?documento=${encodeURIComponent(dniBase64)}=` +
+    "&anio=MjAyNg==" +
+    "&listado=MTA4Yg==" +
+    "&tipo="
+  );
+}
+
+async function fetchFechaNacimientoByDni(dni) {
+  const dniDigits = normalizeDni(dni);
+  if (!dniDigits) {
+    return UNKNOWN_BIRTHDATE;
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+  try {
+    const response = await fetch(buildLookupUrl(dniDigits), {
+      method: "GET",
+      redirect: "follow",
+      signal: controller.signal,
+      headers: {
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      },
+    });
+    if (!response.ok) {
+      return UNKNOWN_BIRTHDATE;
+    }
+
+    const htmlText = await response.text();
+    return extractBirthDateFromHtml(htmlText);
+  } catch (error) {
+    return UNKNOWN_BIRTHDATE;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+module.exports = {
+  UNKNOWN_BIRTHDATE,
+  fetchFechaNacimientoByDni,
+};

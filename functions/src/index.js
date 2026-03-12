@@ -2,6 +2,7 @@ const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 const zlib = require("zlib");
+const { fetchFechaNacimientoByDni, UNKNOWN_BIRTHDATE } = require("./pacNacimientoLookup");
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -1493,6 +1494,49 @@ async function pacFetchJson(url, accessToken, options = {}, apiContext = "") {
   return payload;
 }
 
+async function pacFetchBuffer(url, accessToken, options = {}, apiContext = "") {
+  const requestHeaders = {
+    Authorization: `Bearer ${accessToken}`,
+    ...(options.headers || {}),
+  };
+
+  const response = await fetch(url, {
+    ...options,
+    headers: requestHeaders,
+  });
+
+  const arrayBuffer = await response.arrayBuffer();
+  const bodyBuffer = Buffer.from(arrayBuffer || new ArrayBuffer(0));
+
+  if (!response.ok) {
+    let payload = {};
+    const rawText = bodyBuffer.toString("utf8");
+    if (rawText) {
+      try {
+        payload = JSON.parse(rawText);
+      } catch (parseError) {
+        payload = { raw: rawText };
+      }
+    }
+
+    const err = new Error(
+      payload?.error?.message || payload?.raw || `Google API status ${response.status}`
+    );
+    err.name = "PacGoogleApiError";
+    err.status = response.status;
+    err.apiContext = apiContext;
+    err.url = String(url || "");
+    err.googleStatus = String(payload?.error?.status || "");
+    err.googleErrorMessage = String(payload?.error?.message || "");
+    err.googleReason = String(payload?.error?.errors?.[0]?.reason || payload?.error?.details?.[0]?.reason || "");
+    err.googleDomain = String(payload?.error?.errors?.[0]?.domain || "");
+    err.googlePayload = payload;
+    throw err;
+  }
+
+  return bodyBuffer;
+}
+
 async function pacListMessages(accessToken, queryText, maxResults) {
   const query = encodeURIComponent(String(queryText || "").trim());
   const safeMax = Math.max(1, Math.min(100, Number(maxResults) || 30));
@@ -2099,6 +2143,12 @@ function pacParseCursoDivision(rawValue) {
   };
 }
 
+function pacNormalizeSituacionRevista(value) {
+  const normalized = pacNormalizeText(value).toUpperCase().replace(/\./g, "");
+  const allowed = new Set(["S", "P", "T", "TI", "DD"]);
+  return allowed.has(normalized) ? normalized : "";
+}
+
 function pacExtractPacRow(text, meta = {}) {
   const source = String(text || "").replace(/\r/g, "\n");
 
@@ -2134,6 +2184,12 @@ function pacExtractPacRow(text, meta = {}) {
 
   const pid = pacFindFirst(source, [/pid\s*[:\-]?\s*([A-Za-z0-9./_-]+)/i]);
   const cargoModulosHoras = pacBuildCargoModulosHoras(source);
+  const situacionRevista = pacNormalizeSituacionRevista(
+    pacFindFirst(source, [
+      /situaci[oóÓ]n\s*de\s*revista\s*[:\-]?\s*([A-Za-z.]{1,3})/i,
+      /\brevista\s*[:\-]?\s*([A-Za-z.]{1,3})/i,
+    ])
+  );
 
   const cursoLabel = pacFindFirst(source, [
     /\bcurso\b(?!\s*(?:y|\/)\s*divisi[oóÓ]n)\s*[:\-]?\s*([^\n\r]+)/i,
@@ -2165,6 +2221,7 @@ function pacExtractPacRow(text, meta = {}) {
     apellidoNombre,
     pid,
     cargoModulosHoras,
+    situacionRevista,
     curso,
     division,
     cuil,
@@ -2209,12 +2266,47 @@ function pacFieldScore(row) {
   }, 0);
 }
 
+async function pacResolveBirthDateByDni(dni, cache = new Map()) {
+  const dniDigits = String(dni || "").replace(/\D/g, "");
+  if (!dniDigits) {
+    return UNKNOWN_BIRTHDATE;
+  }
+
+  if (cache.has(dniDigits)) {
+    return cache.get(dniDigits);
+  }
+
+  const fetchedDate = await fetchFechaNacimientoByDni(dniDigits);
+  const normalizedDate = pacNormalizeDate(fetchedDate);
+  const finalDate = normalizedDate || UNKNOWN_BIRTHDATE;
+  cache.set(dniDigits, finalDate);
+  return finalDate;
+}
+
+async function pacEnrichRowsWithExternalData(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const cache = new Map();
+  const enrichedRows = [];
+
+  for (const row of list) {
+    const item = row && typeof row === "object" ? { ...row } : {};
+    item.fechaNacimiento = await pacResolveBirthDateByDni(item.dni, cache);
+    item.situacionRevista = pacNormalizeSituacionRevista(item.situacionRevista || "");
+    enrichedRows.push(item);
+  }
+
+  return enrichedRows;
+}
+
 function pacBuildFieldMapFromHeaders(headerRows) {
   const defaults = {
     cupof: 0,
+    cuilPrefix: 1,
     dni: 2,
+    cuilSuffix: 3,
     fechaNacimiento: 5,
     apellidoNombre: 6,
+    situacionRevista: 7,
     modCarr: 8,
     pid: 9,
     cargoModulosHoras: 10,
@@ -2276,7 +2368,9 @@ function pacBuildFieldMapFromHeaders(headerRows) {
 
   return {
     cupof: pickColumn(["cupof"], defaults.cupof),
+    cuilPrefix: pickColumn(["cuil"], defaults.cuilPrefix),
     dni: pickColumn(["dni", "documento"], defaults.dni),
+    cuilSuffix: defaults.cuilSuffix,
     fechaNacimiento: pickColumn(
       ["fecha de nacimiento", "fecha nacimiento", "fecha nac", "nacimiento"],
       defaults.fechaNacimiento
@@ -2284,6 +2378,10 @@ function pacBuildFieldMapFromHeaders(headerRows) {
     apellidoNombre: pickColumn(
       ["apellido y nombre", "apellidos y nombres", "nombre y apellido"],
       defaults.apellidoNombre
+    ),
+    situacionRevista: pickColumn(
+      ["situacion de revista", "situacion revista", "rev"],
+      defaults.situacionRevista
     ),
     modCarr: pickColumn(["mod./carr.", "mod carr", "mod/carr"], defaults.modCarr),
     pid: pickColumn(["pid", "esp cur/asig", "esp cur", "asig"], defaults.pid),
@@ -2309,6 +2407,23 @@ function pacDeriveModCarrValue(cursoValue) {
   }
 
   return cursoNumber < 4 ? "CB" : "CS";
+}
+
+function pacSplitCuilForSheet(cuilValue, fallbackDniValue) {
+  const cleanCuil = String(cuilValue || "").replace(/\D/g, "");
+  const fallbackDni = String(fallbackDniValue || "").replace(/\D/g, "");
+  if (cleanCuil.length >= 11) {
+    return {
+      prefix: cleanCuil.slice(0, 2),
+      dni: cleanCuil.slice(2, 10),
+      suffix: cleanCuil.slice(10, 11),
+    };
+  }
+  return {
+    prefix: "",
+    dni: fallbackDni,
+    suffix: "",
+  };
 }
 
 function pacColumnIndexToLetter(index) {
@@ -2378,9 +2493,12 @@ async function pacFindFirstInsertRow(accessToken, sheetId, sheetName, startRow) 
 function pacBuildSheetValues(rows, fieldMap) {
   const map = fieldMap || {
     cupof: 0,
+    cuilPrefix: 1,
     dni: 2,
+    cuilSuffix: 3,
     fechaNacimiento: 5,
     apellidoNombre: 6,
+    situacionRevista: 7,
     modCarr: 8,
     pid: 9,
     cargoModulosHoras: 10,
@@ -2390,9 +2508,12 @@ function pacBuildSheetValues(rows, fieldMap) {
 
   const width = Math.max(
     Number(map.cupof || 0),
+    Number(map.cuilPrefix || 1),
     Number(map.dni || 2),
+    Number(map.cuilSuffix || 3),
     Number(map.fechaNacimiento || 5),
     Number(map.apellidoNombre || 6),
+    Number(map.situacionRevista || 7),
     Number(map.modCarr || 8),
     Number(map.pid || 9),
     Number(map.cargoModulosHoras || 10),
@@ -2404,10 +2525,14 @@ function pacBuildSheetValues(rows, fieldMap) {
   return rows.map((row) => {
     const line = new Array(width).fill("");
     const curso = String(row?.curso || "");
+    const cuilParts = pacSplitCuilForSheet(String(row?.cuil || ""), String(row?.dni || ""));
     line[map.cupof] = String(row?.cupof || "");
-    line[map.dni] = String(row?.dni || "");
+    line[map.cuilPrefix] = cuilParts.prefix;
+    line[map.dni] = cuilParts.dni || String(row?.dni || "");
+    line[map.cuilSuffix] = cuilParts.suffix;
     line[map.fechaNacimiento] = String(row?.fechaNacimiento || "");
     line[map.apellidoNombre] = String(row?.apellidoNombre || "");
+    line[map.situacionRevista] = pacNormalizeSituacionRevista(row?.situacionRevista || "");
     line[map.modCarr] = pacDeriveModCarrValue(curso);
     line[map.pid] = String(row?.pid || "");
     line[map.cargoModulosHoras] = String(row?.cargoModulosHoras || "");
@@ -2464,6 +2589,7 @@ function pacNormalizeRowsForWrite(rawRows) {
       dni: pacNormalizeText(item?.dni || ""),
       fechaNacimiento: pacNormalizeText(item?.fechaNacimiento || ""),
       apellidoNombre: pacNormalizeText(item?.apellidoNombre || ""),
+      situacionRevista: pacNormalizeSituacionRevista(item?.situacionRevista || ""),
       pid: pacNormalizeText(item?.pid || ""),
       cargoModulosHoras: pacNormalizeText(item?.cargoModulosHoras || ""),
       curso: pacNormalizeText(item?.curso || ""),
@@ -2483,6 +2609,7 @@ function pacNormalizeRowsForWrite(rawRows) {
         row.cupof ||
         row.dni ||
         row.apellidoNombre ||
+        row.situacionRevista ||
         row.pid ||
         row.cargoModulosHoras ||
         row.curso ||
@@ -2525,6 +2652,18 @@ async function pacCopySpreadsheetTemplate(accessToken, templateSheetId, outputTi
     name: pacNormalizeText(payload?.name || ""),
     webViewLink: pacNormalizeText(payload?.webViewLink || ""),
   };
+}
+
+async function pacExportSpreadsheetAsXlsx(accessToken, sheetId) {
+  const endpoint =
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(sheetId)}` +
+    "/export?mimeType=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  return pacFetchBuffer(endpoint, accessToken, {}, "drive.exportXlsx");
+}
+
+async function pacDeleteDriveFile(accessToken, fileId) {
+  const endpoint = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}`;
+  await pacFetchBuffer(endpoint, accessToken, { method: "DELETE" }, "drive.deleteFile");
 }
 
 exports.runPacProcess = onCall(callableOptions, async (request) => {
@@ -2834,10 +2973,14 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
     }
   }
 
+  const enrichedRows = rows.length
+    ? await pacEnrichRowsWithExternalData(rows)
+    : [];
+
   let writeSummary = null;
-  if (!previewOnly && rows.length) {
+  if (!previewOnly && enrichedRows.length) {
     try {
-      writeSummary = await pacWriteRowsToSheet(accessToken, sheetId, sheetName, startRow, rows);
+      writeSummary = await pacWriteRowsToSheet(accessToken, sheetId, sheetName, startRow, enrichedRows);
     } catch (writeError) {
       const errorMetadata = pacBuildErrorMetadata(writeError);
       logger.error("runPacProcess write sheet error", {
@@ -2860,11 +3003,13 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
     }
   }
 
-  const safeRows = rows.map((row) => ({
+  const safeRows = enrichedRows.map((row) => ({
     cupof: String(row.cupof || ""),
+    cuil: String(row.cuil || ""),
     dni: String(row.dni || ""),
     fechaNacimiento: String(row.fechaNacimiento || ""),
     apellidoNombre: String(row.apellidoNombre || ""),
+    situacionRevista: String(row.situacionRevista || ""),
     pid: String(row.pid || ""),
     cargoModulosHoras: String(row.cargoModulosHoras || ""),
     curso: String(row.curso || ""),
@@ -2910,15 +3055,26 @@ exports.savePacRowsToDrive = onCall(callableOptions, async (request) => {
     throw new HttpsError("invalid-argument", "Invalid Google Sheet URL/ID");
   }
 
-  const rows = pacNormalizeRowsForWrite(data.rows || []);
-  if (!rows.length) {
+  const rawRows = pacNormalizeRowsForWrite(data.rows || []);
+  if (!rawRows.length) {
     throw new HttpsError("invalid-argument", "No hay filas seleccionadas para guardar");
   }
+  const rows = await pacEnrichRowsWithExternalData(rawRows);
 
   const requestedSheetName = pacNormalizeText(data.sheetName || "");
   const startRowRaw = Number(data.startRow);
   const startRow = Number.isFinite(startRowRaw) && startRowRaw > 0 ? Math.floor(startRowRaw) : 14;
   const mode = pacNormalizeText(data.mode || "interinos_docx").toLowerCase();
+  const deliveryRaw = pacNormalizeText(data.delivery || "drive").toLowerCase();
+  const delivery =
+    deliveryRaw === "download"
+      ? "download"
+      : deliveryRaw === "drive"
+        ? "drive"
+        : "";
+  if (!delivery) {
+    throw new HttpsError("invalid-argument", "delivery must be 'drive' or 'download'");
+  }
   const outputTitle =
     pacNormalizeText(data.outputTitle || "") ||
     pacBuildOutputSheetTitle(mode === "designacion_body" ? "designacion_body" : "interinos_docx");
@@ -2957,27 +3113,66 @@ exports.savePacRowsToDrive = onCall(callableOptions, async (request) => {
 
   try {
     const copied = await pacCopySpreadsheetTemplate(accessToken, templateSheetId, outputTitle);
-    const targetSheetName = await pacResolveSheetName(accessToken, copied.id, requestedSheetName);
-    const writeSummary = await pacWriteRowsToSheet(accessToken, copied.id, targetSheetName, startRow, rows);
-    const outputSheetUrl = `https://docs.google.com/spreadsheets/d/${copied.id}/edit`;
+    let targetSheetName = "";
+    let writeSummary = null;
+    try {
+      targetSheetName = await pacResolveSheetName(accessToken, copied.id, requestedSheetName);
+      writeSummary = await pacWriteRowsToSheet(accessToken, copied.id, targetSheetName, startRow, rows);
+      const outputSheetUrl = `https://docs.google.com/spreadsheets/d/${copied.id}/edit`;
 
-    return {
-      ok: true,
-      rowsReceived: rows.length,
-      rowsWritten: Number(writeSummary?.rowsWritten || 0),
-      sheetId: copied.id,
-      sheetName: targetSheetName,
-      sheetUrl: outputSheetUrl,
-      downloadXlsxUrl: `https://docs.google.com/spreadsheets/d/${copied.id}/export?format=xlsx`,
-      writeSummary,
-      diagnostics: {
-        requiredScopes,
-        grantedScopes,
-        missingScopes,
-        tokenAudience: tokenInfo?.audience || "",
-        tokenEmail: tokenInfo?.email || "",
-      },
-    };
+      if (delivery === "download") {
+        const xlsxBuffer = await pacExportSpreadsheetAsXlsx(accessToken, copied.id);
+        const cleanTitle = pacNormalizeText(copied.name || outputTitle || "PAC");
+        const fileName = `${cleanTitle || "PAC"}.xlsx`;
+        return {
+          ok: true,
+          delivery,
+          rowsReceived: rows.length,
+          rowsWritten: Number(writeSummary?.rowsWritten || 0),
+          fileName,
+          fileMimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          fileBase64: xlsxBuffer.toString("base64"),
+          writeSummary,
+          diagnostics: {
+            requiredScopes,
+            grantedScopes,
+            missingScopes,
+            tokenAudience: tokenInfo?.audience || "",
+            tokenEmail: tokenInfo?.email || "",
+          },
+        };
+      }
+
+      return {
+        ok: true,
+        delivery,
+        rowsReceived: rows.length,
+        rowsWritten: Number(writeSummary?.rowsWritten || 0),
+        sheetId: copied.id,
+        sheetName: targetSheetName,
+        sheetUrl: outputSheetUrl,
+        downloadXlsxUrl: `https://docs.google.com/spreadsheets/d/${copied.id}/export?format=xlsx`,
+        writeSummary,
+        diagnostics: {
+          requiredScopes,
+          grantedScopes,
+          missingScopes,
+          tokenAudience: tokenInfo?.audience || "",
+          tokenEmail: tokenInfo?.email || "",
+        },
+      };
+    } finally {
+      if (delivery === "download") {
+        try {
+          await pacDeleteDriveFile(accessToken, copied.id);
+        } catch (deleteError) {
+          logger.warn("savePacRowsToDrive download cleanup failed", {
+            fileId: copied.id,
+            message: String(deleteError?.message || "delete failed"),
+          });
+        }
+      }
+    }
   } catch (error) {
     const errorMetadata = pacBuildErrorMetadata(error);
     logger.error("savePacRowsToDrive error", {
@@ -2985,17 +3180,19 @@ exports.savePacRowsToDrive = onCall(callableOptions, async (request) => {
       requestedSheetName,
       startRow,
       rowsCount: rows.length,
+      delivery,
       ...errorMetadata,
     });
     throw new HttpsError(
       "failed-precondition",
-      `No se pudo guardar el archivo PAC en Drive: ${error.message || "sin detalle"}`,
+      `No se pudo generar el archivo PAC: ${error.message || "sin detalle"}`,
       {
         errorType: "save_pac_drive_failed",
         templateSheetId,
         requestedSheetName,
         startRow,
         rowsCount: rows.length,
+        delivery,
         ...errorMetadata,
       }
     );
