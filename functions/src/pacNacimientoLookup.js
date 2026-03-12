@@ -47,6 +47,17 @@ function extractBirthDateFromHtml(htmlText) {
     return UNKNOWN_BIRTHDATE;
   }
 
+  const birthDateLabel = "fecha de nacimiento";
+  const labelIndex = source.toLowerCase().indexOf(birthDateLabel);
+  if (labelIndex >= 0) {
+    const textAfterLabel = source.slice(labelIndex + birthDateLabel.length);
+    const firstDateAfterLabel = textAfterLabel.match(/\b[0-3]?\d[\/\-.][01]?\d[\/\-.](?:19|20)?\d{2}\b/i);
+    const parsed = normalizeDate(firstDateAfterLabel?.[0] || "");
+    if (parsed) {
+      return parsed;
+    }
+  }
+
   const labeledPatterns = [
     /fecha\s*de\s*nac(?:imiento)?[^0-9]{0,50}([0-3]?\d[\/\-.][01]?\d[\/\-.](?:19|20)?\d{2})/i,
     /fec\.?\s*nac\.?[^0-9]{0,30}([0-3]?\d[\/\-.][01]?\d[\/\-.](?:19|20)?\d{2})/i,
@@ -75,11 +86,15 @@ function buildLookupUrl(dniDigits) {
   const dniBase64 = Buffer.from(String(dniDigits), "utf8")
     .toString("base64")
     .replace(/=+$/g, "");
+  const anioActual = Buffer.from(String(new Date().getFullYear()), "utf8")
+    .toString("base64")
+    .replace(/=+$/g, "");
+
   return (
     "http://servicios.abc.gov.ar/servaddo/puntaje.ingreso.docencia/ingreso.servaddo.cfm" +
     `?documento=${encodeURIComponent(dniBase64)}=` +
-    "&anio=MjAyNg==" +
-    "&listado=MTA4Yg==" +
+    `&anio=${encodeURIComponent(anioActual)}==` +
+    "&listado=ZmluZXM==" +
     "&tipo="
   );
 }
