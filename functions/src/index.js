@@ -2187,7 +2187,8 @@ function pacBuildFieldMapFromHeaders(headerRows) {
     dni: 2,
     fechaNacimiento: 5,
     apellidoNombre: 6,
-    pid: 4,
+    modCarr: 8,
+    pid: 9,
     cargoModulosHoras: 10,
     curso: 12,
     division: 13,
@@ -2256,7 +2257,8 @@ function pacBuildFieldMapFromHeaders(headerRows) {
       ["apellido y nombre", "apellidos y nombres", "nombre y apellido"],
       defaults.apellidoNombre
     ),
-    pid: pickColumn(["pid", "sec"], defaults.pid),
+    modCarr: pickColumn(["mod./carr.", "mod carr", "mod/carr"], defaults.modCarr),
+    pid: pickColumn(["pid", "esp cur/asig", "esp cur", "asig"], defaults.pid),
     cargoModulosHoras: pickColumn(
       ["cargo/modulos/horas", "cargo modulos horas", "hs/mod/car", "hs mod car"],
       defaults.cargoModulosHoras
@@ -2264,6 +2266,21 @@ function pacBuildFieldMapFromHeaders(headerRows) {
     curso: pickColumn(["curso", "ano", "año"], defaults.curso),
     division: pickColumn(["division", "seccion"], defaults.division),
   };
+}
+
+function pacDeriveModCarrValue(cursoValue) {
+  const raw = String(cursoValue || "");
+  const match = raw.match(/\d{1,2}/);
+  if (!match) {
+    return "";
+  }
+
+  const cursoNumber = Number(match[0]);
+  if (!Number.isFinite(cursoNumber) || cursoNumber <= 0) {
+    return "";
+  }
+
+  return cursoNumber < 4 ? "CB" : "CS";
 }
 
 function pacColumnIndexToLetter(index) {
@@ -2333,36 +2350,40 @@ async function pacFindFirstInsertRow(accessToken, sheetId, sheetName, startRow) 
 function pacBuildSheetValues(rows, fieldMap) {
   const map = fieldMap || {
     cupof: 0,
-    dni: 1,
-    fechaNacimiento: 2,
-    apellidoNombre: 3,
-    pid: 4,
-    cargoModulosHoras: 5,
-    curso: 6,
-    division: 7,
+    dni: 2,
+    fechaNacimiento: 5,
+    apellidoNombre: 6,
+    modCarr: 8,
+    pid: 9,
+    cargoModulosHoras: 10,
+    curso: 12,
+    division: 13,
   };
 
   const width = Math.max(
     Number(map.cupof || 0),
-    Number(map.dni || 1),
-    Number(map.fechaNacimiento || 2),
-    Number(map.apellidoNombre || 3),
-    Number(map.pid || 4),
-    Number(map.cargoModulosHoras || 5),
-    Number(map.curso || 6),
-    Number(map.division || 7),
-    7
+    Number(map.dni || 2),
+    Number(map.fechaNacimiento || 5),
+    Number(map.apellidoNombre || 6),
+    Number(map.modCarr || 8),
+    Number(map.pid || 9),
+    Number(map.cargoModulosHoras || 10),
+    Number(map.curso || 12),
+    Number(map.division || 13),
+    13
   ) + 1;
 
   return rows.map((row) => {
     const line = new Array(width).fill("");
+    const curso = String(row?.curso || "");
     line[map.cupof] = String(row?.cupof || "");
     line[map.dni] = String(row?.dni || "");
     line[map.fechaNacimiento] = String(row?.fechaNacimiento || "");
     line[map.apellidoNombre] = String(row?.apellidoNombre || "");
+    line[map.modCarr] = pacDeriveModCarrValue(curso);
     line[map.pid] = String(row?.pid || "");
     line[map.cargoModulosHoras] = String(row?.cargoModulosHoras || "");
-    line[map.curso] = String(row?.curso || "");
+    line[map.curso] = curso;
     line[map.division] = String(row?.division || "");
     return line;
   });
