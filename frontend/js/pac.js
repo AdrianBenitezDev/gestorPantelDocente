@@ -43,6 +43,14 @@ const state = {
   busy: false,
   savedFile: null,
 };
+const PAC_GMAIL_QUERY_STORAGE_KEY = "pacGmailQuery";
+const PAC_GMAIL_QUERY_IDB_KEY = "gmailQuery";
+const PAC_CACHE_DB_NAME = "gpd-pac-cache";
+const PAC_CACHE_DB_VERSION = 1;
+const PAC_CACHE_STORE = "settings";
+const QUERY_PERSIST_DEBOUNCE_MS = 2000;
+
+let queryPersistTimer = null;
 
 function setMsg(el, text, isError = false) {
   if (!el) {
@@ -63,6 +71,117 @@ function setBusy(btn, busy) {
     btn.textContent = "Procesando...";
   } else if (btn.dataset.originalText) {
     btn.textContent = btn.dataset.originalText;
+  }
+}
+
+function openPacCacheDb() {
+  return new Promise((resolve, reject) => {
+    if (!window.indexedDB) {
+      resolve(null);
+      return;
+    }
+    const request = window.indexedDB.open(PAC_CACHE_DB_NAME, PAC_CACHE_DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(PAC_CACHE_STORE)) {
+        db.createObjectStore(PAC_CACHE_STORE, { keyPath: "key" });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function idbGetSetting(settingKey) {
+  const db = await openPacCacheDb();
+  if (!db) {
+    return null;
+  }
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PAC_CACHE_STORE, "readonly");
+    const store = tx.objectStore(PAC_CACHE_STORE);
+    const request = store.get(String(settingKey || ""));
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error);
+    tx.oncomplete = () => db.close();
+    tx.onabort = () => db.close();
+  });
+}
+
+async function idbSetSetting(settingKey, value) {
+  const db = await openPacCacheDb();
+  if (!db) {
+    return;
+  }
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PAC_CACHE_STORE, "readwrite");
+    const store = tx.objectStore(PAC_CACHE_STORE);
+    const request = store.put({
+      key: String(settingKey || ""),
+      value: String(value || ""),
+      updatedAt: Date.now(),
+    });
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+    tx.oncomplete = () => db.close();
+    tx.onabort = () => db.close();
+  });
+}
+
+async function persistGmailQueryValue(value) {
+  const safeValue = String(value || "");
+  try {
+    window.localStorage?.setItem(PAC_GMAIL_QUERY_STORAGE_KEY, safeValue);
+  } catch (error) {
+    console.error("No se pudo guardar pac-gmail-query en localStorage", error);
+  }
+  try {
+    await idbSetSetting(PAC_GMAIL_QUERY_IDB_KEY, safeValue);
+  } catch (error) {
+    console.error("No se pudo guardar pac-gmail-query en IndexedDB", error);
+  }
+}
+
+function scheduleGmailQueryPersistence() {
+  if (queryPersistTimer) {
+    clearTimeout(queryPersistTimer);
+  }
+  queryPersistTimer = setTimeout(() => {
+    queryPersistTimer = null;
+    if (!queryInput) {
+      return;
+    }
+    void persistGmailQueryValue(queryInput.value);
+  }, QUERY_PERSIST_DEBOUNCE_MS);
+}
+
+async function hydrateGmailQueryInput() {
+  if (!queryInput) {
+    return;
+  }
+
+  let valueFromIdb = "";
+  try {
+    const savedRecord = await idbGetSetting(PAC_GMAIL_QUERY_IDB_KEY);
+    if (savedRecord && typeof savedRecord.value === "string") {
+      valueFromIdb = savedRecord.value;
+    }
+  } catch (error) {
+    console.error("No se pudo leer pac-gmail-query desde IndexedDB", error);
+  }
+
+  if (valueFromIdb) {
+    queryInput.value = valueFromIdb;
+    return;
+  }
+
+  try {
+    const valueFromLocal = String(window.localStorage?.getItem(PAC_GMAIL_QUERY_STORAGE_KEY) || "");
+    if (valueFromLocal) {
+      queryInput.value = valueFromLocal;
+    }
+  } catch (error) {
+    console.error("No se pudo leer pac-gmail-query desde localStorage", error);
   }
 }
 
@@ -551,6 +670,12 @@ runBtn.addEventListener("click", async () => {
   await saveSelectedRowsToDrive();
 });
 
+if (queryInput) {
+  queryInput.addEventListener("keyup", () => {
+    scheduleGmailQueryPersistence();
+  });
+}
+
 resultsBody.addEventListener("change", (event) => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement) || !target.classList.contains("pac-row-checkbox")) {
@@ -634,5 +759,6 @@ onAuthStateChanged(auth, (user) => {
   }
 });
 
+void hydrateGmailQueryInput();
 renderRows([]);
 setFloatingVisible(false);
