@@ -94,11 +94,14 @@ function extractBirthDateFromHtml(htmlText) {
   return UNKNOWN_BIRTHDATE;
 }
 
-function buildLookupUrl(dniDigits) {
+function buildLookupUrl(dniDigits, yearValue = new Date().getFullYear()) {
   const dniBase64 = Buffer.from(String(dniDigits), "utf8")
     .toString("base64")
     .replace(/=+$/g, "");
-  const anioActual = Buffer.from(String(new Date().getFullYear()), "utf8")
+  const safeYear = Number.isFinite(Number(yearValue))
+    ? Number(yearValue)
+    : new Date().getFullYear();
+  const anioActual = Buffer.from(String(safeYear), "utf8")
     .toString("base64")
     .replace(/=+$/g, "");
 
@@ -117,29 +120,39 @@ async function fetchFechaNacimientoByDni(dni) {
     return UNKNOWN_BIRTHDATE;
   }
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  const currentYear = new Date().getFullYear();
+  const candidateYears = [currentYear, currentYear - 1, currentYear - 2];
 
-  try {
-    const response = await fetch(buildLookupUrl(dniDigits), {
-      method: "GET",
-      redirect: "follow",
-      signal: controller.signal,
-      headers: {
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      },
-    });
-    if (!response.ok) {
-      return UNKNOWN_BIRTHDATE;
+  for (const year of candidateYears) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 7000);
+
+    try {
+      const response = await fetch(buildLookupUrl(dniDigits, year), {
+        method: "GET",
+        redirect: "follow",
+        signal: controller.signal,
+        headers: {
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        },
+      });
+      if (!response.ok) {
+        continue;
+      }
+
+      const htmlText = await response.text();
+      const parsed = extractBirthDateFromHtml(htmlText);
+      if (parsed !== UNKNOWN_BIRTHDATE) {
+        return parsed;
+      }
+    } catch (error) {
+      // Seguir con el siguiente año candidato.
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    const htmlText = await response.text();
-    return extractBirthDateFromHtml(htmlText);
-  } catch (error) {
-    return UNKNOWN_BIRTHDATE;
-  } finally {
-    clearTimeout(timeoutId);
   }
+
+  return UNKNOWN_BIRTHDATE;
 }
 
 module.exports = {

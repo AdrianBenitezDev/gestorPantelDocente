@@ -2057,6 +2057,14 @@ function pacNormalizeCuil(value) {
   return "";
 }
 
+function pacNormalizeDni(value) {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (digits.length === 7 || digits.length === 8) {
+    return digits;
+  }
+  return "";
+}
+
 function pacDniFromCuil(cuilDigits) {
   const digits = String(cuilDigits || "").replace(/\D/g, "");
   if (digits.length !== 11) {
@@ -2168,12 +2176,18 @@ function pacExtractPacRow(text, meta = {}) {
   ]);
 
   const cuilRaw = pacFindFirst(source, [
+    /cuil(?:\s*(?:nro|numero|n[uú]mero))?\s*[:\-]?\s*([0-9.\-\s]{11,24})/i,
     /cuil(?:\s*(?:nro|numero|n[uú]mero))?\s*[:\-]?\s*([0-9]{2}\D?[0-9]{7,8}\D?[0-9])/i,
     /(?:^|\D)([0-9]{2}\D?[0-9]{7,8}\D?[0-9])(?:\D|$)/,
   ]);
   const cuil = pacNormalizeCuil(cuilRaw);
 
-  const dniByLabel = pacFindFirst(source, [/dni\s*[:\-]?\s*([0-9]{7,8})/i]);
+  const dniByLabel = pacNormalizeDni(
+    pacFindFirst(source, [
+      /d\.?\s*n\.?\s*i\.?\s*[:\-]?\s*([0-9.\-\s]{7,20})/i,
+      /dni\s*[:\-]?\s*([0-9]{7,8})/i,
+    ])
+  );
   const dni = dniByLabel || pacDniFromCuil(cuil);
 
   const fechaNacimiento = pacNormalizeDate(
@@ -3208,4 +3222,3 @@ exports.savePacRowsToDrive = onCall(callableOptions, async (request) => {
     );
   }
 });
-
