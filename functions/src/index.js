@@ -260,6 +260,41 @@ function pickCourseValue(rowObj, values) {
   return fallback;
 }
 
+function applyMinimumSheetRow(dataRows = [], hasHeaders = false, headerRowIndex = -1, minimumRowOneBased = 217) {
+  const firstDataRowOneBased = hasHeaders ? headerRowIndex + 2 : 1;
+  const startOffset = Math.max(0, Number(minimumRowOneBased) - Number(firstDataRowOneBased));
+  return dataRows.slice(startOffset);
+}
+
+function extractMateriaPidFromColumnF(rawValue) {
+  const compact = String(rawValue || "")
+    .trim()
+    .replace(/[–—]/g, "-")
+    .replace(/\s+/g, " ");
+  if (!compact) {
+    return { materia: "", pid: "" };
+  }
+
+  const strictMatch = compact.match(/^(.*?)\s*-\s*([^-]+?)\s*-\s*$/);
+  if (strictMatch) {
+    return {
+      materia: String(strictMatch[1] || "").trim(),
+      pid: String(strictMatch[2] || "").trim(),
+    };
+  }
+
+  const firstDash = compact.indexOf("-");
+  const lastDash = compact.lastIndexOf("-");
+  if (firstDash >= 0 && lastDash > firstDash) {
+    return {
+      materia: compact.slice(0, firstDash).trim(),
+      pid: compact.slice(firstDash + 1, lastDash).trim(),
+    };
+  }
+
+  return { materia: compact, pid: "" };
+}
+
 function parseNombreApellido(rowObj, values) {
   const apellido = pickField(rowObj, ["apellido", "apellidos"]) || String(values[1] || "").trim();
   const nombre = pickField(rowObj, ["nombre", "nombres"]) || String(values[2] || "").trim();
@@ -802,6 +837,7 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
   const hasHeaders = headerRowIndex >= 0;
   const headers = hasHeaders ? rows[headerRowIndex].map((header) => normalizeHeader(header)) : [];
   const dataRows = hasHeaders ? rows.slice(headerRowIndex + 1) : rows;
+  const scopedDataRows = applyMinimumSheetRow(dataRows, hasHeaders, headerRowIndex, 217);
   logger.info("loadDocentesFromSheet: headers analysis", {
     forcedHeaderRowIndex,
     headerRowIndex,
@@ -809,6 +845,8 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
     headers: headers.slice(0, 20),
     firstRowSample: rows[0].slice(0, 10),
     dataRowsCount: dataRows.length,
+    startRowOneBased: 217,
+    scopedDataRowsCount: scopedDataRows.length,
   });
 
   const detectedCoursesSet = new Set();
@@ -819,7 +857,7 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
   };
   let lastDetectedCourse = "";
 
-  const docentesRaw = dataRows
+  const docentesRaw = scopedDataRows
     .flatMap((values) => {
       const rowObj = {};
       if (hasHeaders) {
@@ -828,9 +866,12 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
         });
       }
 
-      const pid = pickField(rowObj, ["pid", "legajo", "id"]) || "";
+      const materiaPidFromColumnF = extractMateriaPidFromColumnF(values[5]);
+      const pid = materiaPidFromColumnF.pid || pickField(rowObj, ["pid", "legajo", "id"]) || "";
       const espacioCurricular =
-        pickField(rowObj, ["espaciocurricular", "materia"]) || String(values[11] || "").trim();
+        materiaPidFromColumnF.materia ||
+        pickField(rowObj, ["espaciocurricular", "materia"]) ||
+        String(values[11] || "").trim();
       const cupof = pickField(rowObj, ["cupof"]) || String(values[14] || "").trim();
       if (!cupof || !espacioCurricular) {
         rejectionStats.emptyDocente += 1;
@@ -1012,9 +1053,10 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
     detectedCourses,
     debug: {
       rowsCount: rows.length,
-      dataRowsCount: dataRows.length,
+      dataRowsCount: scopedDataRows.length,
       headerRowIndex,
       hasHeaders,
+      startRowOneBased: 217,
       rejectionStats,
     },
     docentes,
@@ -1167,10 +1209,11 @@ exports.loadCursosFromSheet = onCall(callableOptions, async (request) => {
   const hasHeaders = headerRowIndex >= 0;
   const headers = hasHeaders ? rows[headerRowIndex].map((header) => normalizeHeader(header)) : [];
   const dataRows = hasHeaders ? rows.slice(headerRowIndex + 1) : rows;
+  const scopedDataRows = applyMinimumSheetRow(dataRows, hasHeaders, headerRowIndex, 217);
   const detectedCoursesSet = new Set();
   let lastDetectedCourse = "";
 
-  const cursos = dataRows
+  const cursos = scopedDataRows
     .flatMap((values) => {
       const rowObj = {};
       if (hasHeaders) {
@@ -1179,10 +1222,13 @@ exports.loadCursosFromSheet = onCall(callableOptions, async (request) => {
         });
       }
 
+      const materiaPidFromColumnF = extractMateriaPidFromColumnF(values[5]);
       const cupof = pickField(rowObj, ["cupof"]) || String(values[14] || "").trim();
       const materia =
-        pickField(rowObj, ["espaciocurricular", "materia"]) || String(values[11] || "").trim();
-      const pid = pickField(rowObj, ["pid", "legajo", "id"]) || "";
+        materiaPidFromColumnF.materia ||
+        pickField(rowObj, ["espaciocurricular", "materia"]) ||
+        String(values[11] || "").trim();
+      const pid = materiaPidFromColumnF.pid || pickField(rowObj, ["pid", "legajo", "id"]) || "";
       const turno = pickField(rowObj, ["turno"]) || String(values[3] || "").trim();
       const docenteCuil = pickTitularCuil(rowObj, values);
       const suplenteCuil =

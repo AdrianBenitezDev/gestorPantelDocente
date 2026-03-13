@@ -136,6 +136,9 @@ const SCHEDULE_TURN_META = [
   { code: "A", key: "alternado", label: "Alternado" },
 ];
 const DAYS = ["LUNES", "MARTES", "MIERCOLES", "JUEVES", "VIERNES"];
+const SHEET_IMPORT_CACHE_STORE = "sheet_import_form";
+const SHEET_IMPORT_CACHE_KEY = "default";
+const SHEET_IMPORT_PERSIST_DELAY_MS = 3000;
 
 let homeState = {
   tenantId: "",
@@ -164,6 +167,7 @@ let bannerAutoHideEnabled = false;
 let bannerLastScrollY = 0;
 let bannerHiddenByScroll = false;
 let currentSessionLogKey = "";
+let sheetImportPersistTimer = null;
 let assignMateriaState = {
   day: "",
   slotIndex: -1,
@@ -737,7 +741,7 @@ async function registerCurrentSession(user, tenantId, profile = {}) {
 
 function openCacheDb() {
   return new Promise((resolve, reject) => {
-    const request = window.indexedDB.open("gpd-cache", 1);
+    const request = window.indexedDB.open("gpd-cache", 2);
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains("tenant_home")) {
@@ -745,6 +749,9 @@ function openCacheDb() {
       }
       if (!db.objectStoreNames.contains("course_schedule")) {
         db.createObjectStore("course_schedule", { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(SHEET_IMPORT_CACHE_STORE)) {
+        db.createObjectStore(SHEET_IMPORT_CACHE_STORE, { keyPath: "id" });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -772,6 +779,58 @@ async function idbSet(storeName, value) {
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
+}
+
+async function hydrateSheetImportInputsFromCache() {
+  try {
+    const cached = await idbGet(SHEET_IMPORT_CACHE_STORE, SHEET_IMPORT_CACHE_KEY);
+    if (!cached || typeof cached !== "object") {
+      return;
+    }
+    const cachedSheetUrl = String(cached.sheetUrl || "").trim();
+    const cachedSheetName = String(cached.sheetName || "").trim();
+    if (sheetUrlInput && cachedSheetUrl) {
+      sheetUrlInput.value = cachedSheetUrl;
+    }
+    if (sheetNameInput && cachedSheetName) {
+      sheetNameInput.value = cachedSheetName;
+    }
+  } catch (error) {
+    console.error("No se pudo leer cache de importacion de hoja", error);
+  }
+}
+
+async function persistSheetImportInputs() {
+  const sheetUrl = String(sheetUrlInput?.value || "").trim();
+  const sheetName = String(sheetNameInput?.value || "").trim();
+  const payload = {
+    id: SHEET_IMPORT_CACHE_KEY,
+    updatedAt: Date.now(),
+  };
+  if (sheetUrl) {
+    payload.sheetUrl = sheetUrl;
+  }
+  if (sheetName) {
+    payload.sheetName = sheetName;
+  }
+  if (!payload.sheetUrl && !payload.sheetName) {
+    return;
+  }
+  try {
+    await idbSet(SHEET_IMPORT_CACHE_STORE, payload);
+  } catch (error) {
+    console.error("No se pudo guardar cache de importacion de hoja", error);
+  }
+}
+
+function scheduleSheetImportInputsPersistence() {
+  if (sheetImportPersistTimer) {
+    clearTimeout(sheetImportPersistTimer);
+  }
+  sheetImportPersistTimer = setTimeout(() => {
+    sheetImportPersistTimer = null;
+    void persistSheetImportInputs();
+  }, SHEET_IMPORT_PERSIST_DELAY_MS);
 }
 
 function courseScheduleCacheId(tenantId, course) {
@@ -2949,6 +3008,18 @@ googleLoginBtn.addEventListener("click", async () => {
   }
 });
 
+if (sheetUrlInput) {
+  sheetUrlInput.addEventListener("keyup", () => {
+    scheduleSheetImportInputsPersistence();
+  });
+}
+
+if (sheetNameInput) {
+  sheetNameInput.addEventListener("keyup", () => {
+    scheduleSheetImportInputsPersistence();
+  });
+}
+
 sheetImportForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   clearCursosReviewOnly();
@@ -3694,4 +3765,5 @@ turnScheduleDraft = createEmptyTurnScheduleConfig();
 homeState.turnScheduleConfig = clonePlain(turnScheduleDraft);
 renderTurnScheduleEditor();
 renderButtonConfigEditor();
+void hydrateSheetImportInputsFromCache();
 syncBannerLayout();
