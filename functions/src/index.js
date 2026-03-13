@@ -2290,6 +2290,16 @@ function pacFieldScore(row) {
   }, 0);
 }
 
+function pacRowHasDniOrCuil(row) {
+  const dniDigits = String(row?.dni || "").replace(/\D/g, "");
+  if (dniDigits.length === 7 || dniDigits.length === 8) {
+    return true;
+  }
+
+  const cuilDigits = String(row?.cuil || "").replace(/\D/g, "");
+  return cuilDigits.length === 11;
+}
+
 async function pacResolveBirthDateByDni(dni, cache = new Map()) {
   const dniDigits = String(dni || "").replace(/\D/g, "");
   if (!dniDigits) {
@@ -2964,6 +2974,15 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
           continue;
         }
 
+        if (!pacRowHasDniOrCuil(bestRow)) {
+          pacPushMailError(
+            errors,
+            mailMetadata,
+            "Se omitio el mensaje porque no se detecto DNI ni CUIL en el contenido extraido"
+          );
+          continue;
+        }
+
         rows.push(bestRow);
         continue;
       }
@@ -2977,15 +2996,23 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
         continue;
       }
 
-      rows.push(
-        pacExtractPacRow(bodyText, {
-          messageId,
-          subject,
-          from,
-          date,
-          attachmentName: "",
-        })
-      );
+      const extractedBodyRow = pacExtractPacRow(bodyText, {
+        messageId,
+        subject,
+        from,
+        date,
+        attachmentName: "",
+      });
+      if (!pacRowHasDniOrCuil(extractedBodyRow)) {
+        pacPushMailError(
+          errors,
+          mailMetadata,
+          "Se omitio el mensaje porque no se detecto DNI ni CUIL en el cuerpo del mail"
+        );
+        continue;
+      }
+
+      rows.push(extractedBodyRow);
     } catch (messageError) {
       logger.error("runPacProcess message error", { messageId, messageError });
       pacPushMailError(errors, {
