@@ -397,6 +397,7 @@ function formatSummary(result, previewOnly) {
   const parts = [
     `Mails encontrados: ${Number(result.totalMessages || 0)}`,
     `Filas extraidas: ${Number(result.rowsExtracted || 0)}`,
+    `Omitidos sin DNI/CUIL: ${Number(result.omittedWithoutIdentity || 0)}`,
     `Errores: ${Number(result.errorsCount || 0)}`,
   ];
   if (!previewOnly && result.writeSummary) {

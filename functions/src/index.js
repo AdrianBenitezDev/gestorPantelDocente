@@ -2832,6 +2832,7 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
 
   const rows = [];
   const errors = [];
+  let omittedWithoutIdentity = 0;
 
   let sheetName = requestedSheetName;
   if (!previewOnly && sheetId) {
@@ -2975,6 +2976,7 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
         }
 
         if (!pacRowHasDniOrCuil(bestRow)) {
+          omittedWithoutIdentity += 1;
           pacPushMailError(
             errors,
             mailMetadata,
@@ -3004,6 +3006,7 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
         attachmentName: "",
       });
       if (!pacRowHasDniOrCuil(extractedBodyRow)) {
+        omittedWithoutIdentity += 1;
         pacPushMailError(
           errors,
           mailMetadata,
@@ -3079,6 +3082,7 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
     gmailQuery,
     totalMessages: messages.length,
     rowsExtracted: safeRows.length,
+    omittedWithoutIdentity,
     errorsCount: errors.length,
     rows: safeRows,
     errors: errors.slice(0, 100),
