@@ -41,6 +41,18 @@ function decodeHtmlEntities(value) {
     .replace(/&gt;/gi, ">");
 }
 
+function todayAsNormalizedDate() {
+  const now = new Date();
+  const day = String(now.getDate()).padStart(2, "0");
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const year = String(now.getFullYear());
+  return `${day}/${month}/${year}`;
+}
+
+function isTodayDate(value) {
+  return String(value || "").trim() === todayAsNormalizedDate();
+}
+
 function extractBirthDateFromHtml(htmlText) {
   const source = decodeHtmlEntities(String(htmlText || ""));
   if (!source) {
@@ -53,7 +65,7 @@ function extractBirthDateFromHtml(htmlText) {
     const textAfterLabel = source.slice(labelIndex + birthDateLabel.length);
     const firstDateAfterLabel = textAfterLabel.match(/\b[0-3]?\d[\/\-.][01]?\d[\/\-.](?:19|20)?\d{2}\b/i);
     const parsed = normalizeDate(firstDateAfterLabel?.[0] || "");
-    if (parsed) {
+    if (parsed && !isTodayDate(parsed)) {
       return parsed;
     }
   }
@@ -66,7 +78,7 @@ function extractBirthDateFromHtml(htmlText) {
   for (const pattern of labeledPatterns) {
     const match = source.match(pattern);
     const parsed = normalizeDate(match?.[1] || "");
-    if (parsed) {
+    if (parsed && !isTodayDate(parsed)) {
       return parsed;
     }
   }
@@ -74,7 +86,7 @@ function extractBirthDateFromHtml(htmlText) {
   const allDates = source.match(/\b[0-3]?\d[\/\-.][01]?\d[\/\-.](?:19|20)?\d{2}\b/g) || [];
   for (const item of allDates) {
     const parsed = normalizeDate(item);
-    if (parsed) {
+    if (parsed && !isTodayDate(parsed)) {
       return parsed;
     }
   }
