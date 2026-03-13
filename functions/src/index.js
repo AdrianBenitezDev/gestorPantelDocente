@@ -2093,30 +2093,40 @@ function pacNormalizeDate(value) {
 
 function pacBuildCargoModulosHoras(text) {
   const raw = String(text || "");
+  const normalizeNumber = (value) => String(value || "").trim().replace(",", ".");
+
+  const modulosDirect = pacFindFirst(raw, [
+    /m[^\s/]{0,2}dulos?\s*[:\-]?\s*([0-9]+(?:[.,][0-9]+)?)/i,
+    /m[^\s/]{0,2}dulos?\s+([0-9]+(?:[.,][0-9]+)?)/i,
+  ]);
+  if (modulosDirect) {
+    return normalizeNumber(modulosDirect);
+  }
+
   const mergedLine = pacFindFirst(raw, [
     /cargo\s*\/\s*m[^\s/]{0,2}dulos?\s*\/\s*horas?\s*[:\-]?\s*([^\n\r]+)/i,
     /cargo\/m[^\s/]{0,2}dulos\/horas\s*[:\-]?\s*([^\n\r]+)/i,
+    /cargo\s*[:\-]?\s*[^\n\r]*?\|\s*m[^\s/]{0,2}dulos?\s*[:\-]?\s*([^\n\r]+)/i,
   ]);
   if (mergedLine) {
-    return mergedLine;
+    const modulosInMerged = pacFindFirst(mergedLine, [
+      /m[^\s/]{0,2}dulos?\s*[:\-]?\s*([0-9]+(?:[.,][0-9]+)?)/i,
+      /([0-9]+(?:[.,][0-9]+)?)/i,
+    ]);
+    if (modulosInMerged) {
+      return normalizeNumber(modulosInMerged);
+    }
   }
 
-  const cargo = pacFindFirst(raw, [/cargo\s*[:\-]\s*([^\n\r]+)/i]);
-  const modulos = pacFindFirst(raw, [/m[^\s/]{0,2}dulos?\s*[:\-]\s*([^\n\r]+)/i]);
-  const horas = pacFindFirst(raw, [/horas?\s*[:\-]\s*([^\n\r]+)/i]);
-
-  const parts = [];
-  if (cargo) {
-    parts.push(`Cargo: ${cargo}`);
-  }
-  if (modulos) {
-    parts.push(`Modulos: ${modulos}`);
-  }
-  if (horas) {
-    parts.push(`Horas: ${horas}`);
+  const horasDirect = pacFindFirst(raw, [
+    /horas?\s*[:\-]?\s*([0-9]+(?:[.,][0-9]+)?)/i,
+    /horas?\s+([0-9]+(?:[.,][0-9]+)?)/i,
+  ]);
+  if (horasDirect) {
+    return normalizeNumber(horasDirect);
   }
 
-  return parts.join(" | ");
+  return "";
 }
 
 function pacParseCursoDivision(rawValue) {
