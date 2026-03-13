@@ -973,6 +973,68 @@ a.link-btn:hover {
   flex-wrap: wrap;
 }
 
+.pac-errors-panel {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8faff;
+}
+
+.pac-errors-summary {
+  cursor: pointer;
+  padding: 10px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.pac-errors-panel[open] .pac-errors-summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.pac-errors-list {
+  list-style: none;
+  margin: 0;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.pac-error-item,
+.pac-errors-empty {
+  border: 1px solid #e2e8f6;
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px;
+}
+
+.pac-error-item {
+  border-left: 3px solid var(--error);
+}
+
+.pac-error-title {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #16213b;
+}
+
+.pac-error-line {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: #39425a;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.pac-error-line:last-child {
+  margin-bottom: 0;
+}
+
+.pac-errors-empty {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .pac-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--border);

@@ -86,7 +86,11 @@
     <section class="card">
       <h2>Resultado</h2>
       <p id="pac-summary-msg" class="msg"></p>
-      <p id="pac-errors-msg" class="msg"></p>
+      <details id="pac-errors-panel" class="pac-errors-panel">
+        <summary id="pac-errors-summary" class="pac-errors-summary">Errores detectados (0)</summary>
+        <ul id="pac-errors-list" class="pac-errors-list"></ul>
+      </details>
+      <p id="pac-errors-msg" class="msg is-hidden" aria-hidden="true"></p>
       <div class="pac-table-toolbar">
         <button id="pac-select-all-btn" type="button" class="google-btn">Seleccionar todo</button>
         <span id="pac-selected-count" class="subtitle">Filas seleccionadas: 0</span>

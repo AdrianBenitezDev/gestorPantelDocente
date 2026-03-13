@@ -15,6 +15,9 @@ const authMsg = document.getElementById("pac-auth-msg");
 const runMsg = document.getElementById("pac-run-msg");
 const summaryMsg = document.getElementById("pac-summary-msg");
 const errorsMsg = document.getElementById("pac-errors-msg");
+const errorsPanel = document.getElementById("pac-errors-panel");
+const errorsSummaryEl = document.getElementById("pac-errors-summary");
+const errorsListEl = document.getElementById("pac-errors-list");
 const userNameEl = document.getElementById("pac-user-name");
 const userEmailEl = document.getElementById("pac-user-email");
 const resultsBody = document.getElementById("pac-results-body");
@@ -458,12 +461,9 @@ function formatCallableError(error) {
   return lines.length ? `${base}\n${lines.join("\n")}` : base;
 }
 
-function buildErrorsText(errors) {
+function buildErrorEntries(errors) {
   const safeErrors = Array.isArray(errors) ? errors : [];
-  if (!safeErrors.length) {
-    return "Sin errores.";
-  }
-  const lines = safeErrors.slice(0, 25).map((item) => {
+  return safeErrors.slice(0, 25).map((item, index) => {
     const id = String(item.messageId || "-");
     const reason = String(item.reason || "Sin detalle");
     const subject = String(item.subject || "(sin asunto)");
@@ -472,21 +472,79 @@ function buildErrorsText(errors) {
     const attachments = String(item.attachmentsSummary || "");
     const driveLinks = String(item.driveLinksSummary || "");
     const sourceErrors = formatListAsText(item.sourceErrors || "");
-    const base = `- ${id} | ${subject} | ${from} | ${date}`;
-    const extraLines = [];
+    const details = [
+      `Motivo: ${reason}`,
+      `Asunto: ${subject}`,
+      `Remitente: ${from}`,
+      `Fecha: ${date}`,
+    ];
     if (attachments) {
-      extraLines.push(`Adjuntos detectados: ${attachments}`);
+      details.push(`Adjuntos detectados: ${attachments}`);
     }
     if (driveLinks) {
-      extraLines.push(`Links Drive detectados: ${driveLinks}`);
+      details.push(`Links Drive detectados: ${driveLinks}`);
     }
     if (sourceErrors) {
-      extraLines.push(`Detalle fuente: ${sourceErrors}`);
+      details.push(`Detalle fuente: ${sourceErrors}`);
     }
-    const extra = extraLines.length ? `\n  ${extraLines.join("\n  ")}` : "";
-    return `${base}\n  Motivo: ${reason}${extra}`;
+    return {
+      title: `#${index + 1} | MessageId: ${id}`,
+      details,
+    };
   });
-  return `Errores detectados:\n${lines.join("\n")}`;
+}
+
+function renderErrors(errors) {
+  const safeErrors = Array.isArray(errors) ? errors : [];
+  const entries = buildErrorEntries(safeErrors);
+
+  if (errorsSummaryEl) {
+    errorsSummaryEl.textContent = `Errores detectados (${safeErrors.length})`;
+  }
+  if (errorsPanel) {
+    errorsPanel.open = false;
+  }
+  if (!errorsListEl) {
+    if (errorsMsg) {
+      setMsg(errorsMsg, safeErrors.length ? `Errores detectados: ${safeErrors.length}` : "");
+    }
+    return;
+  }
+
+  errorsListEl.textContent = "";
+  if (!entries.length) {
+    const empty = document.createElement("li");
+    empty.className = "pac-errors-empty";
+    empty.textContent = "Sin errores.";
+    errorsListEl.appendChild(empty);
+    return;
+  }
+
+  entries.forEach((entry) => {
+    const item = document.createElement("li");
+    item.className = "pac-error-item";
+
+    const titleEl = document.createElement("p");
+    titleEl.className = "pac-error-title";
+    titleEl.textContent = entry.title;
+    item.appendChild(titleEl);
+
+    entry.details.forEach((detail) => {
+      const lineEl = document.createElement("p");
+      lineEl.className = "pac-error-line";
+      lineEl.textContent = detail;
+      item.appendChild(lineEl);
+    });
+
+    errorsListEl.appendChild(item);
+  });
+
+  if (safeErrors.length > entries.length) {
+    const truncated = document.createElement("li");
+    truncated.className = "pac-errors-empty";
+    truncated.textContent = `Se muestran ${entries.length} de ${safeErrors.length} errores.`;
+    errorsListEl.appendChild(truncated);
+  }
 }
 
 async function runPacProcess(previewOnly) {
@@ -507,7 +565,7 @@ async function runPacProcess(previewOnly) {
   setBusy(runBtn, true);
   setMsg(runMsg, previewOnly ? "Ejecutando prueba..." : "Procesando...");
   setMsg(summaryMsg, "");
-  setMsg(errorsMsg, "");
+  renderErrors([]);
 
   const callable = httpsCallable(functions, "runPacProcess");
   try {
@@ -529,7 +587,7 @@ async function runPacProcess(previewOnly) {
       summaryText += ` | Scopes faltantes: ${result.diagnostics.missingScopes.join(", ")}`;
     }
     setMsg(summaryMsg, summaryText);
-    setMsg(errorsMsg, buildErrorsText(result.errors), Array.isArray(result.errors) && result.errors.length > 0);
+    renderErrors(result.errors);
 
     setMsg(runMsg, previewOnly ? "Prueba finalizada" : "Proceso completado");
   } catch (error) {
@@ -651,7 +709,7 @@ function cancelSelectionFlow() {
   state.savedFile = null;
   renderRows([]);
   setMsg(summaryMsg, "");
-  setMsg(errorsMsg, "");
+  renderErrors([]);
   setMsg(runMsg, "Operacion cancelada");
 }
 
@@ -781,4 +839,5 @@ onAuthStateChanged(auth, (user) => {
 void hydrateGmailQueryInput();
 setDefaultModeOption();
 renderRows([]);
+renderErrors([]);
 setFloatingVisible(false);
