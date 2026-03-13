@@ -2324,7 +2324,18 @@ async function pacEnrichRowsWithExternalData(rows) {
 
   for (const row of list) {
     const item = row && typeof row === "object" ? { ...row } : {};
-    item.fechaNacimiento = await pacResolveBirthDateByDni(item.dni, cache);
+    const dniFromField = pacNormalizeDni(item.dni || "");
+    const dniFromCuil = pacDniFromCuil(item.cuil || "");
+    const dniForLookup = dniFromField || dniFromCuil;
+    if (!dniFromField && dniFromCuil) {
+      item.dni = dniFromCuil;
+    }
+
+    const fetchedBirthDate = await pacResolveBirthDateByDni(dniForLookup, cache);
+    const extractedBirthDate = pacNormalizeDate(item.fechaNacimiento || "");
+    item.fechaNacimiento = fetchedBirthDate !== UNKNOWN_BIRTHDATE
+      ? fetchedBirthDate
+      : (extractedBirthDate || UNKNOWN_BIRTHDATE);
     item.situacionRevista = pacNormalizeSituacionRevista(item.situacionRevista || "");
     enrichedRows.push(item);
   }
