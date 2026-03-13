@@ -2300,6 +2300,11 @@ function pacRowHasDniOrCuil(row) {
   return cuilDigits.length === 11;
 }
 
+function pacRowHasCupof(row) {
+  const cupofDigits = String(row?.cupof || "").replace(/\D/g, "");
+  return cupofDigits.length >= 4;
+}
+
 async function pacResolveBirthDateByDni(dni, cache = new Map()) {
   const dniDigits = String(dni || "").replace(/\D/g, "");
   if (!dniDigits) {
@@ -2844,6 +2849,7 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
   const rows = [];
   const errors = [];
   let omittedWithoutIdentity = 0;
+  let omittedWithoutCupof = 0;
 
   let sheetName = requestedSheetName;
   if (!previewOnly && sheetId) {
@@ -2960,6 +2966,10 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
               date,
               attachmentName: sourceName,
             });
+            if (!pacRowHasCupof(row)) {
+              sourceErrors.push(`${source.label}: No se detecto CUPOF en la extraccion`);
+              continue;
+            }
             const score = pacFieldScore(row);
             if (score > bestScore) {
               bestRow = row;
@@ -3016,6 +3026,15 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
         date,
         attachmentName: "",
       });
+      if (!pacRowHasCupof(extractedBodyRow)) {
+        omittedWithoutCupof += 1;
+        pacPushMailError(
+          errors,
+          mailMetadata,
+          "Se omitio el mensaje porque no se detecto CUPOF en el cuerpo del mail"
+        );
+        continue;
+      }
       if (!pacRowHasDniOrCuil(extractedBodyRow)) {
         omittedWithoutIdentity += 1;
         pacPushMailError(
@@ -3094,6 +3113,7 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
     totalMessages: messages.length,
     rowsExtracted: safeRows.length,
     omittedWithoutIdentity,
+    omittedWithoutCupof,
     errorsCount: errors.length,
     rows: safeRows,
     errors: errors.slice(0, 100),

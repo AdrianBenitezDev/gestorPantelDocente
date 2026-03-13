@@ -52,6 +52,23 @@ const QUERY_PERSIST_DEBOUNCE_MS = 2000;
 
 let queryPersistTimer = null;
 
+function setDefaultModeOption() {
+  if (!modeInput) {
+    return;
+  }
+  const options = Array.from(modeInput.options || []);
+  const target = options.find((option) => {
+    const normalizedText = String(option.textContent || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+    return normalizedText.includes("designacion");
+  });
+  if (target) {
+    modeInput.value = String(target.value || "designacion_body");
+  }
+}
+
 function setMsg(el, text, isError = false) {
   if (!el) {
     return;
@@ -398,6 +415,7 @@ function formatSummary(result, previewOnly) {
     `Mails encontrados: ${Number(result.totalMessages || 0)}`,
     `Filas extraidas: ${Number(result.rowsExtracted || 0)}`,
     `Omitidos sin DNI/CUIL: ${Number(result.omittedWithoutIdentity || 0)}`,
+    `Omitidos sin CUPOF: ${Number(result.omittedWithoutCupof || 0)}`,
     `Errores: ${Number(result.errorsCount || 0)}`,
   ];
   if (!previewOnly && result.writeSummary) {
@@ -761,5 +779,6 @@ onAuthStateChanged(auth, (user) => {
 });
 
 void hydrateGmailQueryInput();
+setDefaultModeOption();
 renderRows([]);
 setFloatingVisible(false);
