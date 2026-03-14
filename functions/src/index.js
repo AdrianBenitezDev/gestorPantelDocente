@@ -538,12 +538,12 @@ function resolveSheetLayoutProfile(sheetName = "", sheetGid = "") {
     pofaedartistica: {
       key: "pofa_ed_artistica",
       startColumnIndex: columnLetterToIndex("AH"),
-      startRowOneBased: 8,
+      startRowOneBased: 7,
     },
     pofaedfisica: {
       key: "pofa_ed_fisica",
       startColumnIndex: columnLetterToIndex("AK"),
-      startRowOneBased: 3,
+      startRowOneBased: 2,
     },
   };
 
