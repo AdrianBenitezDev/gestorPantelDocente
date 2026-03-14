@@ -511,6 +511,75 @@ function parseSheetGid(sheetUrl) {
   return match ? match[1] : "";
 }
 
+function columnLetterToIndex(columnName) {
+  const letters = String(columnName || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z]/g, "");
+  if (!letters) {
+    return 0;
+  }
+
+  let index = 0;
+  for (let i = 0; i < letters.length; i += 1) {
+    index = (index * 26) + (letters.charCodeAt(i) - 64);
+  }
+  return Math.max(0, index - 1);
+}
+
+function resolveSheetLayoutProfile(sheetName = "", sheetGid = "") {
+  const normalizedSheetName = normalizeHeader(sheetName);
+  const sheetProfilesByName = {
+    pofa: {
+      key: "pofa",
+      startColumnIndex: 0,
+      startRowOneBased: 217,
+    },
+    pofaedartistica: {
+      key: "pofa_ed_artistica",
+      startColumnIndex: columnLetterToIndex("AH"),
+      startRowOneBased: 8,
+    },
+    pofaedfisica: {
+      key: "pofa_ed_fisica",
+      startColumnIndex: columnLetterToIndex("AK"),
+      startRowOneBased: 3,
+    },
+  };
+
+  if (sheetProfilesByName[normalizedSheetName]) {
+    return {
+      sheetName: String(sheetName || "").trim(),
+      ...sheetProfilesByName[normalizedSheetName],
+    };
+  }
+
+  // Compatibilidad con configuraciones anteriores (hoja DATOS por gid).
+  if (String(sheetGid || "").trim() === "687928343") {
+    return {
+      key: "datos_gid_687928343",
+      sheetName: String(sheetName || "").trim(),
+      startColumnIndex: 0,
+      startRowOneBased: 217,
+    };
+  }
+
+  return {
+    key: "default",
+    sheetName: String(sheetName || "").trim(),
+    startColumnIndex: 0,
+    startRowOneBased: 217,
+  };
+}
+
+function applySheetColumnOffset(rows = [], startColumnIndex = 0) {
+  const safeStartColumn = Math.max(0, Number(startColumnIndex) || 0);
+  if (!safeStartColumn) {
+    return rows;
+  }
+  return rows.map((row) => (Array.isArray(row) ? row.slice(safeStartColumn) : []));
+}
+
 function getForcedHeaderRowIndex(rows = [], sheetGid = "") {
   // Hoja DATOS (gid 687928343): encabezado en fila 216, datos desde 217.
   const forcedHeaderRowByGid = {
@@ -791,6 +860,7 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
   const sheetName = sheetGid ? String(data.sheetName || "").trim() : assertString(data.sheetName, "sheetName", 1, 120);
   const selectedCourse = normalizeCourse(String(data.course || "").trim());
   const sheetId = parseSheetId(sheetUrl);
+  const sheetLayout = resolveSheetLayoutProfile(sheetName, sheetGid);
 
   if (!sheetId) {
     throw new HttpsError("invalid-argument", "Invalid Google Sheets URL");
@@ -804,6 +874,7 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
     sheetId,
     sheetGid,
     sheetName,
+    sheetLayout,
     selectedCourse,
   });
 
@@ -822,7 +893,7 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
     );
   }
 
-  const rows = parseCsv(csvText);
+  const rows = applySheetColumnOffset(parseCsv(csvText), sheetLayout.startColumnIndex);
   logger.info("loadDocentesFromSheet: csv parsed", {
     rowsCount: rows.length,
   });
@@ -837,15 +908,21 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
   const hasHeaders = headerRowIndex >= 0;
   const headers = hasHeaders ? rows[headerRowIndex].map((header) => normalizeHeader(header)) : [];
   const dataRows = hasHeaders ? rows.slice(headerRowIndex + 1) : rows;
-  const scopedDataRows = applyMinimumSheetRow(dataRows, hasHeaders, headerRowIndex, 217);
+  const scopedDataRows = applyMinimumSheetRow(
+    dataRows,
+    hasHeaders,
+    headerRowIndex,
+    sheetLayout.startRowOneBased
+  );
   logger.info("loadDocentesFromSheet: headers analysis", {
+    sheetLayout,
     forcedHeaderRowIndex,
     headerRowIndex,
     hasHeaders,
     headers: headers.slice(0, 20),
-    firstRowSample: rows[0].slice(0, 10),
+    firstRowSample: (rows[0] || []).slice(0, 10),
     dataRowsCount: dataRows.length,
-    startRowOneBased: 217,
+    startRowOneBased: sheetLayout.startRowOneBased,
     scopedDataRowsCount: scopedDataRows.length,
   });
 
@@ -1052,11 +1129,12 @@ exports.loadDocentesFromSheet = onCall(callableOptions, async (request) => {
     course: selectedCourse || "",
     detectedCourses,
     debug: {
+      sheetLayout,
       rowsCount: rows.length,
       dataRowsCount: scopedDataRows.length,
       headerRowIndex,
       hasHeaders,
-      startRowOneBased: 217,
+      startRowOneBased: sheetLayout.startRowOneBased,
       rejectionStats,
     },
     docentes,
@@ -1173,6 +1251,7 @@ exports.loadCursosFromSheet = onCall(callableOptions, async (request) => {
   const sheetName = sheetGid ? String(data.sheetName || "").trim() : assertString(data.sheetName, "sheetName", 1, 120);
   const selectedCourse = normalizeCourse(String(data.course || "").trim());
   const sheetId = parseSheetId(sheetUrl);
+  const sheetLayout = resolveSheetLayoutProfile(sheetName, sheetGid);
 
   if (!sheetId) {
     throw new HttpsError("invalid-argument", "Invalid Google Sheets URL");
@@ -1197,7 +1276,7 @@ exports.loadCursosFromSheet = onCall(callableOptions, async (request) => {
     );
   }
 
-  const rows = parseCsv(csvText);
+  const rows = applySheetColumnOffset(parseCsv(csvText), sheetLayout.startColumnIndex);
   if (!rows.length) {
     return { ok: true, cursos: [], total: 0 };
   }
@@ -1209,7 +1288,12 @@ exports.loadCursosFromSheet = onCall(callableOptions, async (request) => {
   const hasHeaders = headerRowIndex >= 0;
   const headers = hasHeaders ? rows[headerRowIndex].map((header) => normalizeHeader(header)) : [];
   const dataRows = hasHeaders ? rows.slice(headerRowIndex + 1) : rows;
-  const scopedDataRows = applyMinimumSheetRow(dataRows, hasHeaders, headerRowIndex, 217);
+  const scopedDataRows = applyMinimumSheetRow(
+    dataRows,
+    hasHeaders,
+    headerRowIndex,
+    sheetLayout.startRowOneBased
+  );
   const detectedCoursesSet = new Set();
   let lastDetectedCourse = "";
 

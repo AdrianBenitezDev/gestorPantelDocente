@@ -113,7 +113,14 @@
         <p id="selected-course" class="msg">Curso seleccionado: -</p>
         <form id="sheet-import-form" class="grid-form">
           <label>URL Google Sheet <input id="sheet-url" type="url" placeholder="https://docs.google.com/spreadsheets/d/..." value="https://docs.google.com/spreadsheets/d/1sePsT0xdSgO-J4-ty84b0VSUz8LzE474nsTOvAWhOLQ/edit?usp=sharing" required /></label>
-          <label>Nombre de hoja <input id="sheet-name" placeholder="POFA" value="POFA" required /></label>
+          <label>
+            Nombre de hoja
+            <select id="sheet-name" required>
+              <option value="POFA" selected>POFA</option>
+              <option value="POFA ED. ARTISTICA">POFA ED. ARTISTICA</option>
+              <option value="POFA ED. FISICA">POFA ED. FISICA</option>
+            </select>
+          </label>
           <div class="review-actions">
             <button type="submit">Cargar docentes</button>
             <button id="load-cursos-btn" type="button" class="google-btn">Cargar cursos</button>

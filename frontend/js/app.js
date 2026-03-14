@@ -139,6 +139,11 @@ const DAYS = ["LUNES", "MARTES", "MIERCOLES", "JUEVES", "VIERNES"];
 const SHEET_IMPORT_CACHE_STORE = "sheet_import_form";
 const SHEET_IMPORT_CACHE_KEY = "default";
 const SHEET_IMPORT_PERSIST_DELAY_MS = 3000;
+const SHEET_NAME_OPTIONS = new Set([
+  "POFA",
+  "POFA ED. ARTISTICA",
+  "POFA ED. FISICA",
+]);
 
 let homeState = {
   tenantId: "",
@@ -788,11 +793,11 @@ async function hydrateSheetImportInputsFromCache() {
       return;
     }
     const cachedSheetUrl = String(cached.sheetUrl || "").trim();
-    const cachedSheetName = String(cached.sheetName || "").trim();
+    const cachedSheetName = normalizeSheetNameOption(cached.sheetName);
     if (sheetUrlInput && cachedSheetUrl) {
       sheetUrlInput.value = cachedSheetUrl;
     }
-    if (sheetNameInput && cachedSheetName) {
+    if (sheetNameInput) {
       sheetNameInput.value = cachedSheetName;
     }
   } catch (error) {
@@ -802,7 +807,7 @@ async function hydrateSheetImportInputsFromCache() {
 
 async function persistSheetImportInputs() {
   const sheetUrl = String(sheetUrlInput?.value || "").trim();
-  const sheetName = String(sheetNameInput?.value || "").trim();
+  const sheetName = normalizeSheetNameOption(sheetNameInput?.value);
   const payload = {
     id: SHEET_IMPORT_CACHE_KEY,
     updatedAt: Date.now(),
@@ -831,6 +836,14 @@ function scheduleSheetImportInputsPersistence() {
     sheetImportPersistTimer = null;
     void persistSheetImportInputs();
   }, SHEET_IMPORT_PERSIST_DELAY_MS);
+}
+
+function normalizeSheetNameOption(value) {
+  const normalized = String(value || "").trim();
+  if (SHEET_NAME_OPTIONS.has(normalized)) {
+    return normalized;
+  }
+  return "POFA";
 }
 
 function courseScheduleCacheId(tenantId, course) {
@@ -3015,7 +3028,10 @@ if (sheetUrlInput) {
 }
 
 if (sheetNameInput) {
-  sheetNameInput.addEventListener("keyup", () => {
+  sheetNameInput.addEventListener("change", () => {
+    scheduleSheetImportInputsPersistence();
+  });
+  sheetNameInput.addEventListener("input", () => {
     scheduleSheetImportInputsPersistence();
   });
 }
