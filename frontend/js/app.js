@@ -128,7 +128,6 @@ const DEFAULT_BUTTON_CONFIG = {
   N: { label: "Noche", color: "#1d3a8a" },
   S: { label: "Sin turno", color: "#4a5568" },
 };
-const REQUIRED_SCHEDULE_TURNS = ["M", "T", "V"];
 const SCHEDULE_TURN_META = [
   { code: "M", key: "manana", label: "Mañana" },
   { code: "T", key: "tarde", label: "Tarde" },
@@ -444,8 +443,8 @@ function normalizeTurnScheduleConfig(rawConfig) {
 
 function isTurnScheduleReady(config) {
   const normalized = normalizeTurnScheduleConfig(config);
-  return REQUIRED_SCHEDULE_TURNS.every((turnCode) => {
-    const turn = normalized.turns?.[turnCode];
+  return SCHEDULE_TURN_META.some((meta) => {
+    const turn = normalized.turns?.[meta.code];
     return Boolean(turn?.start && turn?.end && Array.isArray(turn?.slots) && turn.slots.length);
   });
 }
@@ -1603,14 +1602,12 @@ async function saveTurnScheduleConfig(tenantId) {
   }
 
   const parsed = readTurnScheduleFromEditor();
-  const requiredMissing = REQUIRED_SCHEDULE_TURNS.filter((turnCode) => {
-    const turn = parsed.turns?.[turnCode];
-    return !(turn?.start && turn?.end && Array.isArray(turn?.slots) && turn.slots.length);
+  const hasAtLeastOneConfiguredTurn = SCHEDULE_TURN_META.some((meta) => {
+    const turn = parsed.turns?.[meta.code];
+    return Boolean(turn?.start && turn?.end && Array.isArray(turn?.slots) && turn.slots.length);
   });
-  if (requiredMissing.length) {
-    throw new Error(
-      `Faltan turnos obligatorios: ${requiredMissing.join(", ")}. Debes completar inicio/fin y generar bloques.`
-    );
+  if (!hasAtLeastOneConfiguredTurn) {
+    throw new Error("Debes configurar al menos un turno con inicio, fin y bloques.");
   }
 
   homeState.turnScheduleConfig = normalizeTurnScheduleConfig(parsed);
@@ -1695,6 +1692,48 @@ function removeTurnSlotFromEditor(turnCode, slotIndex) {
     ...slot,
     index,
   }));
+  turnScheduleDraft = normalizeTurnScheduleConfig(config);
+  renderTurnScheduleEditor();
+}
+
+function recalculateTurnSlotsAfterBreakChange(turnCode, changedSlotIndex) {
+  const config = readTurnScheduleFromEditor();
+  const turn = config.turns?.[turnCode];
+  if (!turn || !Array.isArray(turn.slots) || !turn.slots.length) {
+    return;
+  }
+  const safeIndex = Number(changedSlotIndex);
+  if (!Number.isFinite(safeIndex) || safeIndex < 0 || safeIndex >= turn.slots.length) {
+    return;
+  }
+
+  for (let index = safeIndex + 1; index < turn.slots.length; index += 1) {
+    const previous = turn.slots[index - 1];
+    const current = turn.slots[index];
+    const previousEnd = parseClockToMinutes(previous?.end);
+    const currentStart = parseClockToMinutes(current?.start);
+    const currentEnd = parseClockToMinutes(current?.end);
+    if (previousEnd < 0 || currentStart < 0 || currentEnd <= currentStart) {
+      continue;
+    }
+
+    const duration = currentEnd - currentStart;
+    const breakAfterRaw = Number(previous?.breakAfterMin);
+    const breakAfter = Number.isFinite(breakAfterRaw)
+      ? Math.max(0, Math.min(30, Math.round(breakAfterRaw)))
+      : 0;
+    const nextStart = previousEnd + breakAfter;
+    const nextEnd = nextStart + duration;
+    const nextStartClock = minutesToClock(nextStart);
+    const nextEndClock = minutesToClock(nextEnd);
+    if (!nextStartClock || !nextEndClock) {
+      continue;
+    }
+
+    current.start = nextStartClock;
+    current.end = nextEndClock;
+  }
+
   turnScheduleDraft = normalizeTurnScheduleConfig(config);
   renderTurnScheduleEditor();
 }
@@ -3460,6 +3499,25 @@ turnScheduleEditor.addEventListener("click", (event) => {
   }
 });
 
+turnScheduleEditor.addEventListener("change", (event) => {
+  const target = event.target;
+  if (!(target instanceof Element)) {
+    return;
+  }
+  const breakInput = target.closest('[data-slot-key="break"]');
+  if (!breakInput) {
+    return;
+  }
+  const row = breakInput.closest("[data-slot-row]");
+  const card = breakInput.closest(".turn-schedule-card[data-turn]");
+  const turnCode = String(card?.getAttribute("data-turn") || "").trim().toUpperCase();
+  const slotIndex = Number(row?.getAttribute("data-slot-row") || -1);
+  if (!turnCode) {
+    return;
+  }
+  recalculateTurnSlotsAfterBreakChange(turnCode, slotIndex);
+});
+
 saveTurnScheduleBtn.addEventListener("click", async () => {
   if (!importState.tenantId) {
     setMsg(turnScheduleMsg, "No hay tenantId activo para guardar turnos y horarios", true);
@@ -3510,8 +3568,14 @@ homeTabBtn.addEventListener("click", () => {
   setPanelView("home");
 });
 
-settingsTabBtn.addEventListener("click", () => {
+settingsTabBtn.addEventListener("click", async () => {
   setPanelView("settings");
+  if (importState.tenantId) {
+    await loadTurnScheduleConfig(importState.tenantId, { allowFirestore: true });
+    return;
+  }
+  turnScheduleDraft = normalizeTurnScheduleConfig(homeState.turnScheduleConfig);
+  renderTurnScheduleEditor();
 });
 
 homeSearchInput.addEventListener("input", () => {
