@@ -18,6 +18,7 @@ const errorsMsg = document.getElementById("pac-errors-msg");
 const errorsPanel = document.getElementById("pac-errors-panel");
 const errorsSummaryEl = document.getElementById("pac-errors-summary");
 const errorsListEl = document.getElementById("pac-errors-list");
+const headerMsg = document.getElementById("pac-header-msg");
 const userNameEl = document.getElementById("pac-user-name");
 const userEmailEl = document.getElementById("pac-user-email");
 const resultsBody = document.getElementById("pac-results-body");
@@ -28,6 +29,24 @@ const maxResultsInput = document.getElementById("pac-max-results");
 const sheetUrlInput = document.getElementById("pac-sheet-url");
 const sheetNameInput = document.getElementById("pac-sheet-name");
 const startRowInput = document.getElementById("pac-start-row");
+
+const headerSaveBtn = document.getElementById("pac-header-save-btn");
+const headerEstablecimientoInput = document.getElementById("pac-header-establecimiento");
+const headerDomicilioInput = document.getElementById("pac-header-domicilio");
+const headerTelefonoInput = document.getElementById("pac-header-telefono");
+const headerEmailInput = document.getElementById("pac-header-email");
+const headerCategoriaInput = document.getElementById("pac-header-categoria");
+const headerTurnoMInput = document.getElementById("pac-header-turno-m");
+const headerTurnoTInput = document.getElementById("pac-header-turno-t");
+const headerTurnoVInput = document.getElementById("pac-header-turno-v");
+const headerDesfavorableInput = document.getElementById("pac-header-desfavorable");
+const headerDistritoInput = document.getElementById("pac-header-distrito");
+const headerTipoOrganizacionInput = document.getElementById("pac-header-tipo-organizacion");
+const headerEscuelaInput = document.getElementById("pac-header-escuela");
+const headerAnioInput = document.getElementById("pac-header-anio");
+const headerDesdeInput = document.getElementById("pac-header-desde");
+const headerHastaInput = document.getElementById("pac-header-hasta");
+const headerTurnoInputs = [headerTurnoMInput, headerTurnoTInput, headerTurnoVInput].filter(Boolean);
 
 const selectAllBtn = document.getElementById("pac-select-all-btn");
 const selectAllCheckbox = document.getElementById("pac-select-all-checkbox");
@@ -45,13 +64,29 @@ const state = {
   selectedRowIds: new Set(),
   busy: false,
   savedFile: null,
+  headerLoadedFromRemote: false,
 };
 const PAC_GMAIL_QUERY_STORAGE_KEY = "pacGmailQuery";
 const PAC_GMAIL_QUERY_IDB_KEY = "gmailQuery";
+const PAC_HEADER_IDB_KEY = "encabezadoPac";
 const PAC_CACHE_DB_NAME = "gpd-pac-cache";
 const PAC_CACHE_DB_VERSION = 1;
 const PAC_CACHE_STORE = "settings";
 const QUERY_PERSIST_DEBOUNCE_MS = 2000;
+const PAC_MONTHS = [
+  "01",
+  "02",
+  "03",
+  "04",
+  "05",
+  "06",
+  "07",
+  "08",
+  "09",
+  "10",
+  "11",
+  "12",
+];
 
 let queryPersistTimer = null;
 
@@ -138,7 +173,7 @@ async function idbSetSetting(settingKey, value) {
     const store = tx.objectStore(PAC_CACHE_STORE);
     const request = store.put({
       key: String(settingKey || ""),
-      value: String(value || ""),
+      value,
       updatedAt: Date.now(),
     });
     request.onsuccess = () => resolve();
@@ -203,6 +238,270 @@ async function hydrateGmailQueryInput() {
   } catch (error) {
     console.error("No se pudo leer pac-gmail-query desde localStorage", error);
   }
+}
+
+function getCurrentYear() {
+  return new Date().getFullYear();
+}
+
+function getSafeHeaderYear(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return getCurrentYear();
+  }
+  const year = Math.floor(parsed);
+  if (year < 2000 || year > 2999) {
+    return getCurrentYear();
+  }
+  return year;
+}
+
+function getMonthFromDateValue(value) {
+  const match = String(value || "").match(/^\d{2}\/(\d{2})\/\d{4}$/);
+  if (!match) {
+    return "";
+  }
+  return match[1];
+}
+
+function buildDesdeValue(month, year) {
+  return `01/${String(month || "").padStart(2, "0")}/${year}`;
+}
+
+function buildHastaValue(month, year) {
+  const monthNumber = Number(month);
+  const lastDay = new Date(year, monthNumber, 0).getDate();
+  const day = String(lastDay).padStart(2, "0");
+  return `${day}/${String(month || "").padStart(2, "0")}/${year}`;
+}
+
+function rebuildPacHeaderDateSelects(preferredDesde = "", preferredHasta = "") {
+  if (!headerAnioInput || !headerDesdeInput || !headerHastaInput) {
+    return;
+  }
+  const year = getSafeHeaderYear(headerAnioInput.value);
+  headerAnioInput.value = String(year);
+
+  const selectedDesdeMonth = getMonthFromDateValue(preferredDesde || headerDesdeInput.value) || "01";
+  const selectedHastaMonth = getMonthFromDateValue(preferredHasta || headerHastaInput.value) || "12";
+
+  headerDesdeInput.textContent = "";
+  headerHastaInput.textContent = "";
+
+  PAC_MONTHS.forEach((month) => {
+    const desdeOption = document.createElement("option");
+    desdeOption.value = buildDesdeValue(month, year);
+    desdeOption.textContent = desdeOption.value;
+    headerDesdeInput.appendChild(desdeOption);
+
+    const hastaOption = document.createElement("option");
+    hastaOption.value = buildHastaValue(month, year);
+    hastaOption.textContent = hastaOption.value;
+    headerHastaInput.appendChild(hastaOption);
+  });
+
+  const desiredDesde = buildDesdeValue(selectedDesdeMonth, year);
+  const desiredHasta = buildHastaValue(selectedHastaMonth, year);
+  headerDesdeInput.value = desiredDesde;
+  headerHastaInput.value = desiredHasta;
+}
+
+function extractAnexoFromEstablecimiento(value) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+  const match = text.match(/anexo\s*([0-9A-Za-z-]+)/i);
+  return match ? String(match[1] || "").trim() : "";
+}
+
+function getPacHeaderTurnoValue() {
+  const selected = headerTurnoInputs.find((checkbox) => checkbox.checked);
+  return selected ? String(selected.value || "").trim().toUpperCase() : "";
+}
+
+function setPacHeaderTurnoValue(value) {
+  const target = String(value || "").trim().toUpperCase();
+  headerTurnoInputs.forEach((checkbox) => {
+    checkbox.checked = Boolean(target && String(checkbox.value || "").toUpperCase() === target);
+  });
+}
+
+function collectPacHeaderData() {
+  const year = getSafeHeaderYear(headerAnioInput?.value);
+  const desdeDefault = buildDesdeValue("01", year);
+  const hastaDefault = buildHastaValue("12", year);
+  const establecimientoReparticion = String(headerEstablecimientoInput?.value || "").trim();
+  return {
+    establecimientoReparticion,
+    anexo: extractAnexoFromEstablecimiento(establecimientoReparticion),
+    domicilioEscuela: String(headerDomicilioInput?.value || "").trim(),
+    telefono: String(headerTelefonoInput?.value || "").trim(),
+    email: String(headerEmailInput?.value || "").trim(),
+    categoria: String(headerCategoriaInput?.value || "").trim(),
+    turno: getPacHeaderTurnoValue(),
+    desfavorable: String(headerDesfavorableInput?.value || "").trim(),
+    distrito: String(headerDistritoInput?.value || "").trim(),
+    tipoOrganizacion: String(headerTipoOrganizacionInput?.value || "").trim(),
+    escuela: String(headerEscuelaInput?.value || "").trim(),
+    anio: String(year),
+    desde: String(headerDesdeInput?.value || desdeDefault).trim(),
+    hasta: String(headerHastaInput?.value || hastaDefault).trim(),
+  };
+}
+
+function applyPacHeaderDataToForm(data) {
+  const safe = data && typeof data === "object" ? data : {};
+  if (headerEstablecimientoInput) {
+    headerEstablecimientoInput.value = String(safe.establecimientoReparticion || "");
+  }
+  if (headerDomicilioInput) {
+    headerDomicilioInput.value = String(safe.domicilioEscuela || "");
+  }
+  if (headerTelefonoInput) {
+    headerTelefonoInput.value = String(safe.telefono || "");
+  }
+  if (headerEmailInput) {
+    headerEmailInput.value = String(safe.email || "");
+  }
+  if (headerCategoriaInput) {
+    headerCategoriaInput.value = String(safe.categoria || "");
+  }
+  if (headerDesfavorableInput) {
+    headerDesfavorableInput.value = String(safe.desfavorable || "");
+  }
+  if (headerDistritoInput) {
+    headerDistritoInput.value = String(safe.distrito || "");
+  }
+  if (headerTipoOrganizacionInput) {
+    headerTipoOrganizacionInput.value = String(safe.tipoOrganizacion || "");
+  }
+  if (headerEscuelaInput) {
+    headerEscuelaInput.value = String(safe.escuela || "");
+  }
+  if (headerAnioInput) {
+    headerAnioInput.value = String(safe.anio || getCurrentYear());
+  }
+  rebuildPacHeaderDateSelects(String(safe.desde || ""), String(safe.hasta || ""));
+  setPacHeaderTurnoValue(safe.turno || "");
+}
+
+async function persistPacHeaderInIndexedDb(headerData) {
+  try {
+    await idbSetSetting(PAC_HEADER_IDB_KEY, headerData || {});
+  } catch (error) {
+    console.error("No se pudo guardar encabezado PAC en IndexedDB", error);
+  }
+}
+
+async function hydratePacHeaderFromIndexedDb() {
+  try {
+    const savedRecord = await idbGetSetting(PAC_HEADER_IDB_KEY);
+    if (savedRecord && savedRecord.value && typeof savedRecord.value === "object") {
+      applyPacHeaderDataToForm(savedRecord.value);
+      return true;
+    }
+  } catch (error) {
+    console.error("No se pudo leer encabezado PAC desde IndexedDB", error);
+  }
+  return false;
+}
+
+function setDefaultPacHeaderEmail(email) {
+  const safeEmail = String(email || "").trim();
+  if (!headerEmailInput || !safeEmail) {
+    return;
+  }
+  if (!String(headerEmailInput.value || "").trim()) {
+    headerEmailInput.value = safeEmail;
+  }
+}
+
+async function loadPacHeaderFromFirestore() {
+  if (!auth.currentUser) {
+    return null;
+  }
+  const callable = httpsCallable(functions, "obtenerEncabezadoPac");
+  const response = await callable({});
+  const result = response.data || {};
+  if (result && result.encabezadoPac && typeof result.encabezadoPac === "object") {
+    return result.encabezadoPac;
+  }
+  return null;
+}
+
+async function hydratePacHeaderForCurrentUser(user) {
+  setDefaultPacHeaderEmail(user?.email || "");
+  if (!user || state.headerLoadedFromRemote) {
+    return;
+  }
+  try {
+    const remoteData = await loadPacHeaderFromFirestore();
+    if (remoteData) {
+      applyPacHeaderDataToForm(remoteData);
+      await persistPacHeaderInIndexedDb(remoteData);
+    }
+  } catch (error) {
+    console.error("No se pudo cargar encabezado PAC desde Firestore", error);
+  } finally {
+    state.headerLoadedFromRemote = true;
+    setDefaultPacHeaderEmail(user?.email || "");
+  }
+}
+
+async function savePacHeader() {
+  const payload = collectPacHeaderData();
+  await persistPacHeaderInIndexedDb(payload);
+
+  if (!auth.currentUser) {
+    setMsg(headerMsg, "Datos guardados en local. Inicia sesion para sincronizar con Firestore.", true);
+    return;
+  }
+
+  setBusy(headerSaveBtn, true);
+  setMsg(headerMsg, "Guardando encabezado PAC...");
+  try {
+    const callable = httpsCallable(functions, "actuaizarEncabezadoPac");
+    const response = await callable({ encabezadoPac: payload });
+    const result = response.data || {};
+    const normalized = result?.encabezadoPac && typeof result.encabezadoPac === "object"
+      ? result.encabezadoPac
+      : payload;
+    applyPacHeaderDataToForm(normalized);
+    await persistPacHeaderInIndexedDb(normalized);
+    setMsg(headerMsg, "Encabezado PAC guardado en IndexedDB y Firestore.");
+  } catch (error) {
+    console.error("No se pudo guardar encabezado PAC en Firestore", error);
+    setMsg(headerMsg, `Se guardo en local, pero fallo Firestore: ${formatCallableError(error)}`, true);
+  } finally {
+    setBusy(headerSaveBtn, false);
+  }
+}
+
+function initPacHeaderForm() {
+  if (headerAnioInput && !String(headerAnioInput.value || "").trim()) {
+    headerAnioInput.value = String(getCurrentYear());
+  }
+  rebuildPacHeaderDateSelects();
+
+  if (headerAnioInput) {
+    headerAnioInput.addEventListener("change", () => {
+      rebuildPacHeaderDateSelects();
+    });
+  }
+
+  headerTurnoInputs.forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      if (!checkbox.checked) {
+        return;
+      }
+      headerTurnoInputs.forEach((other) => {
+        if (other !== checkbox) {
+          other.checked = false;
+        }
+      });
+    });
+  });
 }
 
 function sanitize(value) {
@@ -410,6 +709,7 @@ function buildSavePayload(rows, delivery = "drive") {
     outputTitle: "",
     rows,
     delivery: String(delivery || "drive"),
+    encabezadoPac: collectPacHeaderData(),
   };
 }
 
@@ -695,6 +995,7 @@ function openPreviewTab() {
     sheetUrl: String(sheetUrlInput.value || "").trim(),
     sheetName: String(sheetNameInput.value || "").trim(),
     startRow: Number(startRowInput.value || 14),
+    encabezadoPac: collectPacHeaderData(),
     accessToken: state.accessToken,
     savedFile: state.savedFile || null,
   };
@@ -750,6 +1051,12 @@ runBtn.addEventListener("click", async () => {
 if (queryInput) {
   queryInput.addEventListener("keyup", () => {
     scheduleGmailQueryPersistence();
+  });
+}
+
+if (headerSaveBtn) {
+  headerSaveBtn.addEventListener("click", async () => {
+    await savePacHeader();
   });
 }
 
@@ -810,6 +1117,7 @@ logoutBtn.addEventListener("click", async () => {
   try {
     await signOut(auth);
     state.accessToken = "";
+    state.headerLoadedFromRemote = false;
     cancelSelectionFlow();
     setMsg(authMsg, "Sesion cerrada");
     setMsg(runMsg, "");
@@ -823,6 +1131,7 @@ onAuthStateChanged(auth, (user) => {
   if (!user) {
     userNameEl.textContent = "Sin sesion";
     userEmailEl.textContent = "-";
+    state.headerLoadedFromRemote = false;
     if (!state.accessToken) {
       setMsg(authMsg, "Inicia sesion con Google y luego autoriza Gmail + Sheets + Drive.");
     }
@@ -831,11 +1140,14 @@ onAuthStateChanged(auth, (user) => {
 
   userNameEl.textContent = user.displayName || user.email || "Usuario";
   userEmailEl.textContent = user.email || "-";
+  void hydratePacHeaderForCurrentUser(user);
   if (!state.accessToken) {
     setMsg(authMsg, "Sesion iniciada. Falta autorizar Gmail + Sheets + Drive.");
   }
 });
 
+initPacHeaderForm();
+void hydratePacHeaderFromIndexedDb();
 void hydrateGmailQueryInput();
 setDefaultModeOption();
 renderRows([]);

@@ -983,6 +983,68 @@ a.link-btn:hover {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
+.pac-header-card {
+  padding: 10px 12px 12px;
+}
+
+.pac-header-summary {
+  cursor: pointer;
+  user-select: none;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.pac-header-summary h3 {
+  margin: 0;
+  display: inline;
+  font-size: 19px;
+}
+
+.pac-header-card[open] .pac-header-summary {
+  margin-bottom: 10px;
+}
+
+.pac-header-grid {
+  margin-top: 4px;
+}
+
+.pac-turno-field {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  background: #fbfcff;
+}
+
+.pac-turno-title {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.pac-turno-list {
+  display: grid;
+  gap: 6px;
+}
+
+.pac-turno-option {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+}
+
+.pac-turno-option input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
 .pac-inline-actions {
   display: flex;
   gap: 10px;

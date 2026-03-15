@@ -1476,6 +1476,118 @@ function pacEscapeSheetName(value) {
   return name.replace(/'/g, "''");
 }
 
+function pacPad2(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) {
+    return "01";
+  }
+  return String(Math.max(1, Math.min(12, Math.floor(num)))).padStart(2, "0");
+}
+
+function pacCurrentYear() {
+  return new Date().getFullYear();
+}
+
+function pacNormalizeYear(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return pacCurrentYear();
+  }
+  const year = Math.floor(parsed);
+  if (year < 2000 || year > 2999) {
+    return pacCurrentYear();
+  }
+  return year;
+}
+
+function pacDaysInMonth(month, year) {
+  const monthNum = Number(month);
+  const safeMonth = Number.isFinite(monthNum) ? Math.max(1, Math.min(12, Math.floor(monthNum))) : 1;
+  return new Date(year, safeMonth, 0).getDate();
+}
+
+function pacNormalizeMonth(value, fallbackMonth = "01") {
+  const match = String(value || "").trim().match(/^(\d{1,2})$/);
+  if (!match) {
+    return pacPad2(fallbackMonth);
+  }
+  return pacPad2(match[1]);
+}
+
+function pacMonthFromDateString(value, fallbackMonth = "01") {
+  const match = String(value || "").trim().match(/^\d{1,2}\/(\d{1,2})\/\d{4}$/);
+  if (!match) {
+    return pacPad2(fallbackMonth);
+  }
+  return pacNormalizeMonth(match[1], fallbackMonth);
+}
+
+function pacBuildBoundaryDate(month, year, isEnd) {
+  const mm = pacNormalizeMonth(month, "01");
+  if (isEnd) {
+    const day = String(pacDaysInMonth(mm, year)).padStart(2, "0");
+    return `${day}/${mm}/${year}`;
+  }
+  return `01/${mm}/${year}`;
+}
+
+function pacNormalizeTurno(value) {
+  const upper = String(value || "").toUpperCase();
+  const match = upper.match(/[MTV]/);
+  return match ? match[0] : "";
+}
+
+function pacNormalizeOrdinal(value) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+  const match = text.match(/[1-5]/);
+  if (!match) {
+    return "";
+  }
+  return `${match[0]}°`;
+}
+
+function pacExtractAnexo(establecimientoReparticion) {
+  const text = String(establecimientoReparticion || "").trim();
+  if (!text) {
+    return "";
+  }
+  const match = text.match(/anexo\s*([0-9A-Za-z-]+)/i);
+  return match ? String(match[1] || "").trim() : "";
+}
+
+function pacNormalizeEncabezadoPac(rawData, fallbackEmail = "") {
+  const data = rawData && typeof rawData === "object" ? rawData : {};
+  const year = pacNormalizeYear(data.anio);
+  const desdeMonth = pacMonthFromDateString(data.desde, "01");
+  const hastaMonth = pacMonthFromDateString(data.hasta, "12");
+  const establecimientoReparticion = pacNormalizeText(
+    data.establecimientoReparticion || data.establecimiento || data.reparticion || ""
+  );
+  const explicitAnexo = pacNormalizeText(data.anexo || "");
+  const anexo = explicitAnexo || pacExtractAnexo(establecimientoReparticion);
+  const email = pacNormalizeText(data.email || "") || pacNormalizeText(fallbackEmail || "");
+
+  return {
+    establecimientoReparticion,
+    anexo,
+    domicilioEscuela: pacNormalizeText(data.domicilioEscuela || data.domicilio || ""),
+    telefono: pacNormalizeText(data.telefono || ""),
+    email,
+    categoria: pacNormalizeOrdinal(data.categoria || ""),
+    turno: pacNormalizeTurno(data.turno || ""),
+    desfavorable: pacNormalizeOrdinal(data.desfavorable || ""),
+    distrito: pacNormalizeText(data.distrito || ""),
+    tipoOrganizacion: pacNormalizeText(data.tipoOrganizacion || ""),
+    escuela: pacNormalizeText(data.escuela || ""),
+    anio: String(year),
+    desde: pacBuildBoundaryDate(desdeMonth, year, false),
+    hasta: pacBuildBoundaryDate(hastaMonth, year, true),
+  };
+}
+
 function pacParseSheetId(value) {
   const text = String(value || "").trim();
   if (!text) {
@@ -2760,6 +2872,52 @@ async function pacWriteRowsToSheet(accessToken, sheetId, sheetName, startRow, ro
   };
 }
 
+function pacBuildEncabezadoCellUpdates(sheetName, encabezadoPac) {
+  const safeSheetName = pacEscapeSheetName(sheetName);
+  const encabezado = encabezadoPac && typeof encabezadoPac === "object" ? encabezadoPac : {};
+  const map = [
+    ["D4", encabezado.establecimientoReparticion || ""],
+    ["E4", encabezado.anexo || ""],
+    ["D5", encabezado.domicilioEscuela || ""],
+    ["D6", encabezado.telefono || ""],
+    ["B7", encabezado.email || ""],
+    ["B8", encabezado.categoria || ""],
+    ["C9", encabezado.turno || ""],
+    ["C10", encabezado.desfavorable || ""],
+    ["AI6", encabezado.distrito || ""],
+    ["AM6", encabezado.tipoOrganizacion || ""],
+    ["AQ6", encabezado.escuela || ""],
+    ["AQ11", encabezado.anio || ""],
+    ["AI9", encabezado.desde || ""],
+    ["AI10", encabezado.hasta || ""],
+  ];
+
+  return map.map(([cell, value]) => ({
+    range: `'${safeSheetName}'!${cell}`,
+    values: [[pacNormalizeText(value || "")]],
+  }));
+}
+
+async function pacWriteEncabezadoToSheet(accessToken, sheetId, sheetName, encabezadoPac) {
+  const updates = pacBuildEncabezadoCellUpdates(sheetName, encabezadoPac);
+  if (!updates.length) {
+    return { cellsUpdated: 0 };
+  }
+
+  const endpoint =
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}` +
+    "/values:batchUpdate";
+  await pacFetchJson(endpoint, accessToken, {
+    method: "POST",
+    body: JSON.stringify({
+      valueInputOption: "USER_ENTERED",
+      data: updates,
+    }),
+  }, "sheets.writeEncabezadoPac");
+
+  return { cellsUpdated: updates.length };
+}
+
 function pacNormalizeRowsForWrite(rawRows) {
   const list = Array.isArray(rawRows) ? rawRows : [];
   return list
@@ -2845,6 +3003,76 @@ async function pacDeleteDriveFile(accessToken, fileId) {
   const endpoint = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}`;
   await pacFetchBuffer(endpoint, accessToken, { method: "DELETE" }, "drive.deleteFile");
 }
+
+const updatePacEncabezadoCallable = onCall(callableOptions, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Auth required");
+  }
+
+  const uid = request.auth.uid;
+  const tenantId = await getUserTenantId(uid);
+  const authEmail = normalizeEmail(request.auth.token?.email || "");
+  const raw = request.data?.encabezadoPac && typeof request.data.encabezadoPac === "object"
+    ? request.data.encabezadoPac
+    : request.data || {};
+  const encabezadoPac = pacNormalizeEncabezadoPac(raw, authEmail);
+  const ref = db.collection("tenants").doc(tenantId).collection("configuraciones").doc("encabezadoPac");
+  const existing = await ref.get();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+
+  await ref.set(
+    {
+      tenantId,
+      ...encabezadoPac,
+      updatedAt: now,
+      updatedBy: uid,
+      createdAt: existing.exists ? existing.data()?.createdAt || now : now,
+    },
+    { merge: true }
+  );
+
+  return {
+    ok: true,
+    tenantId,
+    path: `tenants/${tenantId}/configuraciones/encabezadoPac`,
+    encabezadoPac,
+  };
+});
+
+exports.actuaizarEncabezadoPac = updatePacEncabezadoCallable;
+exports.actualizarEncabezadoPac = updatePacEncabezadoCallable;
+
+exports.obtenerEncabezadoPac = onCall(callableOptions, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Auth required");
+  }
+
+  const uid = request.auth.uid;
+  const tenantId = await getUserTenantId(uid);
+  const authEmail = normalizeEmail(request.auth.token?.email || "");
+  const ref = db.collection("tenants").doc(tenantId).collection("configuraciones").doc("encabezadoPac");
+  const snap = await ref.get();
+
+  if (!snap.exists) {
+    return {
+      ok: true,
+      tenantId,
+      exists: false,
+      path: `tenants/${tenantId}/configuraciones/encabezadoPac`,
+      encabezadoPac: null,
+    };
+  }
+
+  const data = snap.data() || {};
+  const encabezadoPac = pacNormalizeEncabezadoPac(data, authEmail);
+  return {
+    ok: true,
+    tenantId,
+    exists: true,
+    path: `tenants/${tenantId}/configuraciones/encabezadoPac`,
+    encabezadoPac,
+  };
+});
 
 exports.runPacProcess = onCall(callableOptions, async (request) => {
   if (!request.auth) {
@@ -3263,6 +3491,9 @@ exports.savePacRowsToDrive = onCall(callableOptions, async (request) => {
     throw new HttpsError("unauthenticated", "Auth required");
   }
 
+  const uid = request.auth.uid;
+  const tenantId = await getUserTenantId(uid);
+  const authEmail = normalizeEmail(request.auth.token?.email || "");
   const data = request.data || {};
   const accessToken = assertString(data.accessToken, "accessToken", 20, 10000);
   const sheetUrl = String(data.sheetUrl || "").trim();
@@ -3276,6 +3507,31 @@ exports.savePacRowsToDrive = onCall(callableOptions, async (request) => {
     throw new HttpsError("invalid-argument", "No hay filas seleccionadas para guardar");
   }
   const rows = await pacEnrichRowsWithExternalData(rawRows);
+  const rawEncabezadoPac = data.encabezadoPac && typeof data.encabezadoPac === "object"
+    ? data.encabezadoPac
+    : {};
+  const hasPayloadEncabezado = Object.keys(rawEncabezadoPac).length > 0;
+  let storedEncabezadoPac = {};
+  try {
+    const configSnap = await db
+      .collection("tenants")
+      .doc(tenantId)
+      .collection("configuraciones")
+      .doc("encabezadoPac")
+      .get();
+    if (configSnap.exists) {
+      storedEncabezadoPac = configSnap.data() || {};
+    }
+  } catch (configError) {
+    logger.warn("savePacRowsToDrive encabezadoPac read failed", {
+      tenantId,
+      message: String(configError?.message || "read failed"),
+    });
+  }
+  const encabezadoPac = pacNormalizeEncabezadoPac(
+    hasPayloadEncabezado ? rawEncabezadoPac : storedEncabezadoPac,
+    authEmail
+  );
 
   const requestedSheetName = pacNormalizeText(data.sheetName || "");
   const startRowRaw = Number(data.startRow);
@@ -3331,8 +3587,15 @@ exports.savePacRowsToDrive = onCall(callableOptions, async (request) => {
     const copied = await pacCopySpreadsheetTemplate(accessToken, templateSheetId, outputTitle);
     let targetSheetName = "";
     let writeSummary = null;
+    let encabezadoWriteSummary = null;
     try {
       targetSheetName = await pacResolveSheetName(accessToken, copied.id, requestedSheetName);
+      encabezadoWriteSummary = await pacWriteEncabezadoToSheet(
+        accessToken,
+        copied.id,
+        targetSheetName,
+        encabezadoPac
+      );
       writeSummary = await pacWriteRowsToSheet(accessToken, copied.id, targetSheetName, startRow, rows);
       const outputSheetUrl = `https://docs.google.com/spreadsheets/d/${copied.id}/edit`;
 
@@ -3349,6 +3612,7 @@ exports.savePacRowsToDrive = onCall(callableOptions, async (request) => {
           fileMimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
           fileBase64: xlsxBuffer.toString("base64"),
           writeSummary,
+          encabezadoWriteSummary,
           diagnostics: {
             requiredScopes,
             grantedScopes,
@@ -3369,6 +3633,7 @@ exports.savePacRowsToDrive = onCall(callableOptions, async (request) => {
         sheetUrl: outputSheetUrl,
         downloadXlsxUrl: `https://docs.google.com/spreadsheets/d/${copied.id}/export?format=xlsx`,
         writeSummary,
+        encabezadoWriteSummary,
         diagnostics: {
           requiredScopes,
           grantedScopes,
