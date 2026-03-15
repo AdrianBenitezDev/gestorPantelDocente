@@ -1549,15 +1549,6 @@ function pacNormalizeOrdinal(value) {
   return `${match[0]}°`;
 }
 
-function pacExtractAnexo(establecimientoReparticion) {
-  const text = String(establecimientoReparticion || "").trim();
-  if (!text) {
-    return "";
-  }
-  const match = text.match(/anexo\s*([0-9A-Za-z-]+)/i);
-  return match ? String(match[1] || "").trim() : "";
-}
-
 function pacNormalizeEncabezadoPac(rawData, fallbackEmail = "") {
   const data = rawData && typeof rawData === "object" ? rawData : {};
   const year = pacNormalizeYear(data.anio);
@@ -1566,8 +1557,7 @@ function pacNormalizeEncabezadoPac(rawData, fallbackEmail = "") {
   const establecimientoReparticion = pacNormalizeText(
     data.establecimientoReparticion || data.establecimiento || data.reparticion || ""
   );
-  const explicitAnexo = pacNormalizeText(data.anexo || "");
-  const anexo = explicitAnexo || pacExtractAnexo(establecimientoReparticion);
+  const anexo = pacNormalizeText(data.anexo || "");
   const email = pacNormalizeText(data.email || "") || pacNormalizeText(fallbackEmail || "");
 
   return {

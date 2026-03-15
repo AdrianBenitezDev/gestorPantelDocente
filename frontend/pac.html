@@ -39,97 +39,106 @@
       <summary class="pac-header-summary">
         <h3>Datos de encabezado del PAC</h3>
       </summary>
-      <form id="pac-header-form" class="pac-grid pac-header-grid">
-        <label>
-          <span>Establecimiento o reparticion</span>
-          <input
-            id="pac-header-establecimiento"
-            type="text"
-            placeholder="E.E.S. N°32 (Anexo 3031)"
-          />
-        </label>
-        <label>
-          <span>Domicilio de la escuela</span>
-          <input id="pac-header-domicilio" type="text" placeholder="calle y numero" />
-        </label>
-        <label>
-          <span>Telefono</span>
-          <input id="pac-header-telefono" type="text" placeholder="429725.." />
-        </label>
-        <label>
-          <span>Email</span>
-          <input
-            id="pac-header-email"
-            type="email"
-            placeholder="secundaria......@abc.gob.ar"
-          />
-        </label>
-        <label>
-          <span>Categoria</span>
-          <select id="pac-header-categoria">
-            <option value="">Seleccionar</option>
-            <option value="1°">1°</option>
-            <option value="2°">2°</option>
-            <option value="3°">3°</option>
-            <option value="4°">4°</option>
-            <option value="5°">5°</option>
-          </select>
-        </label>
-        <div class="pac-turno-field">
-          <p class="pac-turno-title">Turno</p>
-          <div class="pac-turno-list">
-            <label class="pac-turno-option" for="pac-header-turno-m">
-              <span>M</span>
-              <input id="pac-header-turno-m" name="pac-header-turno" type="checkbox" value="M" />
+      <div id="pac-header-content" class="pac-header-content">
+        <div class="pac-header-content-inner">
+          <p class="pac-header-intro">Ingrese los siguientes datos, seran colocados en el encabezado del pac</p>
+          <form id="pac-header-form" class="pac-grid pac-header-grid">
+            <label>
+              <span>Establecimiento o reparticion</span>
+              <input
+                id="pac-header-establecimiento"
+                type="text"
+                placeholder="E.E.S. N&deg;32 (Anexo 3031)"
+              />
             </label>
-            <label class="pac-turno-option" for="pac-header-turno-t">
-              <span>T</span>
-              <input id="pac-header-turno-t" name="pac-header-turno" type="checkbox" value="T" />
+            <label>
+              <p>Anexo</p>
+              <input id="pac-header-anexo" type="text" placeholder="3031" />
             </label>
-            <label class="pac-turno-option" for="pac-header-turno-v">
-              <span>V</span>
-              <input id="pac-header-turno-v" name="pac-header-turno" type="checkbox" value="V" />
+            <label>
+              <span>Domicilio de la escuela</span>
+              <input id="pac-header-domicilio" type="text" placeholder="calle y numero" />
             </label>
+            <label>
+              <span>Telefono</span>
+              <input id="pac-header-telefono" type="text" placeholder="429725.." />
+            </label>
+            <label>
+              <span>Email</span>
+              <input
+                id="pac-header-email"
+                type="email"
+                placeholder="secundaria......@abc.gob.ar"
+              />
+            </label>
+            <label>
+              <span>Categoria</span>
+              <select id="pac-header-categoria">
+                <option value="">Seleccionar</option>
+                <option value="1&deg;">1&deg;</option>
+                <option value="2&deg;">2&deg;</option>
+                <option value="3&deg;">3&deg;</option>
+                <option value="4&deg;">4&deg;</option>
+                <option value="5&deg;">5&deg;</option>
+              </select>
+            </label>
+            <div class="pac-turno-field">
+              <p class="pac-turno-title">Turno</p>
+              <div class="pac-turno-list">
+                <label class="pac-turno-option" for="pac-header-turno-m">
+                  <span>M</span>
+                  <input id="pac-header-turno-m" name="pac-header-turno" type="checkbox" value="M" />
+                </label>
+                <label class="pac-turno-option" for="pac-header-turno-t">
+                  <span>T</span>
+                  <input id="pac-header-turno-t" name="pac-header-turno" type="checkbox" value="T" />
+                </label>
+                <label class="pac-turno-option" for="pac-header-turno-v">
+                  <span>V</span>
+                  <input id="pac-header-turno-v" name="pac-header-turno" type="checkbox" value="V" />
+                </label>
+              </div>
+            </div>
+            <label>
+              <span>Desfavorable</span>
+              <select id="pac-header-desfavorable">
+                <option value="">Seleccionar</option>
+                <option value="1&deg;">1&deg;</option>
+                <option value="2&deg;">2&deg;</option>
+                <option value="3&deg;">3&deg;</option>
+                <option value="4&deg;">4&deg;</option>
+                <option value="5&deg;">5&deg;</option>
+              </select>
+            </label>
+            <label>
+              <span>Distrito</span>
+              <input id="pac-header-distrito" type="text" placeholder="004" />
+            </label>
+            <label>
+              <span>Tipo de organizacion</span>
+              <input id="pac-header-tipo-organizacion" type="text" placeholder="E.E.S" />
+            </label>
+            <label>
+              <span>Escuela</span>
+              <input id="pac-header-escuela" type="text" placeholder="26" />
+            </label>
+            <label>
+              <span>A&ntilde;o</span>
+              <input id="pac-header-anio" type="number" min="2000" max="2999" />
+            </label>
+            <label>
+              <span>Desde</span>
+              <select id="pac-header-desde"></select>
+            </label>
+            <label>
+              <span>Hasta</span>
+              <select id="pac-header-hasta"></select>
+            </label>
+          </form>
+          <div class="review-actions">
+            <button id="pac-header-save-btn" type="button">Guardar</button>
           </div>
         </div>
-        <label>
-          <span>Desfavorable</span>
-          <select id="pac-header-desfavorable">
-            <option value="">Seleccionar</option>
-            <option value="1°">1°</option>
-            <option value="2°">2°</option>
-            <option value="3°">3°</option>
-            <option value="4°">4°</option>
-            <option value="5°">5°</option>
-          </select>
-        </label>
-        <label>
-          <span>Distrito</span>
-          <input id="pac-header-distrito" type="text" />
-        </label>
-        <label>
-          <span>Tipo de organizacion</span>
-          <input id="pac-header-tipo-organizacion" type="text" />
-        </label>
-        <label>
-          <span>Escuela</span>
-          <input id="pac-header-escuela" type="text" />
-        </label>
-        <label>
-          <span>Ano</span>
-          <input id="pac-header-anio" type="number" min="2000" max="2999" />
-        </label>
-        <label>
-          <span>Desde</span>
-          <select id="pac-header-desde"></select>
-        </label>
-        <label>
-          <span>Hasta</span>
-          <select id="pac-header-hasta"></select>
-        </label>
-      </form>
-      <div class="review-actions">
-        <button id="pac-header-save-btn" type="button">Guardar</button>
       </div>
       <p id="pac-header-msg" class="msg"></p>
     </details>

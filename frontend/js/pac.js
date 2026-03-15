@@ -19,6 +19,9 @@ const errorsPanel = document.getElementById("pac-errors-panel");
 const errorsSummaryEl = document.getElementById("pac-errors-summary");
 const errorsListEl = document.getElementById("pac-errors-list");
 const headerMsg = document.getElementById("pac-header-msg");
+const headerDetails = document.getElementById("pac-header-details");
+const headerSummary = document.querySelector("#pac-header-details > .pac-header-summary");
+const headerContent = document.getElementById("pac-header-content");
 const userNameEl = document.getElementById("pac-user-name");
 const userEmailEl = document.getElementById("pac-user-email");
 const resultsBody = document.getElementById("pac-results-body");
@@ -32,6 +35,7 @@ const startRowInput = document.getElementById("pac-start-row");
 
 const headerSaveBtn = document.getElementById("pac-header-save-btn");
 const headerEstablecimientoInput = document.getElementById("pac-header-establecimiento");
+const headerAnexoInput = document.getElementById("pac-header-anexo");
 const headerDomicilioInput = document.getElementById("pac-header-domicilio");
 const headerTelefonoInput = document.getElementById("pac-header-telefono");
 const headerEmailInput = document.getElementById("pac-header-email");
@@ -306,15 +310,6 @@ function rebuildPacHeaderDateSelects(preferredDesde = "", preferredHasta = "") {
   headerHastaInput.value = desiredHasta;
 }
 
-function extractAnexoFromEstablecimiento(value) {
-  const text = String(value || "").trim();
-  if (!text) {
-    return "";
-  }
-  const match = text.match(/anexo\s*([0-9A-Za-z-]+)/i);
-  return match ? String(match[1] || "").trim() : "";
-}
-
 function getPacHeaderTurnoValue() {
   const selected = headerTurnoInputs.find((checkbox) => checkbox.checked);
   return selected ? String(selected.value || "").trim().toUpperCase() : "";
@@ -331,10 +326,9 @@ function collectPacHeaderData() {
   const year = getSafeHeaderYear(headerAnioInput?.value);
   const desdeDefault = buildDesdeValue("01", year);
   const hastaDefault = buildHastaValue("12", year);
-  const establecimientoReparticion = String(headerEstablecimientoInput?.value || "").trim();
   return {
-    establecimientoReparticion,
-    anexo: extractAnexoFromEstablecimiento(establecimientoReparticion),
+    establecimientoReparticion: String(headerEstablecimientoInput?.value || "").trim(),
+    anexo: String(headerAnexoInput?.value || "").trim(),
     domicilioEscuela: String(headerDomicilioInput?.value || "").trim(),
     telefono: String(headerTelefonoInput?.value || "").trim(),
     email: String(headerEmailInput?.value || "").trim(),
@@ -354,6 +348,9 @@ function applyPacHeaderDataToForm(data) {
   const safe = data && typeof data === "object" ? data : {};
   if (headerEstablecimientoInput) {
     headerEstablecimientoInput.value = String(safe.establecimientoReparticion || "");
+  }
+  if (headerAnexoInput) {
+    headerAnexoInput.value = String(safe.anexo || "");
   }
   if (headerDomicilioInput) {
     headerDomicilioInput.value = String(safe.domicilioEscuela || "");
@@ -478,7 +475,74 @@ async function savePacHeader() {
   }
 }
 
+function initPacHeaderToggleAnimation() {
+  if (!headerDetails || !headerSummary || !headerContent) {
+    return;
+  }
+
+  let animating = false;
+
+  headerSummary.addEventListener("click", (event) => {
+    event.preventDefault();
+    if (animating) {
+      return;
+    }
+
+    const isOpen = headerDetails.open;
+    const currentHeight = headerContent.getBoundingClientRect().height || 0;
+    headerContent.style.overflow = "hidden";
+
+    if (isOpen) {
+      animating = true;
+      headerContent.style.height = `${currentHeight}px`;
+      headerContent.style.opacity = "1";
+      requestAnimationFrame(() => {
+        headerContent.style.height = "0px";
+        headerContent.style.opacity = "0";
+      });
+
+      const onCloseEnd = (closeEvent) => {
+        if (closeEvent?.propertyName !== "height") {
+          return;
+        }
+        headerContent.removeEventListener("transitionend", onCloseEnd);
+        headerDetails.open = false;
+        headerContent.style.height = "";
+        headerContent.style.opacity = "";
+        headerContent.style.overflow = "";
+        animating = false;
+      };
+      headerContent.addEventListener("transitionend", onCloseEnd);
+      return;
+    }
+
+    animating = true;
+    headerDetails.open = true;
+    headerContent.style.height = "0px";
+    headerContent.style.opacity = "0";
+    requestAnimationFrame(() => {
+      const targetHeight = headerContent.scrollHeight;
+      headerContent.style.height = `${targetHeight}px`;
+      headerContent.style.opacity = "1";
+    });
+
+    const onOpenEnd = (openEvent) => {
+      if (openEvent?.propertyName !== "height") {
+        return;
+      }
+      headerContent.removeEventListener("transitionend", onOpenEnd);
+      headerContent.style.height = "";
+      headerContent.style.opacity = "";
+      headerContent.style.overflow = "";
+      animating = false;
+    };
+    headerContent.addEventListener("transitionend", onOpenEnd);
+  });
+}
+
 function initPacHeaderForm() {
+  initPacHeaderToggleAnimation();
+
   if (headerAnioInput && !String(headerAnioInput.value || "").trim()) {
     headerAnioInput.value = String(getCurrentYear());
   }
