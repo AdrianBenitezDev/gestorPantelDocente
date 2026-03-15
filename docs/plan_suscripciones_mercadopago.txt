@@ -1,0 +1,124 @@
+PLAN SUSCRIPCIONES MERCADO PAGO + FIREBASE
+Fecha: 2026-03-15
+
+OBJETIVO
+- Implementar suscripciones mensuales con Mercado Pago para la app.
+- Precio del plan inicial: ARS 2000 por mes.
+- Sincronizar estado de suscripcion en Firebase para habilitar/bloquear funcionalidades.
+
+RESPUESTA CORTA A TUS PREGUNTAS
+1) "En Firebase esta el plan?"
+- Firebase NO trae un "plan de suscripcion comercial" listo para vender.
+- El plan comercial se define en tu app (Firestore + Functions) y el cobro recurrente lo hace Mercado Pago.
+
+2) "Que plan de Firebase necesito?"
+- Para integrar suscripciones con backend (Cloud Functions + webhooks + Secrets) necesitas Blaze (pay as you go).
+- Spark no alcanza para este flujo productivo.
+
+3) "Cuanto sale?"
+- Tu producto: ARS 2000 por mes (definido por vos).
+- Firebase Blaze: sin costo fijo mensual, se paga por uso.
+- Mercado Pago: cobra comision por cobro procesado, variable segun condiciones comerciales.
+
+DEFINICION DEL PLAN COMERCIAL (LO QUE VAMOS A VENDER)
+- Nombre: Plan Base
+- Monto: 2000
+- Moneda: ARS
+- Frecuencia: mensual
+- Estado inicial: activa
+
+ARQUITECTURA PROPUESTA
+1) Frontend
+- Pantalla "Suscripcion" con:
+  - boton "Suscribirme"
+  - estado actual (activa, pendiente, pausada, cancelada)
+  - fecha de proximo cobro
+
+2) Backend (Firebase Functions)
+- createSubscriptionPlan (admin)
+  - crea/actualiza plan en Mercado Pago (preapproval_plan).
+- createSubscriptionForUser
+  - crea suscripcion del usuario (preapproval) y devuelve checkout/init link.
+- mercadoPagoWebhook
+  - recibe eventos de suscripciones y pagos.
+  - valida evento y actualiza Firestore.
+- getSubscriptionStatus
+  - devuelve estado consolidado para UI.
+
+3) Persistencia (Firestore)
+- /config/suscripciones/plan_base
+  - amount: 2000
+  - currency: "ARS"
+  - frequency: 1
+  - frequency_type: "months"
+  - mp_preapproval_plan_id: "..."
+  - active: true
+- /tenants/{tenantId}/billing/subscription
+  - mp_preapproval_id
+  - status
+  - next_payment_date
+  - payer_email
+  - updatedAt
+- /tenants/{tenantId}/billing/events/{eventId}
+  - payload webhook para auditoria
+
+PASOS DE IMPLEMENTACION
+FASE 1 - Preparacion
+1. Crear app en Mercado Pago Developers.
+2. Obtener ACCESS_TOKEN de pruebas y luego de produccion.
+3. Guardar tokens en Secret Manager (no en codigo).
+4. Confirmar proyecto Firebase en Blaze.
+
+FASE 2 - Plan y suscripcion
+5. Implementar Function para crear plan recurrente ARS 2000 mensual.
+6. Guardar mp_preapproval_plan_id en Firestore.
+7. Implementar Function para crear suscripcion por tenant/usuario.
+8. Devolver URL de checkout/autorizacion para que el usuario confirme.
+
+FASE 3 - Webhooks y estado
+9. Exponer webhook HTTPS en Functions.
+10. Configurar webhook URL en Mercado Pago.
+11. Verificar firma/evento y guardar log de eventos.
+12. Actualizar estado de suscripcion en Firestore segun evento.
+
+FASE 4 - UI y reglas de acceso
+13. Crear vista de estado de suscripcion.
+14. Bloquear funcionalidades premium si status != active.
+15. Mostrar mensajes claros: activa, pendiente, vencida, cancelada.
+
+FASE 5 - QA y salida a produccion
+16. Probar flujo completo con usuarios de prueba Mercado Pago.
+17. Probar reintentos de pago, cancelacion y reactivacion.
+18. Activar credenciales productivas.
+19. Monitorear logs y metricas 7 dias.
+
+CHECKLIST DE SEGURIDAD
+- Validar auth y tenant en todas las callable functions.
+- Usar idempotencia para procesar webhooks (eventId unico).
+- No confiar en datos del frontend para estado de pago.
+- Guardar auditoria minima de cada evento.
+- Rotar credenciales y secretos.
+
+RIESGOS Y MITIGACIONES
+- Webhook duplicado:
+  - Mitigacion: control por eventId + transaccion idempotente.
+- Diferencias de estado entre MP y Firestore:
+  - Mitigacion: tarea de reconciliacion diaria.
+- Rechazos de pago:
+  - Mitigacion: UI de "actualiza medio de pago" + notificacion.
+
+ESTIMACION
+- MVP tecnico: 2 a 4 dias.
+- Hardening + pruebas + panel admin: 3 a 5 dias extra.
+
+NOTAS DE COSTO (REFERENCIA)
+- Firebase Blaze: uso medido (sin abono fijo).
+- Cloud Functions (segun pagina de pricing): incluye cuota no-cost y luego cobro por invocaciones/egress.
+- Mercado Pago: comision por cobro procesado (variable por condiciones comerciales/localidad/plazo).
+
+FUENTES CONSULTADAS (2026-03-15)
+- Firebase pricing: https://firebase.google.com/pricing
+- Firebase storage plan requirement (Blaze): https://firebase.google.com/docs/storage/faqs-storage-changes-announced-sept-2024
+- Mercado Pago Subscriptions overview: https://www.mercadopago.com.ar/developers/en/docs/subscriptions/overview
+- Mercado Pago subscriptions prerequisites: https://www.mercadopago.com.ar/developers/en/docs/subscriptions/requirements
+- Mercado Pago preapproval plan reference: https://www.mercadopago.com.uy/developers/es/reference/subscriptions/_preapproval_plan/post
