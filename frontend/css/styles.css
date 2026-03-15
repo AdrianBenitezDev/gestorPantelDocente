@@ -1115,6 +1115,11 @@ a.link-btn:hover {
   margin: 0;
 }
 
+#pac-preview-btn,
+#pac-run-btn {
+  margin-top: 10px;
+}
+
 .pac-errors-panel {
   margin-top: 10px;
   border: 1px solid var(--border);

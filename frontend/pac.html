@@ -173,27 +173,26 @@
           <span>utilizar un archivo de google sheet personalizado</span>
           <input id="pac-use-custom-sheet" type="checkbox" />
         </label>
+        <form class="pac-grid">
+          <label>
+            URL plantilla Google Sheet
+            <input
+              id="pac-sheet-url"
+              type="url"
+              value="https://docs.google.com/spreadsheets/d/1UP0FlTWQdHciMe1dbpj2i1dhsQAk4EsxCtq2Bvxlv2U/edit?usp=sharing"
+              required
+            />
+          </label>
+          <label>
+            Hoja destino
+            <input id="pac-sheet-name" type="text" value="" placeholder="Opcional: si esta vacio se usa la primera hoja" />
+          </label>
+          <label>
+            Fila inicial
+            <input id="pac-start-row" type="number" min="1" value="14" required />
+          </label>
+        </form>
       </section>
-
-      <form class="pac-grid">
-        <label>
-          URL plantilla Google Sheet
-          <input
-            id="pac-sheet-url"
-            type="url"
-            value="https://docs.google.com/spreadsheets/d/1UP0FlTWQdHciMe1dbpj2i1dhsQAk4EsxCtq2Bvxlv2U/edit?usp=sharing"
-            required
-          />
-        </label>
-        <label>
-          Hoja destino
-          <input id="pac-sheet-name" type="text" value="" placeholder="Opcional: si esta vacio se usa la primera hoja" />
-        </label>
-        <label>
-          Fila inicial
-          <input id="pac-start-row" type="number" min="1" value="14" required />
-        </label>
-      </form>
       <div class="review-actions">
         <button id="pac-preview-btn" type="button" class="google-btn">Probar extraccion</button>
         <button id="pac-run-btn" type="button">Guardar seleccion en Drive</button>
