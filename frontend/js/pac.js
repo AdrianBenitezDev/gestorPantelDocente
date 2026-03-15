@@ -730,6 +730,22 @@ function updatePacHeaderSummaryStatus() {
   headerSummaryTitle.textContent = `Datos de encabezado del PAC ${status}`;
 }
 
+function syncPacHeaderOpenStateFromData() {
+  if (!headerDetails) {
+    return;
+  }
+  const shouldOpen = !isPacHeaderComplete(collectPacHeaderData());
+  if (headerDetails.open === shouldOpen) {
+    return;
+  }
+  headerDetails.open = shouldOpen;
+  if (headerContent) {
+    headerContent.style.height = "";
+    headerContent.style.opacity = "";
+    headerContent.style.overflow = "";
+  }
+}
+
 async function persistPacHeaderInIndexedDb(headerData) {
   try {
     await idbSetSetting(PAC_HEADER_IDB_KEY, headerData || {});
@@ -743,12 +759,14 @@ async function hydratePacHeaderFromIndexedDb() {
     const savedRecord = await idbGetSetting(PAC_HEADER_IDB_KEY);
     if (savedRecord && savedRecord.value && typeof savedRecord.value === "object") {
       applyPacHeaderDataToForm(savedRecord.value);
+      syncPacHeaderOpenStateFromData();
       return true;
     }
   } catch (error) {
     console.error("No se pudo leer encabezado PAC desde IndexedDB", error);
   }
   updatePacHeaderSummaryStatus();
+  syncPacHeaderOpenStateFromData();
   return false;
 }
 
@@ -786,12 +804,14 @@ async function hydratePacHeaderForCurrentUser(user) {
     if (remoteData) {
       applyPacHeaderDataToForm(remoteData);
       await persistPacHeaderInIndexedDb(remoteData);
+      syncPacHeaderOpenStateFromData();
     }
   } catch (error) {
     console.error("No se pudo cargar encabezado PAC desde Firestore", error);
   } finally {
     state.headerLoadedFromRemote = true;
     setDefaultPacHeaderEmail(user?.email || "");
+    syncPacHeaderOpenStateFromData();
   }
 }
 
