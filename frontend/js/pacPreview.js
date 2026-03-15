@@ -7,6 +7,7 @@ const saveBtn = document.getElementById("preview-save-btn");
 const downloadBtn = document.getElementById("preview-download-btn");
 const cancelBtn = document.getElementById("preview-cancel-btn");
 const msgEl = document.getElementById("preview-msg");
+const openDriveBtn = document.getElementById("preview-open-drive-btn");
 const subtitleEl = document.getElementById("pac-preview-subtitle");
 const resultsBody = document.getElementById("preview-results-body");
 
@@ -20,6 +21,22 @@ function setMsg(text, isError = false) {
   msgEl.textContent = String(text || "");
   msgEl.classList.toggle("error", isError);
   msgEl.classList.toggle("success", !isError && Boolean(text));
+}
+
+function setDriveResultButton(sheetUrl = "") {
+  if (!openDriveBtn) {
+    return;
+  }
+  const safeUrl = String(sheetUrl || "").trim();
+  if (!safeUrl) {
+    openDriveBtn.hidden = true;
+    openDriveBtn.classList.add("is-hidden");
+    openDriveBtn.removeAttribute("href");
+    return;
+  }
+  openDriveBtn.href = safeUrl;
+  openDriveBtn.hidden = false;
+  openDriveBtn.classList.remove("is-hidden");
 }
 
 function sanitize(value) {
@@ -176,15 +193,18 @@ async function saveToDrive() {
   }
 
   setBusy(true);
+  setDriveResultButton("");
   setMsg("Guardando en Google Drive...");
   try {
     const callable = httpsCallable(functions, "savePacRowsToDrive");
     const response = await callable(payload);
     const result = response.data || {};
     state.savedFile = result;
-    setMsg(`Archivo guardado en Drive. Filas escritas: ${Number(result.rowsWritten || 0)} | ${String(result.sheetUrl || "")}`);
+    setDriveResultButton(String(result.sheetUrl || ""));
+    setMsg(`Archivo guardado en Drive. Filas escritas: ${Number(result.rowsWritten || 0)}`);
   } catch (error) {
     console.error("saveToDrive preview error", error);
+    setDriveResultButton("");
     setMsg(String(error?.message || "No se pudo guardar en Drive"), true);
   } finally {
     setBusy(false);
@@ -208,6 +228,7 @@ async function downloadWorkbook() {
   }
 
   setBusy(true);
+  setDriveResultButton("");
   setMsg("Generando archivo para descarga...");
   try {
     const callable = httpsCallable(functions, "savePacRowsToDrive");
@@ -221,8 +242,10 @@ async function downloadWorkbook() {
     const fileName = String(result.fileName || "PAC.xlsx");
     downloadBlobFile(blob, fileName);
     setMsg(`Archivo descargado: ${fileName}`);
+    setDriveResultButton("");
   } catch (error) {
     console.error("downloadWorkbook preview error", error);
+    setDriveResultButton("");
     setMsg(String(error?.message || "No se pudo descargar el archivo"), true);
   } finally {
     setBusy(false);
@@ -245,11 +268,13 @@ cancelBtn.addEventListener("click", () => {
 state.payload = loadPayload();
 if (!state.payload) {
   renderRows([]);
+  setDriveResultButton("");
   setMsg("No hay datos de vista previa. Volve a la pantalla PAC y ejecuta Probar extraccion.", true);
 } else {
   state.savedFile = state.payload.savedFile || null;
   const rows = Array.isArray(state.payload.rows) ? state.payload.rows : [];
   renderRows(rows);
+  setDriveResultButton(String(state.savedFile?.sheetUrl || ""));
   subtitleEl.textContent = `Filas seleccionadas: ${rows.length}`;
   setMsg("Listo para guardar o descargar.");
 }

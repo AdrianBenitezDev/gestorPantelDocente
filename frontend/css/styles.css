@@ -1120,6 +1120,18 @@ a.link-btn:hover {
   margin-top: 10px;
 }
 
+.pac-drive-link-btn {
+  margin-top: 10px;
+  width: fit-content;
+  gap: 8px;
+}
+
+.pac-drive-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .pac-errors-panel {
   margin-top: 10px;
   border: 1px solid var(--border);

@@ -19,7 +19,7 @@
         <span id="pac-user-email" class="user-email">-</span>
       </div>
       <button id="pac-logout-btn" type="button" class="google-btn">Cerrar sesion</button>
-      <a href="/horarios.html" class="link-btn">Ir a horarios</a>
+      <a id="pac-go-horarios-link" href="/horarios.html" class="link-btn" hidden>Ir a horarios</a>
     </div>
   </header>
 
@@ -198,6 +198,23 @@
         <button id="pac-run-btn" type="button">Guardar seleccion en Drive</button>
       </div>
       <p id="pac-run-msg" class="msg"></p>
+      <a
+        id="pac-open-drive-btn"
+        class="link-btn pac-drive-link-btn is-hidden"
+        href="#"
+        target="_blank"
+        rel="noopener noreferrer"
+        hidden
+      >
+        <span class="pac-drive-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="16" height="16" xmlns="http://www.w3.org/2000/svg">
+            <path fill="#0F9D58" d="M8.1 3.6h7.8l3.4 5.8h-7.8z" />
+            <path fill="#4285F4" d="M5.3 9.4L9.2 3l3.9 6.4-3.9 6.5z" />
+            <path fill="#F4B400" d="M13.1 9.4h7.4L16.5 16H9.2z" />
+          </svg>
+        </span>
+        <span>Ir a la planilla guardada en Drive</span>
+      </a>
     </section>
 
     <section class="card">

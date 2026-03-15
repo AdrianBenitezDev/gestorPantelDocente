@@ -13,6 +13,8 @@ const previewBtn = document.getElementById("pac-preview-btn");
 const runBtn = document.getElementById("pac-run-btn");
 const authMsg = document.getElementById("pac-auth-msg");
 const runMsg = document.getElementById("pac-run-msg");
+const goHorariosLink = document.getElementById("pac-go-horarios-link");
+const openDriveBtn = document.getElementById("pac-open-drive-btn");
 const summaryMsg = document.getElementById("pac-summary-msg");
 const errorsMsg = document.getElementById("pac-errors-msg");
 const errorsPanel = document.getElementById("pac-errors-panel");
@@ -80,6 +82,7 @@ const PAC_EXTRACTION_CONFIG_IDB_KEY = "pacExtractionConfig";
 const PAC_HEADER_IDB_KEY = "encabezadoPac";
 const PAC_USE_CUSTOM_SHEET_STORAGE_KEY = "pacUseCustomSheet";
 const PAC_DEFAULT_SHEET_URL = "https://docs.google.com/spreadsheets/d/1UP0FlTWQdHciMe1dbpj2i1dhsQAk4EsxCtq2Bvxlv2U/edit?usp=sharing";
+const PAC_HORARIOS_ALLOWED_EMAIL = "secundaria3altebrown@abc.gob.ar";
 const PAC_CACHE_DB_NAME = "gpd-pac-cache";
 const PAC_CACHE_DB_VERSION = 1;
 const PAC_CACHE_STORE = "settings";
@@ -235,6 +238,30 @@ function setMsg(el, text, isError = false) {
   el.textContent = text;
   el.classList.toggle("error", isError);
   el.classList.toggle("success", !isError && Boolean(text));
+}
+
+function applyHorariosLinkVisibility(user) {
+  if (!goHorariosLink) {
+    return;
+  }
+  const email = String(user?.email || "").trim().toLowerCase();
+  goHorariosLink.hidden = email !== PAC_HORARIOS_ALLOWED_EMAIL;
+}
+
+function setDriveResultButton(sheetUrl = "") {
+  if (!openDriveBtn) {
+    return;
+  }
+  const safeUrl = String(sheetUrl || "").trim();
+  if (!safeUrl) {
+    openDriveBtn.hidden = true;
+    openDriveBtn.classList.add("is-hidden");
+    openDriveBtn.removeAttribute("href");
+    return;
+  }
+  openDriveBtn.href = safeUrl;
+  openDriveBtn.hidden = false;
+  openDriveBtn.classList.remove("is-hidden");
 }
 
 function setBusy(btn, busy) {
@@ -1219,6 +1246,7 @@ async function runPacProcess(previewOnly) {
   }
 
   state.busy = true;
+  setDriveResultButton("");
   setBusy(previewBtn, true);
   setBusy(runBtn, true);
   setMsg(runMsg, previewOnly ? "Ejecutando prueba..." : "Procesando...");
@@ -1267,6 +1295,7 @@ async function processSelectedRows(delivery = "drive") {
   if (state.busy) {
     return null;
   }
+  setDriveResultButton("");
 
   const encabezadoPac = collectPacHeaderData();
   if (!isPacHeaderComplete(encabezadoPac)) {
@@ -1316,16 +1345,19 @@ async function processSelectedRows(delivery = "drive") {
       const fileName = String(result.fileName || "PAC.xlsx");
       downloadBlobFile(blob, fileName);
       setMsg(runMsg, `Archivo descargado: ${fileName}`);
+      setDriveResultButton("");
       return result;
     }
 
     state.savedFile = result;
     const written = Number(result.rowsWritten || 0);
     const sheetUrlResult = String(result.sheetUrl || "");
-    setMsg(runMsg, `Archivo guardado en Drive. Filas escritas: ${written}. ${sheetUrlResult}`);
+    setDriveResultButton(sheetUrlResult);
+    setMsg(runMsg, `Archivo guardado en Drive. Filas escritas: ${written}`);
     return result;
   } catch (error) {
     console.error("savePacRowsToDrive error", error);
+    setDriveResultButton("");
     setMsg(runMsg, formatCallableError(error), true);
     return null;
   } finally {
@@ -1376,6 +1408,7 @@ function cancelSelectionFlow() {
   state.rows = [];
   state.selectedRowIds.clear();
   state.savedFile = null;
+  setDriveResultButton("");
   renderRows([]);
   setMsg(summaryMsg, "");
   renderErrors([]);
@@ -1501,6 +1534,7 @@ logoutBtn.addEventListener("click", async () => {
     state.accessToken = "";
     state.headerLoadedFromRemote = false;
     state.extractionConfigLoadedFromRemote = false;
+    applyHorariosLinkVisibility(null);
     cancelSelectionFlow();
     setMsg(authMsg, "Sesion cerrada");
     setMsg(runMsg, "");
@@ -1516,6 +1550,7 @@ onAuthStateChanged(auth, (user) => {
     userEmailEl.textContent = "-";
     state.headerLoadedFromRemote = false;
     state.extractionConfigLoadedFromRemote = false;
+    applyHorariosLinkVisibility(null);
     if (!state.accessToken) {
       setMsg(authMsg, "Inicia sesion con Google y luego autoriza Gmail + Sheets + Drive.");
     }
@@ -1524,6 +1559,7 @@ onAuthStateChanged(auth, (user) => {
 
   userNameEl.textContent = user.displayName || user.email || "Usuario";
   userEmailEl.textContent = user.email || "-";
+  applyHorariosLinkVisibility(user);
   void hydratePacHeaderForCurrentUser(user);
   void hydratePacExtractionConfigForCurrentUser(user);
   if (!state.accessToken) {
@@ -1537,6 +1573,8 @@ hydrateSheetCustomizationToggle();
 setDefaultModeOption();
 renderProcessDependentGmailQueries();
 void hydratePacExtractionConfigFromIndexedDb();
+applyHorariosLinkVisibility(null);
+setDriveResultButton("");
 renderRows([]);
 renderErrors([]);
 setFloatingVisible(false);
