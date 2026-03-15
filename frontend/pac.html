@@ -149,23 +149,33 @@
         <label>
           Proceso
           <select id="pac-mode">
-            <option value="interinos_docx">Crear PAC destino definitivo/interinos (DOCX adjunto)</option>
-            <option value="designacion_body" selected>Crear PAC designacion (cuerpo del mail)</option>
+            <option value="0">Crear PAC destino definitivo/interinos (DOCX adjunto)</option>
+            <option value="1" selected>Crear PAC designacion (cuerpo del mail)</option>
           </select>
         </label>
         <label>
           Query Gmail
-          <input
-            id="pac-gmail-query"
-            type="text"
-            placeholder="from:... subject:... newer_than:30d"
-            value="label:secretaria-dd2026"
-          />
+          <select id="pac-gmail-query"></select>
         </label>
         <label>
           Max mails a leer
           <input id="pac-max-results" type="number" min="1" max="100" value="30" />
         </label>
+      </form>
+
+      <section class="pac-sheet-custom-section">
+        <h3>Personaliza la tabla de google sheet</h3>
+        <p>
+          puedes utilizar la plantilla de la web o puedes colocar los datos extraidos en una hoja existente
+          de tu pertenencia (debe tener acceso de edición: publica)
+        </p>
+        <label class="pac-sheet-custom-toggle">
+          <span>utilizar un archivo de google sheet personalizado</span>
+          <input id="pac-use-custom-sheet" type="checkbox" />
+        </label>
+      </section>
+
+      <form class="pac-grid">
         <label>
           URL plantilla Google Sheet
           <input

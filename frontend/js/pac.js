@@ -32,6 +32,7 @@ const maxResultsInput = document.getElementById("pac-max-results");
 const sheetUrlInput = document.getElementById("pac-sheet-url");
 const sheetNameInput = document.getElementById("pac-sheet-name");
 const startRowInput = document.getElementById("pac-start-row");
+const useCustomSheetInput = document.getElementById("pac-use-custom-sheet");
 
 const headerSaveBtn = document.getElementById("pac-header-save-btn");
 const headerEstablecimientoInput = document.getElementById("pac-header-establecimiento");
@@ -73,6 +74,8 @@ const state = {
 const PAC_GMAIL_QUERY_STORAGE_KEY = "pacGmailQuery";
 const PAC_GMAIL_QUERY_IDB_KEY = "gmailQuery";
 const PAC_HEADER_IDB_KEY = "encabezadoPac";
+const PAC_USE_CUSTOM_SHEET_STORAGE_KEY = "pacUseCustomSheet";
+const PAC_DEFAULT_SHEET_URL = "https://docs.google.com/spreadsheets/d/1UP0FlTWQdHciMe1dbpj2i1dhsQAk4EsxCtq2Bvxlv2U/edit?usp=sharing";
 const PAC_CACHE_DB_NAME = "gpd-pac-cache";
 const PAC_CACHE_DB_VERSION = 1;
 const PAC_CACHE_STORE = "settings";
@@ -107,7 +110,117 @@ function setDefaultModeOption() {
     return normalizedText.includes("designacion");
   });
   if (target) {
-    modeInput.value = String(target.value || "designacion_body");
+    modeInput.value = String(target.value || "1");
+  }
+}
+
+function mapProcessValueToMode(processValue) {
+  return String(processValue || "") === "0" ? "interinos_docx" : "designacion_body";
+}
+
+function buildDistrictNumberList() {
+  const list = [];
+  for (let district = 1; district <= 135; district += 1) {
+    list.push(String(district).padStart(3, "0"));
+  }
+  return list;
+}
+
+function buildGmailQueryOptionsByProcess(processValue) {
+  const prefix = String(processValue || "") === "0" ? "sad" : "apdsad";
+  const districts = buildDistrictNumberList();
+  return districts.map((district) => `from:${prefix}${district}@abc.gob.ar`);
+}
+
+function renderProcessDependentGmailQueries() {
+  if (!queryInput) {
+    return;
+  }
+  const currentValue = String(queryInput.value || "").trim();
+  const options = buildGmailQueryOptionsByProcess(modeInput?.value);
+  queryInput.textContent = "";
+  options.forEach((query) => {
+    const option = document.createElement("option");
+    option.value = query;
+    option.textContent = query;
+    queryInput.appendChild(option);
+  });
+  if (currentValue && options.includes(currentValue)) {
+    queryInput.value = currentValue;
+  } else if (options.length) {
+    queryInput.value = options[0];
+  }
+}
+
+function getSheetConfigFromUi() {
+  const useCustomSheet = Boolean(useCustomSheetInput?.checked);
+  const defaultStartRow = 14;
+  const startRowValue = Number(startRowInput?.value || defaultStartRow);
+  const startRow = Number.isFinite(startRowValue) && startRowValue > 0
+    ? Math.floor(startRowValue)
+    : defaultStartRow;
+
+  if (!useCustomSheet) {
+    return {
+      useCustomSheet: false,
+      sheetUrl: PAC_DEFAULT_SHEET_URL,
+      sheetName: "",
+      startRow: defaultStartRow,
+    };
+  }
+
+  return {
+    useCustomSheet: true,
+    sheetUrl: String(sheetUrlInput?.value || "").trim(),
+    sheetName: String(sheetNameInput?.value || "").trim(),
+    startRow,
+  };
+}
+
+function applySheetCustomizationUi() {
+  const useCustomSheet = Boolean(useCustomSheetInput?.checked);
+  if (!useCustomSheet && sheetUrlInput) {
+    sheetUrlInput.value = PAC_DEFAULT_SHEET_URL;
+  }
+  if (sheetUrlInput) {
+    sheetUrlInput.disabled = !useCustomSheet;
+  }
+  if (sheetNameInput) {
+    sheetNameInput.disabled = !useCustomSheet;
+  }
+  if (startRowInput) {
+    startRowInput.disabled = !useCustomSheet;
+    if (!useCustomSheet) {
+      startRowInput.value = "14";
+    }
+  }
+}
+
+function hydrateSheetCustomizationToggle() {
+  if (!useCustomSheetInput) {
+    return;
+  }
+  let enabled = false;
+  try {
+    enabled = String(localStorage.getItem(PAC_USE_CUSTOM_SHEET_STORAGE_KEY) || "") === "true";
+  } catch (error) {
+    console.error("No se pudo leer configuracion de sheet personalizado", error);
+  }
+  useCustomSheetInput.checked = enabled;
+  applySheetCustomizationUi();
+}
+
+function persistSheetCustomizationToggle() {
+  if (!useCustomSheetInput) {
+    return;
+  }
+  try {
+    localStorage.setItem(
+      PAC_USE_CUSTOM_SHEET_STORAGE_KEY,
+      useCustomSheetInput.checked ? "true" : "false"
+    );
+  } catch (error) {
+    console.error("No se pudo guardar configuracion de sheet personalizado", error);
   }
 }
 
@@ -229,14 +342,20 @@ async function hydrateGmailQueryInput() {
     console.error("No se pudo leer pac-gmail-query desde IndexedDB", error);
   }
 
+  renderProcessDependentGmailQueries();
+
   if (valueFromIdb) {
-    queryInput.value = valueFromIdb;
+    const options = Array.from(queryInput.options).map((option) => String(option.value || ""));
+    if (options.includes(valueFromIdb)) {
+      queryInput.value = valueFromIdb;
+    }
     return;
   }
 
   try {
     const valueFromLocal = String(window.localStorage?.getItem(PAC_GMAIL_QUERY_STORAGE_KEY) || "");
-    if (valueFromLocal) {
+    const options = Array.from(queryInput.options).map((option) => String(option.value || ""));
+    if (valueFromLocal && options.includes(valueFromLocal)) {
       queryInput.value = valueFromLocal;
     }
   } catch (error) {
@@ -381,6 +500,27 @@ function applyPacHeaderDataToForm(data) {
   }
   rebuildPacHeaderDateSelects(String(safe.desde || ""), String(safe.hasta || ""));
   setPacHeaderTurnoValue(safe.turno || "");
+}
+
+function isPacHeaderComplete(headerData) {
+  const data = headerData && typeof headerData === "object" ? headerData : {};
+  const requiredKeys = [
+    "establecimientoReparticion",
+    "anexo",
+    "domicilioEscuela",
+    "telefono",
+    "email",
+    "categoria",
+    "turno",
+    "desfavorable",
+    "distrito",
+    "tipoOrganizacion",
+    "escuela",
+    "anio",
+    "desde",
+    "hasta",
+  ];
+  return requiredKeys.every((key) => String(data[key] || "").trim());
 }
 
 async function persistPacHeaderInIndexedDb(headerData) {
@@ -749,26 +889,28 @@ function toggleSelectAll(forceValue = null) {
 
 function buildPayload(previewOnly) {
   const maxResults = Number(maxResultsInput.value || 30);
-  const startRow = Number(startRowInput.value || 14);
+  const sheetConfig = getSheetConfigFromUi();
+  const processMode = mapProcessValueToMode(modeInput.value);
   return {
-    mode: String(modeInput.value || "interinos_docx"),
+    mode: processMode,
     gmailQuery: String(queryInput.value || "").trim(),
     maxResults: Number.isFinite(maxResults) ? maxResults : 30,
-    sheetUrl: String(sheetUrlInput.value || "").trim(),
-    sheetName: String(sheetNameInput.value || "").trim(),
-    startRow: Number.isFinite(startRow) ? startRow : 14,
+    sheetUrl: sheetConfig.sheetUrl,
+    sheetName: sheetConfig.sheetName,
+    startRow: sheetConfig.startRow,
     previewOnly: Boolean(previewOnly),
     accessToken: state.accessToken,
   };
 }
 
 function buildSavePayload(rows, delivery = "drive") {
-  const startRow = Number(startRowInput.value || 14);
+  const sheetConfig = getSheetConfigFromUi();
+  const processMode = mapProcessValueToMode(modeInput.value);
   return {
-    mode: String(modeInput.value || "interinos_docx"),
-    sheetUrl: String(sheetUrlInput.value || "").trim(),
-    sheetName: String(sheetNameInput.value || "").trim(),
-    startRow: Number.isFinite(startRow) ? startRow : 14,
+    mode: processMode,
+    sheetUrl: sheetConfig.sheetUrl,
+    sheetName: sheetConfig.sheetName,
+    startRow: sheetConfig.startRow,
     accessToken: state.accessToken,
     outputTitle: "",
     rows,
@@ -974,13 +1116,22 @@ async function processSelectedRows(delivery = "drive") {
     return null;
   }
 
+  const encabezadoPac = collectPacHeaderData();
+  if (!isPacHeaderComplete(encabezadoPac)) {
+    const alertMessage = "debe completar los datos de encabezado del pac para continuar";
+    window.alert(alertMessage);
+    setMsg(runMsg, alertMessage, true);
+    return null;
+  }
+
   const selectedRows = getSelectedRows();
   if (!selectedRows.length) {
     setMsg(runMsg, "Selecciona al menos una fila antes de guardar en Drive", true);
     return null;
   }
 
-  const sheetUrl = String(sheetUrlInput.value || "").trim();
+  const sheetConfig = getSheetConfigFromUi();
+  const sheetUrl = String(sheetConfig.sheetUrl || "").trim();
   if (!sheetUrl) {
     setMsg(runMsg, "Debes completar la URL de plantilla", true);
     return null;
@@ -1053,12 +1204,13 @@ function openPreviewTab() {
     return;
   }
 
+  const sheetConfig = getSheetConfigFromUi();
   const previewPayload = {
     rows: selectedRows,
-    mode: String(modeInput.value || "interinos_docx"),
-    sheetUrl: String(sheetUrlInput.value || "").trim(),
-    sheetName: String(sheetNameInput.value || "").trim(),
-    startRow: Number(startRowInput.value || 14),
+    mode: mapProcessValueToMode(modeInput.value),
+    sheetUrl: sheetConfig.sheetUrl,
+    sheetName: sheetConfig.sheetName,
+    startRow: sheetConfig.startRow,
     encabezadoPac: collectPacHeaderData(),
     accessToken: state.accessToken,
     savedFile: state.savedFile || null,
@@ -1113,8 +1265,22 @@ runBtn.addEventListener("click", async () => {
 });
 
 if (queryInput) {
-  queryInput.addEventListener("keyup", () => {
+  queryInput.addEventListener("change", () => {
     scheduleGmailQueryPersistence();
+  });
+}
+
+if (modeInput) {
+  modeInput.addEventListener("change", () => {
+    renderProcessDependentGmailQueries();
+    scheduleGmailQueryPersistence();
+  });
+}
+
+if (useCustomSheetInput) {
+  useCustomSheetInput.addEventListener("change", () => {
+    applySheetCustomizationUi();
+    persistSheetCustomizationToggle();
   });
 }
 
@@ -1212,8 +1378,10 @@ onAuthStateChanged(auth, (user) => {
 
 initPacHeaderForm();
 void hydratePacHeaderFromIndexedDb();
-void hydrateGmailQueryInput();
+hydrateSheetCustomizationToggle();
 setDefaultModeOption();
+renderProcessDependentGmailQueries();
+void hydrateGmailQueryInput();
 renderRows([]);
 renderErrors([]);
 setFloatingVisible(false);

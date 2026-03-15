@@ -1073,6 +1073,48 @@ a.link-btn:hover {
   flex-wrap: wrap;
 }
 
+.pac-sheet-custom-section {
+  margin: 12px 0 2px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #f9fbff;
+}
+
+.pac-sheet-custom-section h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.pac-sheet-custom-section p {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.pac-sheet-custom-toggle {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.pac-sheet-custom-toggle span {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.pac-sheet-custom-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
 .pac-errors-panel {
   margin-top: 10px;
   border: 1px solid var(--border);
