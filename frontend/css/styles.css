@@ -1096,12 +1096,12 @@ a.link-btn:hover {
   display: flex;
   flex-direction: row;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: #fff;
+  justify-content: flex-start;
 }
 
 .pac-sheet-custom-toggle span {
