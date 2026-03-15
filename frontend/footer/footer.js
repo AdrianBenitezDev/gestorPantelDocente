@@ -37,9 +37,9 @@
           <section class="shared-footer-block">
             <h3>Navegacion</h3>
             <ul class="shared-footer-links">
-              <li><a href="/index.html">Inicio</a></li>
+              <li><a href="/horarios.html">Horarios</a></li>
               <li><a href="/registro.html">Registro</a></li>
-              <li><a href="/pac.html">Crear PAC</a></li>
+              <li><a href="/index.html">Crear PAC</a></li>
             </ul>
           </section>
           <section class="shared-footer-block">

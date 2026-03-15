@@ -4,7 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PanelDocente</title>
-  <link rel="icon" type="image/svg+xml" href='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%F0%9F%8E%93%3C/text%3E%3C/svg%3E' />
   <link rel="stylesheet" href="./css/styles.css" />
 </head>
 <body>
@@ -13,183 +12,264 @@
       <span class="brand-icon" aria-hidden="true">&#127891;</span>
       <span class="brand-name">PanelDocente</span>
     </div>
-    <div id="sub-banner" class="sub-banner is-hidden">
-      <div id="loading-indicator" class="loading-indicator is-hidden" aria-live="polite">
-        <span class="spinner" aria-hidden="true"></span>
-        <span id="loading-text">Cargando...</span>
-      </div>
-      <div class="panel-nav">
-        <button id="home-tab-btn" type="button">Inicio</button>
-        <button id="settings-tab-btn" type="button" class="google-btn">Configuracion</button>
-        <a href="/pac.html" class="link-btn">Crear PAC</a>
-      </div>
-    </div>
     <div class="user-block">
       <div class="user-meta">
         <span class="user-icon" aria-hidden="true">&#128100;</span>
-        <span id="user-name" class="user-name">Sin sesion</span>
-        <span id="user-email" class="user-email">-</span>
+        <span id="pac-user-name" class="user-name">Sin sesion</span>
+        <span id="pac-user-email" class="user-email">-</span>
       </div>
-      <button id="logout-btn" type="button">Cerrar sesion</button>
+      <button id="pac-logout-btn" type="button" class="google-btn">Cerrar sesion</button>
+      <a href="/horarios.html" class="link-btn">Ir a horarios</a>
     </div>
   </header>
 
   <main class="app">
-    <header class="header">
-      <h1 id="main-title">Ingresar</h1>
-    </header>
-
-    <section id="login-section" class="card">
-      <button id="google-login-btn" type="button" class="google-btn google-login-main">
-        <span class="google-g-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="18" height="18" xmlns="http://www.w3.org/2000/svg">
-            <path fill="#EA4335" d="M12 11v3.5h4.9c-.2 1.1-.9 2-1.9 2.6l2.9 2.2c1.7-1.5 2.7-3.7 2.7-6.3 0-.6-.1-1.2-.2-1.8H12z"/>
-            <path fill="#34A853" d="M12 22c2.4 0 4.4-.8 5.9-2.2l-2.9-2.2c-.8.5-1.8.8-3 .8-2.3 0-4.3-1.6-5-3.8l-3 .2V17c1.5 3 4.6 5 8 5z"/>
-            <path fill="#4A90E2" d="M7 14.6c-.2-.5-.3-1.1-.3-1.6s.1-1.1.3-1.6l-3-.2C3.7 12 3.5 13 3.5 13s.2 1 .5 1.8l3-.2z"/>
-            <path fill="#FBBC05" d="M12 7.6c1.3 0 2.5.5 3.4 1.3l2.6-2.6C16.4 4.8 14.4 4 12 4 8.6 4 5.5 6 4 9l3 .2c.7-2.2 2.7-3.8 5-3.8z"/>
-          </svg>
-        </span>
-        <span>Ingresar con Google</span>
-      </button>
-      <p id="login-msg" class="msg"></p>
-      <p class="msg">No tienes cuenta? <a href="/registro.html">Ir a registro</a></p>
+    <section class="card">
+      <h1>Crear PAC</h1>
+      <p class="subtitle">
+        Flujo disponible: destino definitivo/interinos (adjunto DOCX) y designacion (datos en cuerpo del mail).
+      </p>
+      <div class="pac-inline-actions">
+        <button id="pac-connect-btn" type="button">Conectar Gmail + Sheets + Drive</button>
+      </div>
+      <p id="pac-auth-msg" class="msg"></p>
     </section>
 
-    <section id="panel-section" class="card is-hidden">
-      <section id="home-section" class="is-hidden">
-        <p id="home-msg" class="msg"></p>
-        <div class="home-toolbar">
-          <div id="home-course-buttons" class="home-course-groups"></div>
-          <div class="home-commands">
-            <label class="home-search-label">
-              Buscar suplente
-              <input id="home-search-input" type="text" placeholder="Nombre del suplente..." />
-            </label>
-            <div class="home-command-actions">
-              <button id="home-search-clear-btn" type="button" class="google-btn">Borrar</button>
-              <button id="home-search-btn" type="button">Buscar</button>
-              <button id="home-search-pid-btn" type="button" class="google-btn">Buscar por PID</button>
-            </div>
-            <div id="home-command-results" class="msg"></div>
-          </div>
-        </div>
-        <p id="home-selected-course" class="msg">Curso seleccionado: -</p>
-        <div id="course-schedule-wrap" class="card is-hidden">
-          <h3 id="course-schedule-title">Horario</h3>
-          <div id="course-schedule-table"></div>
-        </div>
-        <div id="docente-editor-modal" class="docente-editor-modal is-hidden">
-          <div class="docente-editor-card">
-            <h3>Docente</h3>
-            <div id="docente-editor-form" class="review-grid"></div>
-            <div class="review-actions">
-              <button id="docente-copy-btn" type="button" class="google-btn">Copiar</button>
-              <button id="docente-save-btn" type="button">Guardar</button>
-              <button id="docente-cancel-btn" type="button" class="danger-btn">Cancelar</button>
-            </div>
-          </div>
-        </div>
-        <div id="assign-materia-modal" class="assign-materia-modal is-hidden">
-          <div class="assign-materia-card">
-            <h3>Designar materia al horario</h3>
-            <p id="assign-materia-context" class="msg"></p>
+    <details id="pac-header-details" class="card pac-header-card" open>
+      <summary class="pac-header-summary">
+        <h3>Datos de encabezado del PAC</h3>
+      </summary>
+      <div id="pac-header-content" class="pac-header-content">
+        <div class="pac-header-content-inner">
+          <p class="pac-header-intro">Ingrese los siguientes datos, seran colocados en el encabezado del pac</p>
+          <form id="pac-header-form" class="pac-grid pac-header-grid">
             <label>
-              Buscar materia
-              <input id="assign-materia-input" type="text" placeholder="Escribe materia o CUPOF..." />
+              <span>Establecimiento o reparticion</span>
+              <input
+                id="pac-header-establecimiento"
+                type="text"
+                placeholder="E.E.S. N&deg;32 (Anexo 3031)"
+              />
             </label>
-            <div id="assign-materia-list" class="assign-materia-list"></div>
-            <div class="review-actions">
-              <button id="assign-materia-save-btn" type="button">Guardar designacion</button>
-              <button id="assign-materia-cancel-btn" type="button" class="google-btn">Cancelar</button>
+            <label>
+              <p>Anexo</p>
+              <input id="pac-header-anexo" type="text" placeholder="3031" />
+            </label>
+            <label>
+              <span>Domicilio de la escuela</span>
+              <input id="pac-header-domicilio" type="text" placeholder="calle y numero" />
+            </label>
+            <label>
+              <span>Telefono</span>
+              <input id="pac-header-telefono" type="text" placeholder="429725.." />
+            </label>
+            <label>
+              <span>Email</span>
+              <input
+                id="pac-header-email"
+                type="email"
+                placeholder="secundaria......@abc.gob.ar"
+              />
+            </label>
+            <label>
+              <span>Categoria</span>
+              <select id="pac-header-categoria">
+                <option value="">Seleccionar</option>
+                <option value="1&deg;">1&deg;</option>
+                <option value="2&deg;">2&deg;</option>
+                <option value="3&deg;">3&deg;</option>
+                <option value="4&deg;">4&deg;</option>
+                <option value="5&deg;">5&deg;</option>
+              </select>
+            </label>
+            <div class="pac-turno-field">
+              <p class="pac-turno-title">Turno</p>
+              <div class="pac-turno-list">
+                <label class="pac-turno-option" for="pac-header-turno-m">
+                  <span>M</span>
+                  <input id="pac-header-turno-m" name="pac-header-turno" type="checkbox" value="M" />
+                </label>
+                <label class="pac-turno-option" for="pac-header-turno-t">
+                  <span>T</span>
+                  <input id="pac-header-turno-t" name="pac-header-turno" type="checkbox" value="T" />
+                </label>
+                <label class="pac-turno-option" for="pac-header-turno-v">
+                  <span>V</span>
+                  <input id="pac-header-turno-v" name="pac-header-turno" type="checkbox" value="V" />
+                </label>
+              </div>
             </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="settings-section" class="is-hidden">
-      <div id="tenant-empty-import" class="is-hidden">
-        <p id="panel-msg" class="msg"></p>
-
-        <h3>Importar docentes desde Google Sheets</h3>
-        <p id="course-buttons-msg" class="msg"></p>
-        <div id="course-buttons" class="review-actions"></div>
-        <p id="selected-course" class="msg">Curso seleccionado: -</p>
-        <form id="sheet-import-form" class="grid-form">
-          <label>URL Google Sheet <input id="sheet-url" type="url" placeholder="https://docs.google.com/spreadsheets/d/..." value="https://docs.google.com/spreadsheets/d/1sePsT0xdSgO-J4-ty84b0VSUz8LzE474nsTOvAWhOLQ/edit?usp=sharing" required /></label>
-          <label>
-            Nombre de hoja
-            <select id="sheet-name" required>
-              <option value="POFA" selected>POFA</option>
-              <option value="POFA ED. ARTISTICA">POFA ED. ARTISTICA</option>
-              <option value="POFA ED. FISICA">POFA ED. FISICA</option>
-            </select>
-          </label>
+            <label>
+              <span>Desfavorable</span>
+              <select id="pac-header-desfavorable">
+                <option value="">Seleccionar</option>
+                <option value="1&deg;">1&deg;</option>
+                <option value="2&deg;">2&deg;</option>
+                <option value="3&deg;">3&deg;</option>
+                <option value="4&deg;">4&deg;</option>
+                <option value="5&deg;">5&deg;</option>
+              </select>
+            </label>
+            <label>
+              <span>Distrito</span>
+              <input id="pac-header-distrito" type="text" placeholder="004" />
+            </label>
+            <label>
+              <span>Tipo de organizacion</span>
+              <input id="pac-header-tipo-organizacion" type="text" placeholder="E.E.S" />
+            </label>
+            <label>
+              <span>Escuela</span>
+              <input id="pac-header-escuela" type="text" placeholder="26" />
+            </label>
+            <label>
+              <span>A&ntilde;o</span>
+              <input id="pac-header-anio" type="number" min="2000" max="2999" />
+            </label>
+            <label>
+              <span>Desde</span>
+              <select id="pac-header-desde"></select>
+            </label>
+            <label>
+              <span>Hasta</span>
+              <select id="pac-header-hasta"></select>
+            </label>
+          </form>
           <div class="review-actions">
-            <button type="submit">Cargar docentes</button>
-            <button id="load-cursos-btn" type="button" class="google-btn">Cargar cursos</button>
+            <button id="pac-header-save-btn" type="button">Guardar</button>
           </div>
-        </form>
-
-        <div id="turn-schedule-config-card" class="card">
-          <h3>Configurar turnos y horarios (obligatorio)</h3>
-          <p id="turn-schedule-msg" class="msg"></p>
-          <p id="turn-schedule-lock-msg" class="msg is-hidden"></p>
-          <div id="turn-schedule-editor" class="turn-schedule-editor"></div>
-          <div class="review-actions">
-            <button id="save-turn-schedule-btn" type="button">Guardar turnos y horarios</button>
-            <button id="reload-turn-schedule-btn" type="button" class="google-btn">Recargar</button>
-          </div>
-        </div>
-
-        <details id="button-config-section" class="card button-config-details">
-          <summary>Configuracion de botones por turno</summary>
-          <p id="button-config-msg" class="msg"></p>
-          <div id="turn-button-config" class="turn-config-list"></div>
-          <div class="review-actions">
-            <button id="save-button-config-btn" type="button">Guardar botones</button>
-            <button id="reload-button-config-btn" type="button" class="google-btn">Recargar</button>
-          </div>
-        </details>
-
-        <div id="import-review" class="card is-hidden">
-          <h3>Revision de docentes</h3>
-          <p id="review-progress" class="msg"></p>
-          <div id="review-docente" class="review-card"></div>
-          <div class="review-actions">
-            <button id="accept-docente-btn" type="button">Aceptar y guardar</button>
-            <button id="skip-docente-btn" type="button" class="google-btn">Omitir</button>
-            <button id="cancel-docente-btn" type="button" class="danger-btn">Cancelar</button>
-          </div>
-        </div>
-
-        <div id="import-review-cursos" class="card is-hidden">
-          <h3>Revision de cursos</h3>
-          <p id="review-curso-progress" class="msg"></p>
-          <div id="review-curso" class="review-card"></div>
-          <div class="review-actions">
-            <button id="accept-curso-btn" type="button">Aceptar y guardar</button>
-            <button id="skip-curso-btn" type="button" class="google-btn">Omitir</button>
-            <button id="cancel-curso-btn" type="button" class="danger-btn">Cancelar</button>
-          </div>
-        </div>
-
-        <div id="bulk-save-wrap" class="review-actions is-hidden">
-          <button id="save-all-btn" type="button">Guardar todo</button>
         </div>
       </div>
+      <p id="pac-header-msg" class="msg"></p>
+    </details>
+
+    <section class="card">
+      <h2>Parametros de extraccion</h2>
+      <form id="pac-form" class="pac-grid">
+        <label>
+          Proceso
+          <select id="pac-mode">
+            <option value="0">Crear PAC destino definitivo/interinos (DOCX adjunto)</option>
+            <option value="1" selected>Crear PAC designacion (cuerpo del mail)</option>
+          </select>
+        </label>
+        <label>
+          Query Gmail
+          <select id="pac-gmail-query"></select>
+        </label>
+        <label>
+          Max mails a leer
+          <input id="pac-max-results" type="number" min="1" max="100" value="30" />
+        </label>
+      </form>
+
+      <section class="pac-sheet-custom-section">
+        <h3>Personaliza la tabla de google sheet</h3>
+        <p>
+          puedes utilizar la plantilla de la web o puedes colocar los datos extraidos en una hoja existente
+          de tu pertenencia (debe tener acceso de edición: publica)
+        </p>
+        <label class="pac-sheet-custom-toggle">
+          <span>utilizar un archivo de google sheet personalizado</span>
+          <input id="pac-use-custom-sheet" type="checkbox" />
+        </label>
+        <form class="pac-grid">
+          <label>
+            URL plantilla Google Sheet
+            <input
+              id="pac-sheet-url"
+              type="url"
+              value="https://docs.google.com/spreadsheets/d/1UP0FlTWQdHciMe1dbpj2i1dhsQAk4EsxCtq2Bvxlv2U/edit?usp=sharing"
+              required
+            />
+          </label>
+          <label>
+            Hoja destino
+            <input id="pac-sheet-name" type="text" value="" placeholder="Opcional: si esta vacio se usa la primera hoja" />
+          </label>
+          <label>
+            Fila inicial
+            <input id="pac-start-row" type="number" min="1" value="14" required />
+          </label>
+        </form>
       </section>
+      <div class="review-actions">
+        <button id="pac-preview-btn" type="button" class="google-btn">Probar extraccion</button>
+        <button id="pac-run-btn" type="button">Guardar seleccion en Drive</button>
+      </div>
+      <p id="pac-run-msg" class="msg"></p>
+    </section>
+
+    <section class="card">
+      <h2>Resultado</h2>
+      <p id="pac-summary-msg" class="msg"></p>
+      <details id="pac-errors-panel" class="pac-errors-panel">
+        <summary id="pac-errors-summary" class="pac-errors-summary">Errores detectados (0)</summary>
+        <ul id="pac-errors-list" class="pac-errors-list"></ul>
+      </details>
+      <p id="pac-errors-msg" class="msg is-hidden" aria-hidden="true"></p>
+      <div class="pac-table-toolbar">
+        <button id="pac-select-all-btn" type="button" class="google-btn">Seleccionar todo</button>
+        <span id="pac-selected-count" class="subtitle">Filas seleccionadas: 0</span>
+      </div>
+      <div class="pac-table-wrap">
+        <table class="pac-table">
+          <thead>
+            <tr>
+              <th rowspan="2" style="width: 42px;">
+                <input id="pac-select-all-checkbox" type="checkbox" aria-label="Seleccionar todo" />
+              </th>
+              <th>CUPOF</th>
+              <th>CUIL</th>
+              <th></th>
+              <th></th>
+              <th>SEC</th>
+              <th>FECHA NAC</th>
+              <th>APELLIDO Y NOMBRE</th>
+              <th>REV</th>
+              <th>MOD./CARR.</th>
+              <th>ESP CUR/ ASIG</th>
+              <th>HS/MOD/CAR</th>
+              <th>FUNCION</th>
+              <th>AÑO</th>
+              <th>SECCION</th>
+            </tr>
+            <tr>
+              <th></th>
+              <th></th>
+              <th>DNI</th>
+              <th></th>
+              <th></th>
+              <th></th>
+              <th></th>
+              <th></th>
+              <th></th>
+              <th></th>
+              <th></th>
+              <th></th>
+              <th></th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="pac-results-body">
+            <tr>
+              <td colspan="15">Sin datos</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </section>
   </main>
 
-  <button id="refresh-fab" class="refresh-fab is-hidden" type="button" title="Actualizar datos">
-    <span id="refresh-fab-icon" class="refresh-fab-icon" aria-hidden="true">&#8635;</span>
-    <span>Actualizar</span>
-  </button>
+  <div id="pac-floating-actions" class="pac-floating-actions" hidden>
+    <button id="pac-float-cancel-btn" type="button">Cancelar</button>
+    <button id="pac-float-download-btn" type="button" class="google-btn">Descargar archivo</button>
+    <button id="pac-float-save-btn" type="button">Guardar en Drive</button>
+    <button id="pac-float-preview-btn" type="button" class="google-btn">Vista previa</button>
+  </div>
 
   <div id="shared-footer-root"></div>
   <script src="./footer/footer.js" defer></script>
-  <script type="module" src="./js/app.js"></script>
+  <script type="module" src="./js/pac.js"></script>
 </body>
 </html>
-
-
