@@ -23,6 +23,7 @@ const errorsListEl = document.getElementById("pac-errors-list");
 const headerMsg = document.getElementById("pac-header-msg");
 const headerDetails = document.getElementById("pac-header-details");
 const headerSummary = document.querySelector("#pac-header-details > .pac-header-summary");
+const headerSummaryTitle = document.querySelector("#pac-header-details > .pac-header-summary h3");
 const headerContent = document.getElementById("pac-header-content");
 const userNameEl = document.getElementById("pac-user-name");
 const userEmailEl = document.getElementById("pac-user-email");
@@ -54,6 +55,22 @@ const headerAnioInput = document.getElementById("pac-header-anio");
 const headerDesdeInput = document.getElementById("pac-header-desde");
 const headerHastaInput = document.getElementById("pac-header-hasta");
 const headerTurnoInputs = [headerTurnoMInput, headerTurnoTInput, headerTurnoVInput].filter(Boolean);
+const headerFormInputs = [
+  headerEstablecimientoInput,
+  headerAnexoInput,
+  headerDomicilioInput,
+  headerTelefonoInput,
+  headerEmailInput,
+  headerCategoriaInput,
+  headerDesfavorableInput,
+  headerDistritoInput,
+  headerTipoOrganizacionInput,
+  headerEscuelaInput,
+  headerAnioInput,
+  headerDesdeInput,
+  headerHastaInput,
+  ...headerTurnoInputs,
+].filter(Boolean);
 
 const selectAllBtn = document.getElementById("pac-select-all-btn");
 const selectAllCheckbox = document.getElementById("pac-select-all-checkbox");
@@ -679,6 +696,7 @@ function applyPacHeaderDataToForm(data) {
   }
   rebuildPacHeaderDateSelects(String(safe.desde || ""), String(safe.hasta || ""));
   setPacHeaderTurnoValue(safe.turno || "");
+  updatePacHeaderSummaryStatus();
 }
 
 function isPacHeaderComplete(headerData) {
@@ -702,6 +720,16 @@ function isPacHeaderComplete(headerData) {
   return requiredKeys.every((key) => String(data[key] || "").trim());
 }
 
+function updatePacHeaderSummaryStatus() {
+  if (!headerSummaryTitle) {
+    return;
+  }
+  const status = isPacHeaderComplete(collectPacHeaderData())
+    ? "✅ Listo"
+    : "❌ Faltan Cargar";
+  headerSummaryTitle.textContent = `Datos de encabezado del PAC ${status}`;
+}
+
 async function persistPacHeaderInIndexedDb(headerData) {
   try {
     await idbSetSetting(PAC_HEADER_IDB_KEY, headerData || {});
@@ -720,6 +748,7 @@ async function hydratePacHeaderFromIndexedDb() {
   } catch (error) {
     console.error("No se pudo leer encabezado PAC desde IndexedDB", error);
   }
+  updatePacHeaderSummaryStatus();
   return false;
 }
 
@@ -730,6 +759,7 @@ function setDefaultPacHeaderEmail(email) {
   }
   if (!String(headerEmailInput.value || "").trim()) {
     headerEmailInput.value = safeEmail;
+    updatePacHeaderSummaryStatus();
   }
 }
 
@@ -767,6 +797,7 @@ async function hydratePacHeaderForCurrentUser(user) {
 
 async function savePacHeader() {
   const payload = collectPacHeaderData();
+  updatePacHeaderSummaryStatus();
   await persistPacHeaderInIndexedDb(payload);
 
   if (!auth.currentUser) {
@@ -870,6 +901,7 @@ function initPacHeaderForm() {
   if (headerAnioInput) {
     headerAnioInput.addEventListener("change", () => {
       rebuildPacHeaderDateSelects();
+      updatePacHeaderSummaryStatus();
     });
   }
 
@@ -883,8 +915,20 @@ function initPacHeaderForm() {
           other.checked = false;
         }
       });
+      updatePacHeaderSummaryStatus();
     });
   });
+
+  headerFormInputs.forEach((input) => {
+    input.addEventListener("input", () => {
+      updatePacHeaderSummaryStatus();
+    });
+    input.addEventListener("change", () => {
+      updatePacHeaderSummaryStatus();
+    });
+  });
+
+  updatePacHeaderSummaryStatus();
 }
 
 function sanitize(value) {
