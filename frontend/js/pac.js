@@ -70,9 +70,13 @@ const state = {
   busy: false,
   savedFile: null,
   headerLoadedFromRemote: false,
+  extractionConfigLoadedFromRemote: false,
 };
 const PAC_GMAIL_QUERY_STORAGE_KEY = "pacGmailQuery";
 const PAC_GMAIL_QUERY_IDB_KEY = "gmailQuery";
+const PAC_PROCESS_STORAGE_KEY = "pacProcessValue";
+const PAC_PROCESS_IDB_KEY = "processValue";
+const PAC_EXTRACTION_CONFIG_IDB_KEY = "pacExtractionConfig";
 const PAC_HEADER_IDB_KEY = "encabezadoPac";
 const PAC_USE_CUSTOM_SHEET_STORAGE_KEY = "pacUseCustomSheet";
 const PAC_DEFAULT_SHEET_URL = "https://docs.google.com/spreadsheets/d/1UP0FlTWQdHciMe1dbpj2i1dhsQAk4EsxCtq2Bvxlv2U/edit?usp=sharing";
@@ -95,7 +99,7 @@ const PAC_MONTHS = [
   "12",
 ];
 
-let queryPersistTimer = null;
+let extractionConfigPersistTimer = null;
 
 function setDefaultModeOption() {
   if (!modeInput) {
@@ -300,66 +304,214 @@ async function idbSetSetting(settingKey, value) {
   });
 }
 
-async function persistGmailQueryValue(value) {
-  const safeValue = String(value || "");
+function normalizePacProcessValue(value) {
+  return String(value || "") === "0" ? "0" : "1";
+}
+
+function getPacExtractionConfigFromUi() {
+  return {
+    processValue: normalizePacProcessValue(modeInput?.value),
+    gmailQuery: String(queryInput?.value || "").trim(),
+  };
+}
+
+function getStoredPacExtractionConfigFromLocalStorage() {
+  let processValue = "";
+  let gmailQuery = "";
   try {
-    window.localStorage?.setItem(PAC_GMAIL_QUERY_STORAGE_KEY, safeValue);
+    processValue = String(window.localStorage?.getItem(PAC_PROCESS_STORAGE_KEY) || "");
+  } catch (error) {
+    console.error("No se pudo leer pac-process-value desde localStorage", error);
+  }
+  try {
+    gmailQuery = String(window.localStorage?.getItem(PAC_GMAIL_QUERY_STORAGE_KEY) || "");
+  } catch (error) {
+    console.error("No se pudo leer pac-gmail-query desde localStorage", error);
+  }
+  return {
+    processValue: normalizePacProcessValue(processValue),
+    gmailQuery: String(gmailQuery || "").trim(),
+  };
+}
+
+function persistPacExtractionConfigInLocalStorage(config) {
+  const safe = config && typeof config === "object" ? config : {};
+  try {
+    window.localStorage?.setItem(
+      PAC_PROCESS_STORAGE_KEY,
+      normalizePacProcessValue(safe.processValue)
+    );
+  } catch (error) {
+    console.error("No se pudo guardar pac-process-value en localStorage", error);
+  }
+  try {
+    window.localStorage?.setItem(
+      PAC_GMAIL_QUERY_STORAGE_KEY,
+      String(safe.gmailQuery || "").trim()
+    );
   } catch (error) {
     console.error("No se pudo guardar pac-gmail-query en localStorage", error);
   }
+}
+
+async function persistPacExtractionConfigInIndexedDb(config) {
+  const safe = config && typeof config === "object" ? config : {};
+  const processValue = normalizePacProcessValue(safe.processValue);
+  const gmailQuery = String(safe.gmailQuery || "").trim();
+  const payload = { processValue, gmailQuery };
+
   try {
-    await idbSetSetting(PAC_GMAIL_QUERY_IDB_KEY, safeValue);
+    await idbSetSetting(PAC_EXTRACTION_CONFIG_IDB_KEY, payload);
+  } catch (error) {
+    console.error("No se pudo guardar configuracion PAC de extraccion en IndexedDB", error);
+  }
+  try {
+    await idbSetSetting(PAC_PROCESS_IDB_KEY, processValue);
+  } catch (error) {
+    console.error("No se pudo guardar pac-process-value en IndexedDB", error);
+  }
+  try {
+    await idbSetSetting(PAC_GMAIL_QUERY_IDB_KEY, gmailQuery);
   } catch (error) {
     console.error("No se pudo guardar pac-gmail-query en IndexedDB", error);
   }
 }
 
-function scheduleGmailQueryPersistence() {
-  if (queryPersistTimer) {
-    clearTimeout(queryPersistTimer);
-  }
-  queryPersistTimer = setTimeout(() => {
-    queryPersistTimer = null;
-    if (!queryInput) {
-      return;
+async function loadPacExtractionConfigFromIndexedDb() {
+  let processValue = "";
+  let gmailQuery = "";
+
+  try {
+    const configRecord = await idbGetSetting(PAC_EXTRACTION_CONFIG_IDB_KEY);
+    if (configRecord && configRecord.value && typeof configRecord.value === "object") {
+      processValue = String(configRecord.value.processValue || "");
+      gmailQuery = String(configRecord.value.gmailQuery || "");
     }
-    void persistGmailQueryValue(queryInput.value);
+  } catch (error) {
+    console.error("No se pudo leer configuracion PAC de extraccion desde IndexedDB", error);
+  }
+
+  if (!processValue) {
+    try {
+      const processRecord = await idbGetSetting(PAC_PROCESS_IDB_KEY);
+      if (processRecord && typeof processRecord.value === "string") {
+        processValue = processRecord.value;
+      }
+    } catch (error) {
+      console.error("No se pudo leer pac-process-value desde IndexedDB", error);
+    }
+  }
+
+  if (!gmailQuery) {
+    try {
+      const queryRecord = await idbGetSetting(PAC_GMAIL_QUERY_IDB_KEY);
+      if (queryRecord && typeof queryRecord.value === "string") {
+        gmailQuery = queryRecord.value;
+      }
+    } catch (error) {
+      console.error("No se pudo leer pac-gmail-query desde IndexedDB", error);
+    }
+  }
+
+  return {
+    processValue: normalizePacProcessValue(processValue),
+    gmailQuery: String(gmailQuery || "").trim(),
+  };
+}
+
+function applyPacExtractionConfigToForm(config) {
+  if (!modeInput || !queryInput) {
+    return;
+  }
+  const safe = config && typeof config === "object" ? config : {};
+  const processValue = normalizePacProcessValue(safe.processValue || modeInput.value);
+  modeInput.value = processValue;
+  renderProcessDependentGmailQueries();
+
+  const desiredQuery = String(safe.gmailQuery || "").trim();
+  const options = Array.from(queryInput.options).map((option) => String(option.value || "").trim());
+  if (desiredQuery && options.includes(desiredQuery)) {
+    queryInput.value = desiredQuery;
+  }
+}
+
+async function hydratePacExtractionConfigFromIndexedDb() {
+  const fromIdb = await loadPacExtractionConfigFromIndexedDb();
+  const fromLocalStorage = getStoredPacExtractionConfigFromLocalStorage();
+  const processValue =
+    String(fromIdb.processValue || "").trim() || String(fromLocalStorage.processValue || "").trim();
+  const gmailQuery = String(fromIdb.gmailQuery || "").trim() || String(fromLocalStorage.gmailQuery || "").trim();
+  applyPacExtractionConfigToForm({ processValue, gmailQuery });
+}
+
+async function savePacExtractionConfigToFirestore(config) {
+  if (!auth.currentUser) {
+    return;
+  }
+  const callable = httpsCallable(functions, "actualizarConfiguracionPacExtraccion");
+  await callable({
+    configuracionPac: {
+      processValue: normalizePacProcessValue(config.processValue),
+      gmailQuery: String(config.gmailQuery || "").trim(),
+    },
+  });
+}
+
+async function loadPacExtractionConfigFromFirestore() {
+  if (!auth.currentUser) {
+    return null;
+  }
+  const callable = httpsCallable(functions, "obtenerConfiguracionPacExtraccion");
+  const response = await callable({});
+  const result = response.data || {};
+  if (result && result.configuracionPac && typeof result.configuracionPac === "object") {
+    return result.configuracionPac;
+  }
+  return null;
+}
+
+async function persistPacExtractionConfig({ syncRemote = false } = {}) {
+  if (!modeInput || !queryInput) {
+    return;
+  }
+  const payload = getPacExtractionConfigFromUi();
+  persistPacExtractionConfigInLocalStorage(payload);
+  await persistPacExtractionConfigInIndexedDb(payload);
+
+  if (syncRemote && auth.currentUser) {
+    try {
+      await savePacExtractionConfigToFirestore(payload);
+    } catch (error) {
+      console.error("No se pudo guardar configuracion PAC de extraccion en Firestore", error);
+    }
+  }
+}
+
+function schedulePacExtractionConfigPersistence() {
+  if (extractionConfigPersistTimer) {
+    clearTimeout(extractionConfigPersistTimer);
+  }
+  extractionConfigPersistTimer = setTimeout(() => {
+    extractionConfigPersistTimer = null;
+    void persistPacExtractionConfig({ syncRemote: true });
   }, QUERY_PERSIST_DEBOUNCE_MS);
 }
 
-async function hydrateGmailQueryInput() {
-  if (!queryInput) {
+async function hydratePacExtractionConfigForCurrentUser(user) {
+  if (!user || state.extractionConfigLoadedFromRemote) {
     return;
   }
-
-  let valueFromIdb = "";
   try {
-    const savedRecord = await idbGetSetting(PAC_GMAIL_QUERY_IDB_KEY);
-    if (savedRecord && typeof savedRecord.value === "string") {
-      valueFromIdb = savedRecord.value;
+    const remoteData = await loadPacExtractionConfigFromFirestore();
+    if (remoteData) {
+      applyPacExtractionConfigToForm(remoteData);
+      persistPacExtractionConfigInLocalStorage(remoteData);
+      await persistPacExtractionConfigInIndexedDb(remoteData);
     }
   } catch (error) {
-    console.error("No se pudo leer pac-gmail-query desde IndexedDB", error);
-  }
-
-  renderProcessDependentGmailQueries();
-
-  if (valueFromIdb) {
-    const options = Array.from(queryInput.options).map((option) => String(option.value || ""));
-    if (options.includes(valueFromIdb)) {
-      queryInput.value = valueFromIdb;
-    }
-    return;
-  }
-
-  try {
-    const valueFromLocal = String(window.localStorage?.getItem(PAC_GMAIL_QUERY_STORAGE_KEY) || "");
-    const options = Array.from(queryInput.options).map((option) => String(option.value || ""));
-    if (valueFromLocal && options.includes(valueFromLocal)) {
-      queryInput.value = valueFromLocal;
-    }
-  } catch (error) {
-    console.error("No se pudo leer pac-gmail-query desde localStorage", error);
+    console.error("No se pudo cargar configuracion PAC de extraccion desde Firestore", error);
+  } finally {
+    state.extractionConfigLoadedFromRemote = true;
   }
 }
 
@@ -1266,14 +1418,14 @@ runBtn.addEventListener("click", async () => {
 
 if (queryInput) {
   queryInput.addEventListener("change", () => {
-    scheduleGmailQueryPersistence();
+    schedulePacExtractionConfigPersistence();
   });
 }
 
 if (modeInput) {
   modeInput.addEventListener("change", () => {
     renderProcessDependentGmailQueries();
-    scheduleGmailQueryPersistence();
+    schedulePacExtractionConfigPersistence();
   });
 }
 
@@ -1348,6 +1500,7 @@ logoutBtn.addEventListener("click", async () => {
     await signOut(auth);
     state.accessToken = "";
     state.headerLoadedFromRemote = false;
+    state.extractionConfigLoadedFromRemote = false;
     cancelSelectionFlow();
     setMsg(authMsg, "Sesion cerrada");
     setMsg(runMsg, "");
@@ -1362,6 +1515,7 @@ onAuthStateChanged(auth, (user) => {
     userNameEl.textContent = "Sin sesion";
     userEmailEl.textContent = "-";
     state.headerLoadedFromRemote = false;
+    state.extractionConfigLoadedFromRemote = false;
     if (!state.accessToken) {
       setMsg(authMsg, "Inicia sesion con Google y luego autoriza Gmail + Sheets + Drive.");
     }
@@ -1371,6 +1525,7 @@ onAuthStateChanged(auth, (user) => {
   userNameEl.textContent = user.displayName || user.email || "Usuario";
   userEmailEl.textContent = user.email || "-";
   void hydratePacHeaderForCurrentUser(user);
+  void hydratePacExtractionConfigForCurrentUser(user);
   if (!state.accessToken) {
     setMsg(authMsg, "Sesion iniciada. Falta autorizar Gmail + Sheets + Drive.");
   }
@@ -1381,7 +1536,7 @@ void hydratePacHeaderFromIndexedDb();
 hydrateSheetCustomizationToggle();
 setDefaultModeOption();
 renderProcessDependentGmailQueries();
-void hydrateGmailQueryInput();
+void hydratePacExtractionConfigFromIndexedDb();
 renderRows([]);
 renderErrors([]);
 setFloatingVisible(false);

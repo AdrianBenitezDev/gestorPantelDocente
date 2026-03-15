@@ -1578,6 +1578,37 @@ function pacNormalizeEncabezadoPac(rawData, fallbackEmail = "") {
   };
 }
 
+function pacNormalizeExtractionProcessValue(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "0" || raw === "interinos_docx") {
+    return "0";
+  }
+  if (raw === "1" || raw === "designacion_body") {
+    return "1";
+  }
+  return "1";
+}
+
+function pacDefaultGmailQueryFromProcess(processValue) {
+  const safeProcess = pacNormalizeExtractionProcessValue(processValue);
+  const prefix = safeProcess === "0" ? "sad" : "apdsad";
+  return `from:${prefix}001@abc.gob.ar`;
+}
+
+function pacNormalizeExtractionConfig(rawData) {
+  const data = rawData && typeof rawData === "object" ? rawData : {};
+  const processValue = pacNormalizeExtractionProcessValue(
+    data.processValue || data.proceso || data.process || data.mode || ""
+  );
+  const gmailQuery =
+    pacNormalizeText(data.gmailQuery || data.query || "") ||
+    pacDefaultGmailQueryFromProcess(processValue);
+  return {
+    processValue,
+    gmailQuery,
+  };
+}
+
 function pacParseSheetId(value) {
   const text = String(value || "").trim();
   if (!text) {
@@ -3061,6 +3092,70 @@ exports.obtenerEncabezadoPac = onCall(callableOptions, async (request) => {
     exists: true,
     path: `tenants/${tenantId}/configuraciones/encabezadoPac`,
     encabezadoPac,
+  };
+});
+
+exports.actualizarConfiguracionPacExtraccion = onCall(callableOptions, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Auth required");
+  }
+
+  const uid = request.auth.uid;
+  const tenantId = await getUserTenantId(uid);
+  const raw = request.data?.configuracionPac && typeof request.data.configuracionPac === "object"
+    ? request.data.configuracionPac
+    : request.data || {};
+  const configuracionPac = pacNormalizeExtractionConfig(raw);
+  const ref = db.collection("tenants").doc(tenantId).collection("configuraciones").doc("pacExtraccion");
+  const existing = await ref.get();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+
+  await ref.set(
+    {
+      tenantId,
+      ...configuracionPac,
+      updatedAt: now,
+      updatedBy: uid,
+      createdAt: existing.exists ? existing.data()?.createdAt || now : now,
+    },
+    { merge: true }
+  );
+
+  return {
+    ok: true,
+    tenantId,
+    path: `tenants/${tenantId}/configuraciones/pacExtraccion`,
+    configuracionPac,
+  };
+});
+
+exports.obtenerConfiguracionPacExtraccion = onCall(callableOptions, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Auth required");
+  }
+
+  const uid = request.auth.uid;
+  const tenantId = await getUserTenantId(uid);
+  const ref = db.collection("tenants").doc(tenantId).collection("configuraciones").doc("pacExtraccion");
+  const snap = await ref.get();
+
+  if (!snap.exists) {
+    return {
+      ok: true,
+      tenantId,
+      exists: false,
+      path: `tenants/${tenantId}/configuraciones/pacExtraccion`,
+      configuracionPac: null,
+    };
+  }
+
+  const data = snap.data() || {};
+  return {
+    ok: true,
+    tenantId,
+    exists: true,
+    path: `tenants/${tenantId}/configuraciones/pacExtraccion`,
+    configuracionPac: pacNormalizeExtractionConfig(data),
   };
 });
 
