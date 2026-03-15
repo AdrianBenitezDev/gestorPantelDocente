@@ -1,6 +1,5 @@
 import {
   onAuthStateChanged,
-  signInWithEmailAndPassword,
   signInWithPopup,
   GoogleAuthProvider,
   signOut,
@@ -18,7 +17,6 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 import { auth, db, functions } from "./firebaseClient.js";
 
-const loginForm = document.getElementById("login-form");
 const loginSection = document.getElementById("login-section");
 const loginMsg = document.getElementById("login-msg");
 const userName = document.getElementById("user-name");
@@ -3034,26 +3032,11 @@ async function ensureTenantForUser(user, profile) {
   return tenantId;
 }
 
-loginForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const email = document.getElementById("login-email").value.trim();
-  const password = document.getElementById("login-password").value;
-
-  try {
-    await signInWithEmailAndPassword(auth, email, password);
-    setMsg(loginMsg, "Login correcto");
-    loginForm.reset();
-  } catch (error) {
-    console.error(error);
-    setMsg(loginMsg, "Credenciales invalidas", true);
-  }
-});
-
 googleLoginBtn.addEventListener("click", async () => {
   try {
     const provider = new GoogleAuthProvider();
     await signInWithPopup(auth, provider);
-    setMsg(loginMsg, "Login con Google correcto");
+    setMsg(loginMsg, "Ingreso con Google correcto");
   } catch (error) {
     console.error(error);
     setMsg(loginMsg, "No se pudo iniciar con Google", true);
@@ -3802,6 +3785,9 @@ onAuthStateChanged(auth, (user) => {
     currentSessionLogKey = "";
     updateSessionLayout(false);
     setPanelView("home");
+    if (mainTitle) {
+      mainTitle.textContent = "Ingresar";
+    }
     userName.textContent = "Sin sesion";
     userEmail.textContent = "-";
     tenantEmptyImport.classList.add("is-hidden");

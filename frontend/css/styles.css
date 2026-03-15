@@ -218,6 +218,22 @@ button {
   background: #f6f8fc;
 }
 
+.google-login-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.google-g-icon {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #fff;
+}
+
 .danger-btn {
   border-color: #d92d20;
   background: #d92d20;
