@@ -1,124 +1,419 @@
-PLAN SUSCRIPCIONES MERCADO PAGO + FIREBASE
+PLAN TECNICO DE IMPLEMENTACION
+SUSCRIPCION MERCADO PAGO - PLAN PRO (ARS 2000)
+
 Fecha: 2026-03-15
+Modo: produccion (sin modo prueba)
+Plan visible al usuario: unico plan "Plan Pro" por ARS 2000 / mes
 
-OBJETIVO
-- Implementar suscripciones mensuales con Mercado Pago para la app.
-- Precio del plan inicial: ARS 2000 por mes.
-- Sincronizar estado de suscripcion en Firebase para habilitar/bloquear funcionalidades.
+==================================================================
+0) AJUSTES APROBADOS (DESDE docs/mejoras.txt)
+==================================================================
 
-RESPUESTA CORTA A TUS PREGUNTAS
-1) "En Firebase esta el plan?"
-- Firebase NO trae un "plan de suscripcion comercial" listo para vender.
-- El plan comercial se define en tu app (Firestore + Functions) y el cobro recurrente lo hace Mercado Pago.
+Se incorporan estos ajustes:
 
-2) "Que plan de Firebase necesito?"
-- Para integrar suscripciones con backend (Cloud Functions + webhooks + Secrets) necesitas Blaze (pay as you go).
-- Spark no alcanza para este flujo productivo.
+1. Usuario base con `billing.planCode = null` y `billing.status = null`.
+2. `pending_checkout` solo se usa despues de iniciar checkout real.
+3. Politica de intentos: cada `startSubscriptionCheckout` crea intento nuevo (los anteriores quedan obsoletos para routing).
+4. Vinculo de lookup rapido a intento/preapproval desde usuario (`billing.lastAttemptId` y `billing.mpPreapprovalId`).
+5. `billingEvents` con `autoId`; no usar solo `x-request-id` como ID de doc.
+6. Orden de webhook definido para ACK rapido y procesamiento robusto.
+7. `syncSubscriptionStatus` con fallback si falta `mpPreapprovalId` en usuario.
+8. `ensureBillingActivation` agrega timestamps de activacion/provision.
+9. Routing frontend cerrado con tabla estricta por estado.
+10. Reglas Firestore con campos de usuario editables separados de campos sensibles.
+11. Politica de migracion para usuarios/tenants huerfanos con revision manual.
 
-3) "Cuanto sale?"
-- Tu producto: ARS 2000 por mes (definido por vos).
-- Firebase Blaze: sin costo fijo mensual, se paga por uso.
-- Mercado Pago: cobra comision por cobro procesado, variable segun condiciones comerciales.
+==================================================================
+1) DIAGNOSTICO REAL DEL PROYECTO
+==================================================================
 
-DEFINICION DEL PLAN COMERCIAL (LO QUE VAMOS A VENDER)
-- Nombre: Plan Base
-- Monto: 2000
-- Moneda: ARS
-- Frecuencia: mensual
-- Estado inicial: activa
+Estado confirmado en codigo actual:
 
-ARQUITECTURA PROPUESTA
-1) Frontend
-- Pantalla "Suscripcion" con:
-  - boton "Suscribirme"
-  - estado actual (activa, pendiente, pausada, cancelada)
-  - fecha de proximo cobro
+- `functions/src/index.js`:
+  - Existe `mercadoPagoSetupStatus`.
+  - No existen aun:
+    - `startSubscriptionCheckout`
+    - `mercadoPagoWebhook`
+    - `ensureBillingActivation`
+    - `getSubscriptionStatus`
+    - `syncSubscriptionStatus`
+  - `registerUser` hoy crea tenant inmediatamente.
+  - `getUserTenantId` hoy intenta resolver tenant aunque no exista plan activo.
 
-2) Backend (Firebase Functions)
-- createSubscriptionPlan (admin)
-  - crea/actualiza plan en Mercado Pago (preapproval_plan).
-- createSubscriptionForUser
-  - crea suscripcion del usuario (preapproval) y devuelve checkout/init link.
-- mercadoPagoWebhook
-  - recibe eventos de suscripciones y pagos.
-  - valida evento y actualiza Firestore.
-- getSubscriptionStatus
-  - devuelve estado consolidado para UI.
+- `frontend/js/app.js`:
+  - Existe `ensureTenantForUser` y crea tenant en login.
+  - `onAuthStateChanged` usa ese flujo.
+  - No hay gating por suscripcion activa.
 
-3) Persistencia (Firestore)
-- /config/suscripciones/plan_base
-  - amount: 2000
-  - currency: "ARS"
-  - frequency: 1
-  - frequency_type: "months"
-  - mp_preapproval_plan_id: "..."
-  - active: true
-- /tenants/{tenantId}/billing/subscription
-  - mp_preapproval_id
-  - status
-  - next_payment_date
-  - payer_email
-  - updatedAt
-- /tenants/{tenantId}/billing/events/{eventId}
-  - payload webhook para auditoria
+- `frontend/js/registro.js`:
+  - Asume `tenantId` inmediato al registrarse.
+  - No inicia checkout de Mercado Pago.
 
-PASOS DE IMPLEMENTACION
-FASE 1 - Preparacion
-1. Crear app en Mercado Pago Developers.
-2. Obtener ACCESS_TOKEN de pruebas y luego de produccion.
-3. Guardar tokens en Secret Manager (no en codigo).
-4. Confirmar proyecto Firebase en Blaze.
+Conclusion:
+- Es viable integrar suscripciones.
+- El riesgo principal no es Mercado Pago: es la creacion temprana de tenant.
 
-FASE 2 - Plan y suscripcion
-5. Implementar Function para crear plan recurrente ARS 2000 mensual.
-6. Guardar mp_preapproval_plan_id en Firestore.
-7. Implementar Function para crear suscripcion por tenant/usuario.
-8. Devolver URL de checkout/autorizacion para que el usuario confirme.
+==================================================================
+2) REGLAS DE NEGOCIO OBLIGATORIAS
+==================================================================
 
-FASE 3 - Webhooks y estado
-9. Exponer webhook HTTPS en Functions.
-10. Configurar webhook URL en Mercado Pago.
-11. Verificar firma/evento y guardar log de eventos.
-12. Actualizar estado de suscripcion en Firestore segun evento.
+1. Nunca crear tenant antes de suscripcion activa.
+2. Usuario Auth + perfil base si pueden existir antes del pago.
+3. Acceso a app solo con `access.appEnabled === true`.
+4. Debe soportar reintentos de pago sin duplicar tenant ni usuario.
+5. Todo evento de MP debe quedar auditado en Firestore.
 
-FASE 4 - UI y reglas de acceso
-13. Crear vista de estado de suscripcion.
-14. Bloquear funcionalidades premium si status != active.
-15. Mostrar mensajes claros: activa, pendiente, vencida, cancelada.
+==================================================================
+3) MODELO DE DATOS MINIMO
+==================================================================
 
-FASE 5 - QA y salida a produccion
-16. Probar flujo completo con usuarios de prueba Mercado Pago.
-17. Probar reintentos de pago, cancelacion y reactivacion.
-18. Activar credenciales productivas.
-19. Monitorear logs y metricas 7 dias.
+3.1 `/billingPlans/plan_pro`
+{
+  "code": "plan_pro",
+  "title": "Plan Pro",
+  "amount": 2000,
+  "currency": "ARS",
+  "frequency": 1,
+  "frequencyType": "months",
+  "active": true,
+  "mpPreapprovalPlanId": "MP_PREAPPROVAL_PLAN_ID",
+  "updatedAt": "SERVER_TIMESTAMP"
+}
 
-CHECKLIST DE SEGURIDAD
-- Validar auth y tenant en todas las callable functions.
-- Usar idempotencia para procesar webhooks (eventId unico).
-- No confiar en datos del frontend para estado de pago.
-- Guardar auditoria minima de cada evento.
-- Rotar credenciales y secretos.
+3.2 `/usuarios/{uid}` (usuario base, antes de pagar)
+{
+  "uid": "UID",
+  "correo": "usuario@abc.gob.ar",
+  "tenantId": null,
+  "billing": {
+    "planCode": null,
+    "status": null,
+    "lastAttemptId": null,
+    "mpPreapprovalId": null,
+    "updatedAt": "SERVER_TIMESTAMP"
+  },
+  "access": {
+    "appEnabled": false,
+    "reason": "payment_required"
+  },
+  "onboarding": {
+    "accountCreated": true,
+    "checkoutStarted": false,
+    "subscriptionActivated": false,
+    "tenantProvisioned": false
+  },
+  "updatedAt": "SERVER_TIMESTAMP"
+}
 
-RIESGOS Y MITIGACIONES
-- Webhook duplicado:
-  - Mitigacion: control por eventId + transaccion idempotente.
-- Diferencias de estado entre MP y Firestore:
-  - Mitigacion: tarea de reconciliacion diaria.
-- Rechazos de pago:
-  - Mitigacion: UI de "actualiza medio de pago" + notificacion.
+3.3 `/billingAttempts/{attemptId}`
+{
+  "uid": "UID",
+  "email": "usuario@abc.gob.ar",
+  "planCode": "plan_pro",
+  "status": "pending_checkout",
+  "isCurrent": true,
+  "externalReference": "sub_uid_UID_attempt_ATTEMPTID",
+  "mpPreapprovalId": null,
+  "mpPreapprovalPlanId": "MP_PREAPPROVAL_PLAN_ID",
+  "initPoint": null,
+  "lastWebhookAt": null,
+  "lastWebhookType": null,
+  "lastStatusDetail": null,
+  "createdAt": "SERVER_TIMESTAMP",
+  "updatedAt": "SERVER_TIMESTAMP"
+}
 
-ESTIMACION
-- MVP tecnico: 2 a 4 dias.
-- Hardening + pruebas + panel admin: 3 a 5 dias extra.
+3.4 `/billingEvents/{autoId}`
+{
+  "eventId": "EVENT_ID_IF_PRESENT",
+  "xRequestId": "HEADER_X_REQUEST_ID",
+  "topic": "subscription_preapproval",
+  "action": "updated",
+  "preapprovalId": "MP_PREAPPROVAL_ID",
+  "signatureValidated": true,
+  "processed": false,
+  "receivedAt": "SERVER_TIMESTAMP",
+  "rawPayload": {}
+}
 
-NOTAS DE COSTO (REFERENCIA)
-- Firebase Blaze: uso medido (sin abono fijo).
-- Cloud Functions (segun pagina de pricing): incluye cuota no-cost y luego cobro por invocaciones/egress.
-- Mercado Pago: comision por cobro procesado (variable por condiciones comerciales/localidad/plazo).
+Colecciones auxiliares opcionales:
+- `/processedWebhookKeys/{dedupeKey}`
+- `/billingPreapprovals/{mpPreapprovalId}` -> `{ uid, attemptId, status, updatedAt }`
 
-FUENTES CONSULTADAS (2026-03-15)
-- Firebase pricing: https://firebase.google.com/pricing
-- Firebase storage plan requirement (Blaze): https://firebase.google.com/docs/storage/faqs-storage-changes-announced-sept-2024
-- Mercado Pago Subscriptions overview: https://www.mercadopago.com.ar/developers/en/docs/subscriptions/overview
-- Mercado Pago subscriptions prerequisites: https://www.mercadopago.com.ar/developers/en/docs/subscriptions/requirements
-- Mercado Pago preapproval plan reference: https://www.mercadopago.com.uy/developers/es/reference/subscriptions/_preapproval_plan/post
+3.5 `/tenants/{tenantId}` (solo post-activacion)
+{
+  "tenantId": "TENANT_ID",
+  "ownerUid": "UID",
+  "planCode": "plan_pro",
+  "status": "active",
+  "createdAt": "SERVER_TIMESTAMP",
+  "updatedAt": "SERVER_TIMESTAMP"
+}
+
+Estados internos de `billing.status`:
+- null (sin checkout iniciado)
+- pending_checkout
+- pending_confirmation
+- active
+- paused
+- cancelled
+- rejected
+- expired
+- error
+
+==================================================================
+4) BACKEND - CAMBIOS POR FUNCION
+==================================================================
+
+4.1 `registerUser` (refactor)
+- Crear Auth + perfil base.
+- No crear tenant.
+- Guardar:
+  - `tenantId: null`
+  - `billing.planCode: null`
+  - `billing.status: null`
+  - `billing.lastAttemptId: null`
+  - `access.appEnabled: false`
+- Si luego falla checkout, usuario queda creado pero bloqueado (flujo recuperable).
+
+4.2 `getUserTenantId` (refactor)
+- Si `tenantId` no existe o `access.appEnabled !== true`:
+  - throw `failed-precondition` con codigo funcional `subscription_required`.
+- Eliminar auto-asignacion de tenant por queries secundarias.
+
+4.3 `startSubscriptionCheckout` (callable nueva)
+Input:
+{
+  "planCode": "plan_pro"
+}
+Politica de intentos:
+- Cada invocacion crea un `billingAttempt` nuevo.
+- Intentos anteriores quedan auditados y se marcan `isCurrent = false`.
+
+Acciones:
+- validar auth
+- validar plan activo en `/billingPlans/plan_pro`
+- crear intento en `/billingAttempts`
+- crear preapproval en MP
+- actualizar `/usuarios/{uid}`:
+  - `billing.planCode = "plan_pro"`
+  - `billing.status = "pending_checkout"`
+  - `billing.lastAttemptId = "<attemptId>"`
+  - `billing.mpPreapprovalId = "<mpPreapprovalId>"`
+  - `onboarding.checkoutStarted = true`
+- devolver `initPoint`
+
+4.4 `mercadoPagoWebhook` (HTTP nueva)
+Orden obligatorio:
+1. recibir request
+2. extraer headers y payload
+3. validar firma
+4. persistir evento en `billingEvents` (autoId)
+5. responder `200` inmediatamente
+6. continuar procesamiento en worker/cola interna:
+   - resolver `preapprovalId`
+   - consultar estado real a MP
+   - mapear estado interno
+   - actualizar attempt + usuario
+   - activar tenant si corresponde
+
+Nota tecnica:
+- No depender de ejecutar logica pesada despues de `res.send(200)` en el mismo request.
+- Usar cola/worker (por ejemplo Cloud Tasks / PubSub / re-dispatch interno).
+
+4.5 Mapping de estado MP -> estado interno
+
+Definir helper explicito en backend:
+- `authorized` -> `active`
+- `pending` -> `pending_confirmation`
+- `paused` -> `paused`
+- `cancelled` -> `cancelled`
+- `rejected` -> `rejected`
+- `expired` -> `expired`
+- desconocido/error -> `error`
+
+Nota: ajustar nombres exactos segun payload real de MP en produccion.
+
+4.6 `ensureBillingActivation(uid, preapprovalData)` (helper interna)
+- Debe ser idempotente y transaccional.
+- Si usuario ya esta activo con tenant, no duplica nada.
+- Si no tiene tenant:
+  - crear `tenantId`
+  - crear `/tenants/{tenantId}`
+  - crear estructura minima requerida por la app (subcolecciones/docs base)
+  - asignar owner/miembro si aplica
+  - actualizar usuario:
+    - `tenantId`
+    - `billing.status = active`
+    - `billing.activatedAt = SERVER_TIMESTAMP`
+    - `access.appEnabled = true`
+    - `access.reason = active_subscription`
+    - `access.enabledAt = SERVER_TIMESTAMP`
+    - `onboarding.subscriptionActivated = true`
+    - `onboarding.tenantProvisioned = true`
+    - `onboarding.tenantProvisionedAt = SERVER_TIMESTAMP`
+
+4.7 `getSubscriptionStatus` (callable nueva)
+Output minimo:
+{
+  "billingStatus": "null|pending_checkout|active|...",
+  "appEnabled": false,
+  "reason": "payment_required",
+  "planCode": "plan_pro|null",
+  "tenantId": "",
+  "nextRoute": "/activar-plan.html"
+}
+
+4.8 `syncSubscriptionStatus` (callable nueva)
+Uso: soporte manual / boton "ya pague, reintentar sincronizacion".
+Lookup robusto:
+1. usar `usuarios/{uid}.billing.mpPreapprovalId`
+2. si no existe, usar ultimo `billingAttempt` con `mpPreapprovalId` no vacio
+3. si no hay ninguno, devolver error funcional `subscription_not_found`
+
+Acciones:
+- consultar estado real a MP
+- actualizar estado local
+- activar tenant si corresponde
+
+==================================================================
+5) FRONTEND - CAMBIOS POR ARCHIVO
+==================================================================
+
+5.1 `frontend/js/app.js`
+- Quitar flujo que crea tenant automaticamente (`ensureTenantForUser` para este caso).
+- Fuente principal para gating: documento `/usuarios/{uid}`.
+- `getSubscriptionStatus` solo como fallback/manual-resync.
+
+Tabla de routing obligatoria:
+- sin auth -> login
+- sin `/usuarios/{uid}` -> `/registro.html`
+- `appEnabled === true` y `tenantId` presente -> entra a app
+- `billing.status` en `pending_confirmation | rejected | cancelled | expired | paused | error` -> `/estado-suscripcion.html`
+- `billing.status` en `null | pending_checkout` -> `/activar-plan.html`
+
+5.2 `frontend/registro.html` + `frontend/js/registro.js`
+- Mostrar selector de plan (unico plan pro).
+- Submit:
+  - `registerUser`
+  - luego `startSubscriptionCheckout`
+  - redirect a `initPoint`
+- Si falla `startSubscriptionCheckout`:
+  - informar error
+  - mantener usuario bloqueado
+  - indicar reingreso por `activar-plan.html`
+
+5.3 Nuevas vistas
+- `frontend/activar-plan.html` + `frontend/js/activarPlan.js`
+  - boton "Suscribirme" -> `startSubscriptionCheckout`
+- `frontend/estado-suscripcion.html` + `frontend/js/estadoSuscripcion.js`
+  - mostrar estado actual
+  - boton "Reintentar pago"
+  - boton "Sincronizar estado" (usa `syncSubscriptionStatus`)
+
+5.4 Banner
+- Con acceso activo mostrar `Plan Pro`.
+
+==================================================================
+6) MIGRACION DE USUARIOS EXISTENTES
+==================================================================
+
+Politica recomendada:
+- Usuarios ya activos hoy conservan acceso.
+- No forzar nuevo onboarding a usuarios historicos.
+- Casos huerfanos/inconsistentes van a revision manual (no autocorregir si hay riesgo de asignacion incorrecta).
+
+Scripts de migracion:
+1. Completar `billing`, `access` y `onboarding` en usuarios existentes.
+2. Marcar `planCode = "plan_pro"` y `billing.status = active` para tenants validos ya operativos.
+3. Detectar y exportar inconsistencias:
+   - usuario con tenant pero sin billing
+   - billing activo sin tenant
+   - tenant sin ownerUid
+   - usuario con tenant sin membresia/owner claro
+   - tenant sin datos base minimos
+4. Generar lista de revision manual con accion recomendada por caso.
+
+==================================================================
+7) FIRESTORE RULES E INDEXES
+==================================================================
+
+Estado actual: muy abierto (todo auth puede leer/escribir todo).
+
+Ajuste minimo recomendado:
+- Cliente:
+  - leer su propio `/usuarios/{uid}`
+  - escribir solo campos de perfil permitidos (ej: nombre/contacto/preferencias)
+  - no escribir campos sensibles: `billing.*`, `access.*`, `onboarding.*`, `tenantId`
+  - no escribir `billingAttempts` ni `billingEvents`
+  - lectura de `billingPlans` solamente
+- Backend/admin:
+  - escritura de billing, onboarding, tenant y auditoria
+
+Indexes recomendados:
+- `billingAttempts`:
+  - `uid` + `createdAt desc`
+  - `mpPreapprovalId`
+  - `externalReference`
+- `billingEvents`:
+  - `preapprovalId` + `receivedAt desc`
+
+==================================================================
+8) ORDEN DE IMPLEMENTACION (SEGURO)
+==================================================================
+
+1. Refactor `ensureTenantForUser` (frontend) y `getUserTenantId` (backend).
+2. Implementar modelo `billing/access/onboarding`.
+3. Ejecutar migracion de usuarios existentes.
+4. Implementar `startSubscriptionCheckout`.
+5. Implementar `mercadoPagoWebhook`.
+6. Implementar `ensureBillingActivation`.
+7. Implementar `getSubscriptionStatus` y `syncSubscriptionStatus`.
+8. Crear/ajustar pantallas frontend (`registro`, `activar-plan`, `estado-suscripcion`).
+9. Endurecer rules/indexes.
+10. Pruebas E2E.
+
+==================================================================
+9) MATRIZ DE PRUEBAS OBLIGATORIA
+==================================================================
+
+1. Usuario nuevo -> pago aprobado:
+- crea tenant
+- habilita acceso
+- muestra Plan Pro
+
+2. Usuario nuevo -> pago rechazado:
+- no crea tenant
+- queda en estado-suscripcion
+
+3. Usuario existente sin pago -> login Google:
+- redireccion a activar-plan/estado-suscripcion
+
+4. Falla `startSubscriptionCheckout` luego de `registerUser`:
+- usuario queda bloqueado, sin tenant
+- puede reintentar desde activar-plan
+
+5. Multiples clicks en Suscribirme:
+- se crean multiples intentos
+- solo ultimo intento queda `isCurrent = true`
+
+6. Webhook duplicado:
+- no duplica tenant ni activacion
+
+7. Webhook perdido:
+- `syncSubscriptionStatus` recupera estado correcto
+
+8. Usuario activo cambia de dispositivo:
+- estado se toma de Firestore y entra normal
+
+==================================================================
+10) VEREDICTO
+==================================================================
+
+Si, el plan es viable con el estado actual.
+
+Condicion critica:
+- primero cerrar refactor de tenant/auth + migracion,
+- luego integrar checkout/webhook.
+
+Si se integra MP antes de eso, se mantiene el problema actual de crear tenant antes del pago.

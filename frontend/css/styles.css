@@ -187,6 +187,22 @@ button {
   line-height: 1.1;
 }
 
+.plan-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid #8bc2ff;
+  background: #e9f4ff;
+  color: #0f5fa5;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.1;
+  width: fit-content;
+}
+
 @media (max-width: 740px) {
   .app {
     margin-top: 122px;

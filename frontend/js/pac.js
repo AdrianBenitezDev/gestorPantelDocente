@@ -90,6 +90,7 @@ const state = {
   savedFile: null,
   headerLoadedFromRemote: false,
   extractionConfigLoadedFromRemote: false,
+  hasTenantAccess: false,
 };
 const PAC_GMAIL_QUERY_STORAGE_KEY = "pacGmailQuery";
 const PAC_GMAIL_QUERY_IDB_KEY = "gmailQuery";
@@ -291,6 +292,35 @@ function setBusy(btn, busy) {
     btn.textContent = "Procesando...";
   } else if (btn.dataset.originalText) {
     btn.textContent = btn.dataset.originalText;
+  }
+}
+
+function isSubscriptionRequiredError(error) {
+  const code = String(error?.code || "").trim().toLowerCase();
+  const detailsCode = String(error?.details?.code || "").trim().toLowerCase();
+  const message = String(error?.message || "").trim().toLowerCase();
+  const isFailedPrecondition = code.includes("failed-precondition");
+  return isFailedPrecondition
+    && (detailsCode === "subscription_required" || message.includes("subscription required"));
+}
+
+async function refreshPacTenantAccess(user) {
+  if (!user) {
+    state.hasTenantAccess = false;
+    return false;
+  }
+  try {
+    const callable = httpsCallable(functions, "getSubscriptionStatus");
+    const response = await callable({});
+    const data = response.data || {};
+    const appEnabled = data.appEnabled === true;
+    const tenantId = String(data.tenantId || "").trim();
+    state.hasTenantAccess = Boolean(appEnabled && tenantId);
+    return state.hasTenantAccess;
+  } catch (error) {
+    console.error("No se pudo validar acceso PAC por suscripcion", error);
+    state.hasTenantAccess = false;
+    return false;
   }
 }
 
@@ -502,16 +532,23 @@ async function savePacExtractionConfigToFirestore(config) {
 }
 
 async function loadPacExtractionConfigFromFirestore() {
-  if (!auth.currentUser) {
+  if (!auth.currentUser || !state.hasTenantAccess) {
     return null;
   }
-  const callable = httpsCallable(functions, "obtenerConfiguracionPacExtraccion");
-  const response = await callable({});
-  const result = response.data || {};
-  if (result && result.configuracionPac && typeof result.configuracionPac === "object") {
-    return result.configuracionPac;
+  try {
+    const callable = httpsCallable(functions, "obtenerConfiguracionPacExtraccion");
+    const response = await callable({});
+    const result = response.data || {};
+    if (result && result.configuracionPac && typeof result.configuracionPac === "object") {
+      return result.configuracionPac;
+    }
+    return null;
+  } catch (error) {
+    if (isSubscriptionRequiredError(error)) {
+      return null;
+    }
+    throw error;
   }
-  return null;
 }
 
 async function persistPacExtractionConfig({ syncRemote = false } = {}) {
@@ -782,16 +819,23 @@ function setDefaultPacHeaderEmail(email) {
 }
 
 async function loadPacHeaderFromFirestore() {
-  if (!auth.currentUser) {
+  if (!auth.currentUser || !state.hasTenantAccess) {
     return null;
   }
-  const callable = httpsCallable(functions, "obtenerEncabezadoPac");
-  const response = await callable({});
-  const result = response.data || {};
-  if (result && result.encabezadoPac && typeof result.encabezadoPac === "object") {
-    return result.encabezadoPac;
+  try {
+    const callable = httpsCallable(functions, "obtenerEncabezadoPac");
+    const response = await callable({});
+    const result = response.data || {};
+    if (result && result.encabezadoPac && typeof result.encabezadoPac === "object") {
+      return result.encabezadoPac;
+    }
+    return null;
+  } catch (error) {
+    if (isSubscriptionRequiredError(error)) {
+      return null;
+    }
+    throw error;
   }
-  return null;
 }
 
 async function hydratePacHeaderForCurrentUser(user) {
@@ -1178,6 +1222,9 @@ function formatSummary(result, previewOnly) {
 }
 
 function formatCallableError(error) {
+  if (isSubscriptionRequiredError(error)) {
+    return "Debes tener una suscripcion activa para usar el modulo PAC.";
+  }
   const base = String(error?.message || "No se pudo ejecutar el proceso PAC");
   const details = error?.details && typeof error.details === "object" ? error.details : null;
   if (!details) {
@@ -1598,6 +1645,7 @@ logoutBtn.addEventListener("click", async () => {
     state.accessToken = "";
     state.headerLoadedFromRemote = false;
     state.extractionConfigLoadedFromRemote = false;
+    state.hasTenantAccess = false;
     applyHorariosLinkVisibility(null);
     cancelSelectionFlow();
     setMsg(authMsg, "Sesion cerrada");
@@ -1614,6 +1662,7 @@ onAuthStateChanged(auth, (user) => {
     userEmailEl.textContent = "-";
     state.headerLoadedFromRemote = false;
     state.extractionConfigLoadedFromRemote = false;
+    state.hasTenantAccess = false;
     applyHorariosLinkVisibility(null);
     if (!state.accessToken) {
       setMsg(authMsg, "Inicia sesion con Google y luego autoriza Gmail + Sheets + Drive.");
@@ -1623,9 +1672,18 @@ onAuthStateChanged(auth, (user) => {
 
   userNameEl.textContent = user.displayName || user.email || "Usuario";
   userEmailEl.textContent = user.email || "-";
+  state.headerLoadedFromRemote = false;
+  state.extractionConfigLoadedFromRemote = false;
+  state.hasTenantAccess = false;
   applyHorariosLinkVisibility(user);
-  void hydratePacHeaderForCurrentUser(user);
-  void hydratePacExtractionConfigForCurrentUser(user);
+  void (async () => {
+    const hasTenantAccess = await refreshPacTenantAccess(user);
+    if (!hasTenantAccess) {
+      return;
+    }
+    await hydratePacHeaderForCurrentUser(user);
+    await hydratePacExtractionConfigForCurrentUser(user);
+  })();
   if (!state.accessToken) {
     setMsg(authMsg, "Sesion iniciada. Falta autorizar Gmail + Sheets + Drive.");
   }

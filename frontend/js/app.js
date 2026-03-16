@@ -21,6 +21,7 @@ const loginSection = document.getElementById("login-section");
 const loginMsg = document.getElementById("login-msg");
 const userName = document.getElementById("user-name");
 const userEmail = document.getElementById("user-email");
+const userPlanBadge = document.getElementById("user-plan-badge");
 const logoutBtn = document.getElementById("logout-btn");
 const googleLoginBtn = document.getElementById("google-login-btn");
 const panelSection = document.getElementById("panel-section");
@@ -1109,6 +1110,24 @@ function updateSessionLayout(isLoggedIn) {
     handleBannerAutoHideScroll();
   }
   syncBannerLayout();
+}
+
+function updatePlanBadge(profile = null) {
+  if (!userPlanBadge) {
+    return;
+  }
+  const appEnabled = profile?.access?.appEnabled === true;
+  const planCode = String(profile?.billing?.planCode || "").trim().toLowerCase();
+  const shouldShow = appEnabled && (!planCode || planCode === "plan_pro");
+  if (!shouldShow) {
+    userPlanBadge.classList.add("is-hidden");
+    userPlanBadge.hidden = true;
+    userPlanBadge.textContent = "";
+    return;
+  }
+  userPlanBadge.textContent = "Plan Pro";
+  userPlanBadge.classList.remove("is-hidden");
+  userPlanBadge.hidden = false;
 }
 
 function resetImportState() {
@@ -2923,113 +2942,105 @@ async function loadTenantCourses(tenantId, options = {}) {
   }
 }
 
-async function resolveTenantIdForUser(uid, currentTenantId) {
-  const directTenantId = String(currentTenantId || "").trim();
-  if (directTenantId) {
-    return directTenantId;
+function normalizeBillingStatus(value) {
+  if (value === null || value === undefined) {
+    return "null";
+  }
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized || "null";
+}
+
+function resolveGatingRouteByProfile(profile) {
+  if (!profile || typeof profile !== "object") {
+    return "/registro.html";
   }
 
-  const tenantByOwnerQuery = query(
-    collection(db, "tenants"),
-    where("ownerUid", "==", uid),
-    limit(1)
-  );
-  const tenantByOwnerSnap = await getDocs(tenantByOwnerQuery);
-  if (tenantByOwnerSnap.empty) {
+  const tenantId = String(profile.tenantId || "").trim();
+  const appEnabled = profile?.access?.appEnabled === true;
+  if (appEnabled && tenantId) {
     return "";
   }
 
-  const foundTenantId = tenantByOwnerSnap.docs[0].id;
-  await setDoc(
-    doc(db, "usuarios", uid),
-    {
-      tenantId: foundTenantId,
-      updatedAt: new Date(),
-    },
-    { merge: true }
-  );
-  return foundTenantId;
+  const billingStatus = normalizeBillingStatus(profile?.billing?.status);
+  const blockedStatuses = new Set([
+    "pending_confirmation",
+    "rejected",
+    "cancelled",
+    "expired",
+    "paused",
+    "error",
+  ]);
+
+  if (blockedStatuses.has(billingStatus)) {
+    return "/estado-suscripcion.html";
+  }
+
+  if (billingStatus === "null" || billingStatus === "pending_checkout") {
+    return "/activar-plan.html";
+  }
+
+  return "/activar-plan.html";
 }
 
-async function ensureUserProfileDocument(user) {
-  const userRef = doc(db, "usuarios", user.uid);
+function redirectToRouteIfNeeded(route) {
+  const target = String(route || "").trim();
+  if (!target) {
+    return false;
+  }
+  const normalizedCurrent = String(window.location.pathname || "")
+    .trim()
+    .replace(/\/+$/, "")
+    .toLowerCase();
+  const normalizedTarget = target.replace(/\/+$/, "").toLowerCase();
+  if (normalizedCurrent === normalizedTarget) {
+    return false;
+  }
+  window.location.replace(target);
+  return true;
+}
+
+async function getUserProfileDocument(uid) {
+  const userRef = doc(db, "usuarios", uid);
   const userSnap = await getDoc(userRef);
-
-  if (userSnap.exists()) {
-    return userSnap.data();
-  }
-
-  let foundTenantId = "";
-  const byOwnerUid = await getDocs(
-    query(collection(db, "tenants"), where("ownerUid", "==", user.uid), limit(1))
-  );
-  if (!byOwnerUid.empty) {
-    foundTenantId = byOwnerUid.docs[0].id;
-  } else if (user.email) {
-    const byOwnerEmail = await getDocs(
-      query(collection(db, "tenants"), where("ownerEmail", "==", user.email), limit(1))
-    );
-    if (!byOwnerEmail.empty) {
-      foundTenantId = byOwnerEmail.docs[0].id;
-    }
-  }
-
-  const bootstrapProfile = {
-    uid: user.uid,
-    nombre: user.displayName || user.email || "Usuario",
-    correo: user.email || "",
-    tenantId: foundTenantId,
-    rol: "admin_escuela",
-    updatedAt: new Date(),
-    createdAt: new Date(),
-  };
-
-  await setDoc(userRef, bootstrapProfile, { merge: true });
-  return bootstrapProfile;
+  return userSnap.exists() ? userSnap.data() : null;
 }
 
-async function ensureTenantForUser(user, profile) {
-  let tenantId = await resolveTenantIdForUser(user.uid, profile.tenantId);
-  if (tenantId) {
-    return tenantId;
+async function loadAuthenticatedTenantState(user) {
+  const profile = await getUserProfileDocument(user.uid);
+  if (!profile) {
+    updatePlanBadge(null);
+    redirectToRouteIfNeeded("/registro.html");
+    return;
   }
 
-  const tenantRef = doc(collection(db, "tenants"));
-  tenantId = tenantRef.id;
-  const now = new Date();
-  const ownerEmail = String(user.email || profile.correo || "").trim().toLowerCase();
-  const ownerName = String(profile.nombre || user.displayName || ownerEmail || "Usuario").trim();
+  userName.textContent = profile.nombre || userName.textContent;
+  userEmail.textContent = profile.correo || userEmail.textContent;
+  updatePlanBadge(profile);
 
-  await setDoc(
-    tenantRef,
-    {
-      tenantId,
-      ownerUid: user.uid,
-      ownerEmail,
-      nombreInstitucion: String(profile.escuela || "Escuela").trim(),
-      distrito: String(profile.distrito || "").trim(),
-      nivel: String(profile.nivel || "").trim(),
-      createdAt: now,
-      updatedAt: now,
-    },
-    { merge: true }
-  );
+  const route = resolveGatingRouteByProfile(profile);
+  if (route) {
+    redirectToRouteIfNeeded(route);
+    return;
+  }
 
-  await setDoc(
-    doc(db, "usuarios", user.uid),
-    {
-      uid: user.uid,
-      nombre: ownerName,
-      correo: ownerEmail,
-      tenantId,
-      rol: String(profile.rol || "admin_escuela"),
-      updatedAt: now,
-      createdAt: profile.createdAt || now,
-    },
-    { merge: true }
-  );
+  const tenantId = String(profile.tenantId || "").trim();
+  importState.tenantId = tenantId;
+  if (!tenantId) {
+    setMsg(panelMsg, "Tu usuario no tiene tenantId asignado", true);
+    tenantEmptyImport.classList.add("is-hidden");
+    return;
+  }
 
-  return tenantId;
+  try {
+    await registerCurrentSession(user, importState.tenantId, profile);
+  } catch (sessionError) {
+    console.error("No se pudo registrar la sesion actual", sessionError);
+  }
+
+  await Promise.all([
+    checkTenantDataAndToggleImport(importState.tenantId),
+    loadTenantCourses(importState.tenantId),
+  ]);
 }
 
 googleLoginBtn.addEventListener("click", async () => {
@@ -3790,6 +3801,7 @@ onAuthStateChanged(auth, (user) => {
     }
     userName.textContent = "Sin sesion";
     userEmail.textContent = "-";
+    updatePlanBadge(null);
     tenantEmptyImport.classList.add("is-hidden");
     resetImportState();
     return;
@@ -3799,32 +3811,10 @@ onAuthStateChanged(auth, (user) => {
   userName.textContent = user.displayName || user.email || "Usuario";
   userEmail.textContent = user.email || "-";
 
-  ensureUserProfileDocument(user)
-    .then((profile) => {
-      userName.textContent = profile.nombre || userName.textContent;
-      userEmail.textContent = profile.correo || userEmail.textContent;
-      ensureTenantForUser(user, profile)
-        .then((tenantId) => {
-          importState.tenantId = tenantId;
-          if (!importState.tenantId) {
-            setMsg(panelMsg, "Tu usuario no tiene tenantId asignado", true);
-            tenantEmptyImport.classList.add("is-hidden");
-            return;
-          }
-          registerCurrentSession(user, importState.tenantId, profile);
-          return Promise.all([
-            checkTenantDataAndToggleImport(importState.tenantId),
-            loadTenantCourses(importState.tenantId),
-          ]);
-        })
-        .catch((error) => {
-          console.error(error);
-          setMsg(panelMsg, "No se pudo cargar datos del tenant", true);
-        });
-    })
-    .catch((error) => {
-      console.error("No se pudo leer perfil en Firestore", error);
-    });
+  void loadAuthenticatedTenantState(user).catch((error) => {
+    console.error("No se pudo cargar estado autenticado", error);
+    setMsg(panelMsg, "No se pudo cargar datos del tenant", true);
+  });
 });
 
 turnScheduleDraft = createEmptyTurnScheduleConfig();

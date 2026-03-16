@@ -1,9 +1,17 @@
-const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onCall, onRequest, HttpsError } = require("firebase-functions/v2/https");
+const { onTaskDispatched } = require("firebase-functions/v2/tasks");
 const { defineSecret } = require("firebase-functions/params");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
+const { getFunctions } = require("firebase-admin/functions");
+const crypto = require("crypto");
 const zlib = require("zlib");
 const { fetchFechaNacimientoByDni, UNKNOWN_BIRTHDATE } = require("./pacNacimientoLookup");
+const {
+  mapMercadoPagoStatusToBillingStatus,
+  normalizeBillingStatus,
+  resolveNextRouteForProfile,
+} = require("./subscriptionDomain");
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -16,6 +24,7 @@ const callableOptions = { cors: allowedCorsOrigins, invoker: "public" };
 const MP_ACCESS_TOKEN = defineSecret("MP_ACCESS_TOKEN");
 const MP_WEBHOOK_SECRET = defineSecret("MP_WEBHOOK_SECRET");
 const MP_PUBLIC_KEY = defineSecret("MP_PUBLIC_KEY");
+const MP_WEBHOOK_TASK_QUEUE_NAME = "processMercadoPagoWebhookTask";
 
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
@@ -31,6 +40,743 @@ function normalizeCourse(value) {
 
 function buildTenantId() {
   return `tenant_${db.collection("tenants").doc().id}`;
+}
+
+function buildPlanProDefaults(mpPreapprovalPlanId = "") {
+  return {
+    code: "plan_pro",
+    title: "Plan Pro",
+    amount: 2000,
+    currency: "ARS",
+    frequency: 1,
+    frequencyType: "months",
+    active: true,
+    mpPreapprovalPlanId: String(mpPreapprovalPlanId || "").trim(),
+  };
+}
+
+async function ensurePlanProSupport() {
+  const planRef = db.collection("billingPlans").doc("plan_pro");
+  const planSnap = await planRef.get();
+  const existing = planSnap.exists ? (planSnap.data() || {}) : {};
+  const defaults = buildPlanProDefaults(existing.mpPreapprovalPlanId);
+  const now = admin.firestore.FieldValue.serverTimestamp();
+
+  if (!planSnap.exists) {
+    await planRef.set({
+      ...defaults,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return { ...defaults, created: true };
+  }
+
+  await planRef.set(
+    {
+      ...defaults,
+      updatedAt: now,
+    },
+    { merge: true }
+  );
+  return { ...defaults, created: false };
+}
+
+function normalizePlanCode(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function shortText(value, maxLength = 280) {
+  return String(value || "").trim().slice(0, Math.max(0, Number(maxLength) || 0));
+}
+
+async function createMercadoPagoPreapproval({
+  accessToken,
+  planCode,
+  plan,
+  payerEmail,
+  externalReference,
+}) {
+  const safeAccessToken = String(accessToken || "").trim();
+  if (!safeAccessToken) {
+    throw new HttpsError("failed-precondition", "Mercado Pago access token is not configured");
+  }
+
+  const safePlan = plan && typeof plan === "object" ? plan : {};
+  const safePayerEmail = normalizeEmail(payerEmail);
+  const safePlanCode = normalizePlanCode(planCode || safePlan.code || "plan_pro");
+  const safeExternalReference = shortText(externalReference, 120);
+  const preapprovalPlanId = shortText(safePlan.mpPreapprovalPlanId, 120);
+
+  const payload = {
+    reason: shortText(safePlan.title || "Plan Pro", 120),
+    payer_email: safePayerEmail,
+    external_reference: safeExternalReference,
+    status: "pending",
+    back_url: `${allowedCorsOrigins[0] || "https://horario-escuelas.web.app"}/estado-suscripcion.html`,
+  };
+
+  if (preapprovalPlanId) {
+    payload.preapproval_plan_id = preapprovalPlanId;
+  } else {
+    payload.auto_recurring = {
+      frequency: Number(safePlan.frequency || 1),
+      frequency_type: String(safePlan.frequencyType || "months"),
+      transaction_amount: Number(safePlan.amount || 2000),
+      currency_id: String(safePlan.currency || "ARS"),
+    };
+  }
+
+  const response = await fetch("https://api.mercadopago.com/preapproval", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${safeAccessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const rawBody = await response.text();
+  let parsedBody = {};
+  try {
+    parsedBody = rawBody ? JSON.parse(rawBody) : {};
+  } catch (_error) {
+    parsedBody = { rawBody: shortText(rawBody, 1200) };
+  }
+
+  if (!response.ok) {
+    logger.error("startSubscriptionCheckout Mercado Pago preapproval failed", {
+      status: response.status,
+      statusText: response.statusText,
+      planCode: safePlanCode,
+      externalReference: safeExternalReference,
+      response: parsedBody,
+    });
+    throw new HttpsError(
+      "failed-precondition",
+      "No se pudo iniciar el checkout de Mercado Pago",
+      {
+        code: "mercadopago_preapproval_failed",
+        httpStatus: response.status,
+      }
+    );
+  }
+
+  const mpPreapprovalId = shortText(parsedBody?.id, 120);
+  const initPoint = String(parsedBody?.init_point || parsedBody?.sandbox_init_point || "").trim();
+  if (!mpPreapprovalId || !initPoint) {
+    logger.error("startSubscriptionCheckout Mercado Pago response incomplete", {
+      planCode: safePlanCode,
+      externalReference: safeExternalReference,
+      response: parsedBody,
+    });
+    throw new HttpsError("internal", "Respuesta incompleta de Mercado Pago al iniciar checkout");
+  }
+
+  return {
+    mpPreapprovalId,
+    initPoint,
+    raw: parsedBody,
+  };
+}
+
+function safeObject(value) {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+  return value;
+}
+
+function parseMercadoPagoSignatureHeader(signatureHeader) {
+  const parsed = {};
+  String(signatureHeader || "")
+    .split(",")
+    .forEach((item) => {
+      const [key, ...rest] = String(item || "").split("=");
+      const cleanKey = String(key || "").trim().toLowerCase();
+      const cleanValue = String(rest.join("=") || "").trim();
+      if (cleanKey) {
+        parsed[cleanKey] = cleanValue;
+      }
+    });
+  return parsed;
+}
+
+function safeHexToBuffer(value) {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[^a-f0-9]/g, "");
+  if (!normalized || normalized.length % 2 !== 0) {
+    return Buffer.from("");
+  }
+  return Buffer.from(normalized, "hex");
+}
+
+function timingSafeEqualHex(left, right) {
+  const a = safeHexToBuffer(left);
+  const b = safeHexToBuffer(right);
+  if (!a.length || !b.length || a.length !== b.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(a, b);
+}
+
+function extractWebhookPreapprovalId(payload = {}, query = {}) {
+  const body = safeObject(payload);
+  const q = safeObject(query);
+
+  const queryDataId = String(q["data.id"] || q.dataId || "").trim();
+  if (queryDataId) {
+    return queryDataId;
+  }
+
+  const bodyDataId = String(body?.data?.id || "").trim();
+  if (bodyDataId) {
+    return bodyDataId;
+  }
+
+  const bodyId = String(body?.id || "").trim();
+  if (bodyId) {
+    return bodyId;
+  }
+
+  const resourcePath = String(body?.resource || body?.api_version || "").trim();
+  const resourceMatch = resourcePath.match(/preapproval\/([a-zA-Z0-9_-]+)/i);
+  if (resourceMatch && resourceMatch[1]) {
+    return String(resourceMatch[1]).trim();
+  }
+
+  return "";
+}
+
+function firestoreTimestampToMillis(value) {
+  if (!value) {
+    return 0;
+  }
+  if (typeof value?.toMillis === "function") {
+    return Number(value.toMillis()) || 0;
+  }
+  if (value instanceof Date) {
+    return value.getTime();
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+  return 0;
+}
+
+function validateMercadoPagoWebhookSignature({
+  signatureHeader,
+  requestId,
+  webhookSecret,
+  preapprovalId,
+}) {
+  const secret = String(webhookSecret || "").trim();
+  if (!secret) {
+    return { valid: false, reason: "missing_webhook_secret" };
+  }
+
+  const parsedSignature = parseMercadoPagoSignatureHeader(signatureHeader);
+  const ts = String(parsedSignature.ts || "").trim();
+  const v1 = String(parsedSignature.v1 || "").trim().toLowerCase();
+  const safeRequestId = String(requestId || "").trim();
+  const safePreapprovalId = String(preapprovalId || "").trim();
+
+  if (!ts || !v1 || !safeRequestId || !safePreapprovalId) {
+    return { valid: false, reason: "signature_fields_missing", ts, v1 };
+  }
+
+  const manifest = `id:${safePreapprovalId};request-id:${safeRequestId};ts:${ts};`;
+  const expected = crypto.createHmac("sha256", secret).update(manifest).digest("hex").toLowerCase();
+  const valid = timingSafeEqualHex(expected, v1);
+
+  return {
+    valid,
+    reason: valid ? "ok" : "signature_mismatch",
+    ts,
+    v1,
+  };
+}
+
+async function enqueueMercadoPagoWebhookTask({ eventRefId, preapprovalId }) {
+  const safeEventRefId = String(eventRefId || "").trim();
+  if (!safeEventRefId) {
+    throw new HttpsError("invalid-argument", "eventRefId is required to enqueue webhook task");
+  }
+
+  const queue = getFunctions().taskQueue(MP_WEBHOOK_TASK_QUEUE_NAME);
+  await queue.enqueue(
+    {
+      eventId: safeEventRefId,
+      preapprovalId: String(preapprovalId || "").trim() || null,
+    },
+    {
+      dispatchDeadlineSeconds: 300,
+    }
+  );
+}
+
+async function fetchMercadoPagoPreapprovalById(accessToken, preapprovalId) {
+  const safeAccessToken = String(accessToken || "").trim();
+  const safePreapprovalId = String(preapprovalId || "").trim();
+  if (!safeAccessToken || !safePreapprovalId) {
+    throw new HttpsError("invalid-argument", "Invalid access token or preapprovalId");
+  }
+
+  const response = await fetch(`https://api.mercadopago.com/preapproval/${encodeURIComponent(safePreapprovalId)}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${safeAccessToken}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+  const rawBody = await response.text();
+  let parsedBody = {};
+  try {
+    parsedBody = rawBody ? JSON.parse(rawBody) : {};
+  } catch (_error) {
+    parsedBody = { rawBody: shortText(rawBody, 1200) };
+  }
+
+  if (!response.ok) {
+    throw new HttpsError(
+      "failed-precondition",
+      "No se pudo consultar el estado de suscripcion en Mercado Pago",
+      {
+        code: "mercadopago_preapproval_lookup_failed",
+        httpStatus: response.status,
+      }
+    );
+  }
+
+  return parsedBody;
+}
+
+async function resolvePreapprovalContext(preapprovalId, preapprovalData) {
+  const safePreapprovalId = String(preapprovalId || "").trim();
+  const externalReference = String(preapprovalData?.external_reference || "").trim();
+  const payerEmail = normalizeEmail(preapprovalData?.payer_email || "");
+
+  let uid = "";
+  let attemptId = "";
+  let attemptRef = null;
+
+  if (safePreapprovalId) {
+    const mapRef = db.collection("billingPreapprovals").doc(safePreapprovalId);
+    const mapSnap = await mapRef.get();
+    if (mapSnap.exists) {
+      const mapData = mapSnap.data() || {};
+      uid = String(mapData.uid || "").trim();
+      attemptId = String(mapData.attemptId || "").trim();
+      if (attemptId) {
+        attemptRef = db.collection("billingAttempts").doc(attemptId);
+      }
+    }
+  }
+
+  if (!attemptRef && safePreapprovalId) {
+    const byPreapprovalId = await db
+      .collection("billingAttempts")
+      .where("mpPreapprovalId", "==", safePreapprovalId)
+      .limit(1)
+      .get();
+    if (!byPreapprovalId.empty) {
+      const attemptDoc = byPreapprovalId.docs[0];
+      attemptRef = attemptDoc.ref;
+      attemptId = attemptDoc.id;
+      const attemptData = attemptDoc.data() || {};
+      uid = uid || String(attemptData.uid || "").trim();
+    }
+  }
+
+  if (!attemptRef && externalReference) {
+    const byExternalReference = await db
+      .collection("billingAttempts")
+      .where("externalReference", "==", externalReference)
+      .limit(1)
+      .get();
+    if (!byExternalReference.empty) {
+      const attemptDoc = byExternalReference.docs[0];
+      attemptRef = attemptDoc.ref;
+      attemptId = attemptDoc.id;
+      const attemptData = attemptDoc.data() || {};
+      uid = uid || String(attemptData.uid || "").trim();
+    }
+  }
+
+  if (!uid && payerEmail) {
+    const byEmail = await db
+      .collection("usuarios")
+      .where("correo", "==", payerEmail)
+      .limit(1)
+      .get();
+    if (!byEmail.empty) {
+      uid = byEmail.docs[0].id;
+    }
+  }
+
+  return {
+    uid,
+    attemptId,
+    attemptRef,
+    externalReference,
+    payerEmail,
+  };
+}
+
+async function resolveLatestUserPreapprovalId(uid, preferredPreapprovalId = "") {
+  const safePreferred = String(preferredPreapprovalId || "").trim();
+  if (safePreferred) {
+    return safePreferred;
+  }
+
+  const safeUid = String(uid || "").trim();
+  if (!safeUid) {
+    return "";
+  }
+
+  const attemptsSnap = await db
+    .collection("billingAttempts")
+    .where("uid", "==", safeUid)
+    .get();
+
+  if (attemptsSnap.empty) {
+    return "";
+  }
+
+  let selected = null;
+  attemptsSnap.docs.forEach((docSnap) => {
+    const data = docSnap.data() || {};
+    const mpPreapprovalId = String(data.mpPreapprovalId || "").trim();
+    if (!mpPreapprovalId) {
+      return;
+    }
+    const sortWeight = Math.max(
+      firestoreTimestampToMillis(data.updatedAt),
+      firestoreTimestampToMillis(data.createdAt)
+    );
+    if (!selected || sortWeight > selected.sortWeight) {
+      selected = {
+        mpPreapprovalId,
+        sortWeight,
+      };
+    }
+  });
+
+  return String(selected?.mpPreapprovalId || "").trim();
+}
+
+async function syncSubscriptionFromMercadoPago({
+  preapprovalId,
+  sourceLabel = "",
+  topic = "",
+  action = "",
+}) {
+  const safePreapprovalId = String(preapprovalId || "").trim();
+  if (!safePreapprovalId) {
+    throw new HttpsError("failed-precondition", "Missing preapprovalId");
+  }
+
+  const accessToken = String(MP_ACCESS_TOKEN.value() || "").trim();
+  const preapprovalData = await fetchMercadoPagoPreapprovalById(accessToken, safePreapprovalId);
+  const mpStatus = String(preapprovalData?.status || "").trim().toLowerCase();
+  const mappedStatus = mapMercadoPagoStatusToBillingStatus(mpStatus);
+  const statusDetail = shortText(preapprovalData?.status_detail || mpStatus || "unknown", 280);
+  const now = admin.firestore.FieldValue.serverTimestamp();
+
+  const resolved = await resolvePreapprovalContext(safePreapprovalId, preapprovalData);
+  const safeUid = String(resolved.uid || "").trim();
+  const safeAttemptId = String(resolved.attemptId || "").trim();
+  const safeSource = shortText(sourceLabel || "system", 80);
+
+  if (resolved.attemptRef) {
+    await resolved.attemptRef.set(
+      {
+        uid: safeUid || null,
+        attemptId: safeAttemptId || resolved.attemptRef.id,
+        status: mappedStatus,
+        mpPreapprovalId: safePreapprovalId,
+        lastWebhookAt: now,
+        lastWebhookType: shortText(`${safeSource}:${topic || ""}:${action || ""}`, 120),
+        lastStatusDetail: statusDetail,
+        updatedAt: now,
+      },
+      { merge: true }
+    );
+  }
+
+  if (safeUid) {
+    const userRef = db.collection("usuarios").doc(safeUid);
+    await userRef.set(
+      {
+        "billing.status": mappedStatus,
+        "billing.planCode": normalizePlanCode("plan_pro"),
+        "billing.lastAttemptId": safeAttemptId || null,
+        "billing.mpPreapprovalId": safePreapprovalId,
+        "billing.updatedAt": now,
+        updatedAt: now,
+      },
+      { merge: true }
+    );
+  }
+
+  await db.collection("billingPreapprovals").doc(safePreapprovalId).set(
+    {
+      uid: safeUid || null,
+      attemptId: safeAttemptId || null,
+      status: mappedStatus,
+      updatedAt: now,
+      createdAt: now,
+    },
+    { merge: true }
+  );
+
+  if (mappedStatus === "active" && safeUid) {
+    await ensureBillingActivation(safeUid, preapprovalData);
+  }
+
+  return {
+    preapprovalId: safePreapprovalId,
+    mpStatus,
+    mappedStatus,
+    uid: safeUid || null,
+    attemptId: safeAttemptId || null,
+  };
+}
+
+async function ensureBillingActivation(uid, preapprovalData = {}) {
+  const safeUid = String(uid || "").trim();
+  if (!safeUid) {
+    throw new HttpsError("invalid-argument", "uid is required for tenant activation");
+  }
+
+  const userRef = db.collection("usuarios").doc(safeUid);
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const candidateTenantRef = db.collection("tenants").doc(buildTenantId());
+
+  await db.runTransaction(async (tx) => {
+    const userSnap = await tx.get(userRef);
+    if (!userSnap.exists) {
+      throw new HttpsError("failed-precondition", "User profile not found for activation");
+    }
+
+    const userData = userSnap.data() || {};
+    const existingTenantId = String(userData.tenantId || "").trim();
+    const alreadyEnabled = userData?.access?.appEnabled === true;
+    const billingActivatedAt = userData?.billing?.activatedAt || now;
+    const accessEnabledAt = userData?.access?.enabledAt || now;
+    const tenantProvisionedAt = userData?.onboarding?.tenantProvisionedAt || now;
+    const mpPreapprovalId = String(preapprovalData?.id || userData?.billing?.mpPreapprovalId || "").trim();
+    const planCode = normalizePlanCode(preapprovalData?.preapproval_plan_id ? "plan_pro" : userData?.billing?.planCode || "plan_pro");
+    const ownerEmail = normalizeEmail(preapprovalData?.payer_email || userData?.correo || "");
+
+    if (existingTenantId && alreadyEnabled) {
+      tx.set(
+        userRef,
+        {
+          "billing.status": "active",
+          "billing.planCode": planCode || "plan_pro",
+          "billing.mpPreapprovalId": mpPreapprovalId || null,
+          "billing.activatedAt": billingActivatedAt,
+          "billing.updatedAt": now,
+          "access.appEnabled": true,
+          "access.reason": "active_subscription",
+          "access.enabledAt": accessEnabledAt,
+          "onboarding.subscriptionActivated": true,
+          "onboarding.tenantProvisioned": true,
+          "onboarding.tenantProvisionedAt": tenantProvisionedAt,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+      return;
+    }
+
+    const tenantRef = existingTenantId
+      ? db.collection("tenants").doc(existingTenantId)
+      : candidateTenantRef;
+    const tenantId = tenantRef.id;
+
+    tx.set(
+      tenantRef,
+      {
+        tenantId,
+        ownerUid: safeUid,
+        ownerEmail,
+        ownerUsername: String(userData.usuarioKey || "").trim() || null,
+        distrito: String(userData.distrito || "").trim(),
+        nivel: String(userData.nivel || "").trim(),
+        escuela: String(userData.escuela || "").trim(),
+        planCode: planCode || "plan_pro",
+        status: "active",
+        createdAt: userData?.createdAt || now,
+        updatedAt: now,
+      },
+      { merge: true }
+    );
+
+    // Estructura minima para evitar errores en lecturas iniciales.
+    tx.set(
+      tenantRef.collection("configuraciones").doc("turnosAndHorarios"),
+      {
+        tenantId,
+        turns: {},
+        createdAt: now,
+        updatedAt: now,
+      },
+      { merge: true }
+    );
+    tx.set(
+      tenantRef.collection("configuraciones").doc("pacExtraccion"),
+      {
+        tenantId,
+        processValue: "0",
+        gmailQuery: "",
+        useCustomSheet: false,
+        customSheetUrl: "https://docs.google.com/spreadsheets/d/1UP0FlTWQdHciMe1dbpj2i1dhsQAk4EsxCtq2Bvxlv2U/edit?usp=sharing",
+        customSheetName: "POFA",
+        startRow: 2,
+        createdAt: now,
+        updatedAt: now,
+      },
+      { merge: true }
+    );
+    tx.set(
+      tenantRef.collection("configuraciones").doc("encabezadoPac"),
+      {
+        tenantId,
+        establecimientoReparticion: "",
+        anexo: "",
+        domicilioEscuela: "",
+        telefono: "",
+        email: String(userData.correo || "").trim(),
+        categoria: "",
+        turno: "",
+        desfavorable: "",
+        distrito: String(userData.distrito || "").trim(),
+        tipoOrganizacion: String(userData.nivel || "").trim(),
+        escuela: String(userData.escuela || "").trim(),
+        anio: String(new Date().getFullYear()),
+        desde: "",
+        hasta: "",
+        createdAt: now,
+        updatedAt: now,
+      },
+      { merge: true }
+    );
+    tx.set(
+      tenantRef.collection("botones").doc("config"),
+      {
+        tenantId,
+        turnos: {},
+        createdAt: now,
+        updatedAt: now,
+      },
+      { merge: true }
+    );
+
+    tx.set(
+      userRef,
+      {
+        tenantId,
+        "billing.status": "active",
+        "billing.planCode": planCode || "plan_pro",
+        "billing.mpPreapprovalId": mpPreapprovalId || null,
+        "billing.activatedAt": billingActivatedAt,
+        "billing.updatedAt": now,
+        "access.appEnabled": true,
+        "access.reason": "active_subscription",
+        "access.enabledAt": accessEnabledAt,
+        "onboarding.subscriptionActivated": true,
+        "onboarding.tenantProvisioned": true,
+        "onboarding.tenantProvisionedAt": tenantProvisionedAt,
+        updatedAt: now,
+      },
+      { merge: true }
+    );
+  });
+}
+
+async function processMercadoPagoWebhookEvent({
+  eventId,
+  preapprovalId,
+  sourceLabel = "webhook",
+  throwOnError = false,
+}) {
+  const safeEventId = String(eventId || "").trim();
+  if (!safeEventId) {
+    return;
+  }
+
+  const eventRef = db.collection("billingEvents").doc(safeEventId);
+  const eventSnap = await eventRef.get();
+  if (!eventSnap.exists) {
+    return;
+  }
+
+  const eventData = eventSnap.data() || {};
+  const currentStatus = String(eventData.status || "").trim().toLowerCase();
+  if (eventData.processed === true && (currentStatus === "processed" || currentStatus === "ignored")) {
+    return;
+  }
+
+  const safePreapprovalId = String(preapprovalId || eventData.preapprovalId || "").trim();
+  const safeSourceLabel = shortText(sourceLabel || "webhook", 80);
+  if (!safePreapprovalId) {
+    await eventRef.set(
+      {
+        processed: true,
+        status: "ignored",
+        processedAt: admin.firestore.FieldValue.serverTimestamp(),
+        errorMessage: "preapproval_id_missing",
+        processingSource: safeSourceLabel,
+      },
+      { merge: true }
+    );
+    return;
+  }
+
+  try {
+    const syncResult = await syncSubscriptionFromMercadoPago({
+      preapprovalId: safePreapprovalId,
+      sourceLabel: safeSourceLabel,
+      topic: String(eventData.topic || ""),
+      action: String(eventData.action || ""),
+    });
+    const now = admin.firestore.FieldValue.serverTimestamp();
+
+    await eventRef.set(
+      {
+        processed: true,
+        status: "processed",
+        processedAt: now,
+        errorMessage: null,
+        mpStatus: syncResult.mpStatus,
+        mappedStatus: syncResult.mappedStatus,
+        uid: syncResult.uid || null,
+        attemptId: syncResult.attemptId || null,
+        processingSource: safeSourceLabel,
+      },
+      { merge: true }
+    );
+  } catch (error) {
+    logger.error("processMercadoPagoWebhookEvent failed", {
+      eventId: safeEventId,
+      preapprovalId: safePreapprovalId,
+      message: String(error?.message || "unknown_error"),
+    });
+    await eventRef.set(
+      {
+        processed: false,
+        status: "error",
+        processedAt: admin.firestore.FieldValue.serverTimestamp(),
+        errorMessage: shortText(error?.message || "processing_failed", 500),
+        processingSource: safeSourceLabel,
+      },
+      { merge: true }
+    );
+    if (throwOnError) {
+      throw error;
+    }
+  }
 }
 
 function assertString(value, field, min = 1, max = 120) {
@@ -628,48 +1374,31 @@ function normalizeSituacionRevista(value) {
 async function getUserTenantId(uid) {
   const userRef = db.collection("usuarios").doc(uid);
   const userSnap = await userRef.get();
-  let tenantId = String(userSnap.data()?.tenantId || "").trim();
-
-  if (tenantId) {
-    return tenantId;
-  }
-
-  const tenantByOwnerUid = await db
-    .collection("tenants")
-    .where("ownerUid", "==", uid)
-    .limit(1)
-    .get();
-  if (!tenantByOwnerUid.empty) {
-    tenantId = tenantByOwnerUid.docs[0].id;
-  } else {
-    const authUser = await admin.auth().getUser(uid).catch(() => null);
-    const email = String(authUser?.email || "").trim().toLowerCase();
-    if (email) {
-      const tenantByOwnerEmail = await db
-        .collection("tenants")
-        .where("ownerEmail", "==", email)
-        .limit(1)
-        .get();
-      if (!tenantByOwnerEmail.empty) {
-        tenantId = tenantByOwnerEmail.docs[0].id;
+  if (!userSnap.exists) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Subscription required",
+      {
+        code: "subscription_required",
+        reason: "user_profile_missing",
       }
-    }
+    );
   }
 
-  if (!tenantId) {
-    throw new HttpsError("failed-precondition", "Tenant not configured for user");
-  }
+  const userData = userSnap.data() || {};
+  const tenantId = String(userData?.tenantId || "").trim();
+  const appEnabled = userData?.access?.appEnabled === true;
 
-  const now = admin.firestore.FieldValue.serverTimestamp();
-  await userRef.set(
-    {
-      uid,
-      tenantId,
-      updatedAt: now,
-      createdAt: userSnap.exists ? userSnap.data()?.createdAt || now : now,
-    },
-    { merge: true }
-  );
+  if (!tenantId || !appEnabled) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Subscription required",
+      {
+        code: "subscription_required",
+        reason: !tenantId ? "tenant_not_assigned" : "access_not_enabled",
+      }
+    );
+  }
 
   return tenantId;
 }
@@ -691,14 +1420,18 @@ exports.mercadoPagoSetupStatus = onCall(
     const accessToken = String(MP_ACCESS_TOKEN.value() || "").trim();
     const webhookSecret = String(MP_WEBHOOK_SECRET.value() || "").trim();
     const publicKey = String(MP_PUBLIC_KEY.value() || "").trim();
+    const planPro = await ensurePlanProSupport();
 
     return {
       ok: true,
       mode: "production_only",
       plan: {
-        code: "plan_pro",
-        amount: 2000,
-        currency: "ARS",
+        code: String(planPro.code || "plan_pro"),
+        amount: Number(planPro.amount || 2000),
+        currency: String(planPro.currency || "ARS"),
+        frequency: Number(planPro.frequency || 1),
+        frequencyType: String(planPro.frequencyType || "months"),
+        active: Boolean(planPro.active),
       },
       secrets: {
         hasAccessToken: Boolean(accessToken),
@@ -706,6 +1439,170 @@ exports.mercadoPagoSetupStatus = onCall(
         hasPublicKey: Boolean(publicKey),
       },
     };
+  }
+);
+
+exports.processMercadoPagoWebhookTask = onTaskDispatched(
+  {
+    retryConfig: {
+      maxAttempts: 10,
+      minBackoffSeconds: 20,
+      maxBackoffSeconds: 600,
+      maxDoublings: 5,
+    },
+    rateLimits: {
+      maxConcurrentDispatches: 10,
+      maxDispatchesPerSecond: 5,
+    },
+    secrets: [MP_ACCESS_TOKEN],
+  },
+  async (request) => {
+    const data = safeObject(request?.data);
+    const eventId = shortText(data.eventId || data.eventRefId || "", 120);
+    const preapprovalId = shortText(data.preapprovalId || "", 120);
+
+    if (!eventId) {
+      logger.warn("processMercadoPagoWebhookTask skipped: missing eventId");
+      return;
+    }
+
+    await processMercadoPagoWebhookEvent({
+      eventId,
+      preapprovalId,
+      sourceLabel: "cloud_tasks",
+      throwOnError: true,
+    });
+  }
+);
+
+exports.mercadoPagoWebhook = onRequest(
+  {
+    invoker: "public",
+    secrets: [MP_ACCESS_TOKEN, MP_WEBHOOK_SECRET],
+  },
+  async (req, res) => {
+    const payload = safeObject(req.body);
+    const query = safeObject(req.query);
+    const headers = safeObject(req.headers);
+
+    const eventId = shortText(
+      payload?.id ||
+      payload?.event_id ||
+      query?.id ||
+      "",
+      120
+    );
+    const topic = shortText(payload?.topic || query?.topic || payload?.type || "", 120);
+    const action = shortText(payload?.action || query?.action || payload?.type || "", 120);
+    const preapprovalId = shortText(extractWebhookPreapprovalId(payload, query), 120);
+    const xRequestId = shortText(headers["x-request-id"] || headers["x_request_id"] || "", 200);
+    const xSignature = shortText(headers["x-signature"] || headers["x_signature"] || "", 500);
+
+    const signatureValidation = validateMercadoPagoWebhookSignature({
+      signatureHeader: xSignature,
+      requestId: xRequestId,
+      webhookSecret: MP_WEBHOOK_SECRET.value(),
+      preapprovalId,
+    });
+
+    const eventRef = db.collection("billingEvents").doc();
+    await eventRef.set({
+      eventRefId: eventRef.id,
+      eventId: eventId || null,
+      topic: topic || null,
+      action: action || null,
+      preapprovalId: preapprovalId || null,
+      xRequestId: xRequestId || null,
+      signatureValidated: signatureValidation.valid === true,
+      signatureReason: shortText(signatureValidation.reason || "", 80),
+      signatureTs: shortText(signatureValidation.ts || "", 60),
+      status: "received",
+      processed: false,
+      processedAt: null,
+      receivedAt: admin.firestore.FieldValue.serverTimestamp(),
+      errorMessage: null,
+      rawPayload: {
+        body: payload,
+        query,
+      },
+      rawHeaders: {
+        userAgent: shortText(headers["user-agent"] || "", 200),
+        xSignature,
+        xRequestId,
+      },
+    });
+
+    res.status(200).send({ ok: true });
+
+    if (!signatureValidation.valid) {
+      void eventRef.set(
+        {
+          processed: true,
+          status: "ignored",
+          processedAt: admin.firestore.FieldValue.serverTimestamp(),
+          errorMessage: shortText(`invalid_signature:${signatureValidation.reason || "unknown"}`, 200),
+        },
+        { merge: true }
+      ).catch((error) => {
+        logger.error("mercadoPagoWebhook could not persist invalid signature state", {
+          eventRefId: eventRef.id,
+          message: String(error?.message || "unknown_error"),
+        });
+      });
+      return;
+    }
+
+    // Procesamiento desacoplado con cola durable (Cloud Tasks).
+    void (async () => {
+      try {
+        await enqueueMercadoPagoWebhookTask({
+          eventRefId: eventRef.id,
+          preapprovalId,
+        });
+        await eventRef.set(
+          {
+            status: "enqueued",
+            processed: false,
+            queueName: MP_WEBHOOK_TASK_QUEUE_NAME,
+            enqueuedAt: admin.firestore.FieldValue.serverTimestamp(),
+            errorMessage: null,
+          },
+          { merge: true }
+        );
+      } catch (enqueueError) {
+        logger.error("mercadoPagoWebhook enqueue failed", {
+          eventRefId: eventRef.id,
+          preapprovalId,
+          message: String(enqueueError?.message || "unknown_error"),
+        });
+        await eventRef.set(
+          {
+            status: "enqueue_failed",
+            processed: false,
+            queueName: MP_WEBHOOK_TASK_QUEUE_NAME,
+            errorMessage: shortText(enqueueError?.message || "enqueue_failed", 400),
+            enqueueFailedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+
+        // Fallback de continuidad: procesa inline si la cola no esta disponible.
+        // Este fallback evita perdida de eventos, pero no reemplaza la durabilidad
+        // de Cloud Tasks. Mantener hasta validar infraestructura de cola en prod.
+        void processMercadoPagoWebhookEvent({
+          eventId: eventRef.id,
+          preapprovalId,
+          sourceLabel: "webhook_inline_fallback",
+          throwOnError: false,
+        }).catch((processingError) => {
+          logger.error("mercadoPagoWebhook fallback processing failed", {
+            eventRefId: eventRef.id,
+            preapprovalId,
+            message: String(processingError?.message || "unknown_error"),
+          });
+        });
+      }
+    })();
   }
 );
 
@@ -751,12 +1648,10 @@ exports.registerUser = onCall(callableOptions, async (request) => {
 
   const uid = userRecord.uid;
   const createdAt = admin.firestore.FieldValue.serverTimestamp();
-  const tenantId = buildTenantId();
-  const tenantRef = db.collection("tenants").doc(tenantId);
 
   const profile = {
     uid,
-    tenantId,
+    tenantId: null,
     nombre,
     contacto,
     correo,
@@ -768,23 +1663,30 @@ exports.registerUser = onCall(callableOptions, async (request) => {
     usuarioKey: usernameKey,
     verificado: false,
     rol: "admin_escuela",
+    billing: {
+      planCode: null,
+      status: null,
+      lastAttemptId: null,
+      mpPreapprovalId: null,
+    },
+    access: {
+      appEnabled: false,
+      reason: "payment_required",
+    },
+    onboarding: {
+      accountCreated: true,
+      checkoutStarted: false,
+      subscriptionActivated: false,
+      tenantProvisioned: false,
+    },
     createdAt,
     updatedAt: createdAt,
   };
 
   try {
+    await ensurePlanProSupport();
+
     await db.runTransaction(async (tx) => {
-      tx.set(tenantRef, {
-        tenantId,
-        ownerUid: uid,
-        ownerEmail: correo,
-        ownerUsername: usernameKey,
-        distrito,
-        nivel,
-        escuela,
-        createdAt,
-        updatedAt: createdAt,
-      });
       tx.set(usernameRef, { uid, createdAt });
       tx.set(db.collection("usuarios").doc(uid), profile);
     });
@@ -794,9 +1696,9 @@ exports.registerUser = onCall(callableOptions, async (request) => {
     return {
       ok: true,
       uid,
-      tenantId,
+      tenantId: null,
       verificationLink: link,
-      message: "User created",
+      message: "Base user created. Subscription required before tenant activation.",
     };
   } catch (err) {
     logger.error("profile transaction failed", err);
@@ -808,6 +1710,260 @@ exports.registerUser = onCall(callableOptions, async (request) => {
     throw new HttpsError("internal", "Could not complete registration");
   }
 });
+
+exports.startSubscriptionCheckout = onCall(
+  {
+    ...callableOptions,
+    secrets: [MP_ACCESS_TOKEN],
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Auth required");
+    }
+
+    const data = request.data || {};
+    const planCode = normalizePlanCode(data.planCode);
+    if (planCode !== "plan_pro") {
+      throw new HttpsError("invalid-argument", "planCode must be plan_pro");
+    }
+
+    await ensurePlanProSupport();
+    const planRef = db.collection("billingPlans").doc(planCode);
+    const planSnap = await planRef.get();
+    if (!planSnap.exists) {
+      throw new HttpsError("failed-precondition", "Subscription plan not configured");
+    }
+    const plan = planSnap.data() || {};
+    if (plan.active !== true) {
+      throw new HttpsError("failed-precondition", "Subscription plan is not active");
+    }
+
+    const uid = request.auth.uid;
+    const authToken = request.auth.token || {};
+    const userRef = db.collection("usuarios").doc(uid);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) {
+      throw new HttpsError(
+        "failed-precondition",
+        "User profile not found",
+        {
+          code: "user_profile_missing",
+        }
+      );
+    }
+
+    const userData = userSnap.data() || {};
+    const payerEmail = normalizeEmail(authToken.email || userData.correo || "");
+    if (!payerEmail || !payerEmail.includes("@")) {
+      throw new HttpsError("failed-precondition", "User email is required to start checkout");
+    }
+
+    const attemptRef = db.collection("billingAttempts").doc();
+    const attemptId = attemptRef.id;
+    const externalReference = shortText(`sub_uid_${uid}_attempt_${attemptId}`, 120);
+    const now = admin.firestore.FieldValue.serverTimestamp();
+
+    const currentAttemptsSnap = await db
+      .collection("billingAttempts")
+      .where("uid", "==", uid)
+      .where("isCurrent", "==", true)
+      .get();
+
+    const createAttemptBatch = db.batch();
+    currentAttemptsSnap.docs.forEach((docSnap) => {
+      createAttemptBatch.set(
+        docSnap.ref,
+        {
+          isCurrent: false,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+    });
+    createAttemptBatch.set(
+      attemptRef,
+      {
+        attemptId,
+        uid,
+        email: payerEmail,
+        tenantId: String(userData.tenantId || "").trim() || null,
+        planCode,
+        status: "pending_checkout",
+        isCurrent: true,
+        externalReference,
+        mpPreapprovalId: null,
+        mpPreapprovalPlanId: shortText(plan.mpPreapprovalPlanId, 120) || null,
+        initPoint: null,
+        lastWebhookAt: null,
+        lastWebhookType: null,
+        lastStatusDetail: null,
+        createdAt: now,
+        updatedAt: now,
+      },
+      { merge: true }
+    );
+    await createAttemptBatch.commit();
+
+    const accessToken = String(MP_ACCESS_TOKEN.value() || "").trim();
+    let preapproval = null;
+    try {
+      preapproval = await createMercadoPagoPreapproval({
+        accessToken,
+        planCode,
+        plan,
+        payerEmail,
+        externalReference,
+      });
+    } catch (error) {
+      await attemptRef.set(
+        {
+          status: "error",
+          isCurrent: false,
+          lastStatusDetail: shortText(error?.message || "preapproval_failed", 280),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      if (error instanceof HttpsError) {
+        throw error;
+      }
+      throw new HttpsError("internal", "No se pudo iniciar checkout de suscripcion");
+    }
+
+    const mpPreapprovalId = String(preapproval?.mpPreapprovalId || "").trim();
+    const initPoint = String(preapproval?.initPoint || "").trim();
+
+    const finalizeBatch = db.batch();
+    finalizeBatch.set(
+      attemptRef,
+      {
+        status: "pending_checkout",
+        mpPreapprovalId,
+        initPoint,
+        lastStatusDetail: "checkout_initialized",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    finalizeBatch.update(userRef, {
+      "billing.planCode": planCode,
+      "billing.status": "pending_checkout",
+      "billing.lastAttemptId": attemptId,
+      "billing.mpPreapprovalId": mpPreapprovalId,
+      "billing.updatedAt": admin.firestore.FieldValue.serverTimestamp(),
+      "onboarding.checkoutStarted": true,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    finalizeBatch.set(
+      db.collection("billingPreapprovals").doc(mpPreapprovalId),
+      {
+        uid,
+        attemptId,
+        status: "pending_checkout",
+        planCode,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    await finalizeBatch.commit();
+
+    return {
+      ok: true,
+      attemptId,
+      initPoint,
+    };
+  }
+);
+
+exports.getSubscriptionStatus = onCall(callableOptions, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Auth required");
+  }
+
+  const uid = request.auth.uid;
+  const userSnap = await db.collection("usuarios").doc(uid).get();
+  if (!userSnap.exists) {
+    return {
+      billingStatus: null,
+      appEnabled: false,
+      reason: "profile_missing",
+      planCode: null,
+      tenantId: "",
+      nextRoute: "/registro.html",
+    };
+  }
+
+  const profile = userSnap.data() || {};
+  const tenantId = String(profile.tenantId || "").trim();
+  const appEnabled = profile?.access?.appEnabled === true;
+  const billingStatusRaw = profile?.billing?.status;
+  const billingStatus = billingStatusRaw === undefined ? null : billingStatusRaw;
+  const reason = String(profile?.access?.reason || "payment_required").trim() || "payment_required";
+  const planCode = profile?.billing?.planCode || null;
+  const nextRoute = resolveNextRouteForProfile(profile);
+
+  return {
+    billingStatus,
+    appEnabled,
+    reason,
+    planCode,
+    tenantId,
+    nextRoute,
+  };
+});
+
+exports.syncSubscriptionStatus = onCall(
+  {
+    ...callableOptions,
+    secrets: [MP_ACCESS_TOKEN],
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Auth required");
+    }
+
+    const uid = request.auth.uid;
+    const userRef = db.collection("usuarios").doc(uid);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) {
+      throw new HttpsError("failed-precondition", "User profile not found", {
+        code: "user_profile_missing",
+      });
+    }
+
+    const userData = userSnap.data() || {};
+    const preferredPreapprovalId = String(userData?.billing?.mpPreapprovalId || "").trim();
+    const preapprovalId = await resolveLatestUserPreapprovalId(uid, preferredPreapprovalId);
+    if (!preapprovalId) {
+      throw new HttpsError("failed-precondition", "Subscription not found", {
+        code: "subscription_not_found",
+      });
+    }
+
+    const syncResult = await syncSubscriptionFromMercadoPago({
+      preapprovalId,
+      sourceLabel: "manual_sync",
+      topic: "callable",
+      action: "sync",
+    });
+
+    const refreshedSnap = await userRef.get();
+    const refreshed = refreshedSnap.exists ? (refreshedSnap.data() || {}) : {};
+
+    return {
+      ok: true,
+      preapprovalId: syncResult.preapprovalId,
+      billingStatus: refreshed?.billing?.status ?? null,
+      appEnabled: refreshed?.access?.appEnabled === true,
+      reason: String(refreshed?.access?.reason || "payment_required").trim() || "payment_required",
+      planCode: refreshed?.billing?.planCode || null,
+      tenantId: String(refreshed?.tenantId || "").trim(),
+      nextRoute: resolveNextRouteForProfile(refreshed),
+    };
+  }
+);
 
 exports.setUserProfile = onCall(callableOptions, async (request) => {
   if (!request.auth) {

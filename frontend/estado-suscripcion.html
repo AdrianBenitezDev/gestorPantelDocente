@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Estado de Suscripcion - PanelDocente</title>
+  <link rel="stylesheet" href="./css/styles.css" />
+</head>
+<body>
+  <header class="top-banner">
+    <div class="brand-block">
+      <span class="brand-icon" aria-hidden="true">&#127891;</span>
+      <span class="brand-name">PanelDocente</span>
+    </div>
+    <div class="user-block">
+      <div class="user-meta">
+        <span class="user-icon" aria-hidden="true">&#128100;</span>
+        <span id="estado-user-name" class="user-name">Sin sesion</span>
+        <span id="estado-user-email" class="user-email">-</span>
+      </div>
+      <button id="estado-logout-btn" type="button" class="google-btn">Cerrar sesion</button>
+    </div>
+  </header>
+
+  <main class="app">
+    <section class="card">
+      <h1>Estado de Suscripcion</h1>
+      <p class="subtitle">Consulta y actualiza el estado de tu suscripcion.</p>
+      <p id="estado-current-status" class="msg"></p>
+      <p id="estado-current-reason" class="msg"></p>
+      <p id="estado-feedback-msg" class="msg"></p>
+      <div class="review-actions">
+        <button id="estado-retry-btn" type="button">Reintentar pago</button>
+        <button id="estado-sync-btn" type="button" class="google-btn">Sincronizar estado</button>
+        <a href="/activar-plan.html" class="link-btn">Ir a activar plan</a>
+        <a href="/horarios.html" class="link-btn">Volver</a>
+      </div>
+    </section>
+  </main>
+
+  <div id="shared-footer-root"></div>
+  <script src="./footer/footer.js" defer></script>
+  <script type="module" src="./js/estadoSuscripcion.js"></script>
+</body>
+</html>

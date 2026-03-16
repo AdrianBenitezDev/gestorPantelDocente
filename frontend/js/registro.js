@@ -1,5 +1,6 @@
+import { signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-functions.js";
-import { functions } from "./firebaseClient.js";
+import { auth, functions } from "./firebaseClient.js";
 
 const registerForm = document.getElementById("register-form");
 const registerMsg = document.getElementById("register-msg");
@@ -30,16 +31,37 @@ registerForm.addEventListener("submit", async (event) => {
     return;
   }
 
+  let verificationLink = "";
   try {
     setMsg(registerMsg, "Creando cuenta...");
     const registerUser = httpsCallable(functions, "registerUser");
+    const startSubscriptionCheckout = httpsCallable(functions, "startSubscriptionCheckout");
     const result = await registerUser(payload);
-    const tenantId = result.data?.tenantId || "(sin tenant)";
-    const link = result.data?.verificationLink || "(no generado)";
-    setMsg(registerMsg, `Cuenta creada. Tenant: ${tenantId}. Verifica correo con el link generado: ${link}`);
-    registerForm.reset();
+    verificationLink = String(result.data?.verificationLink || "").trim();
+    const planCode = String(document.getElementById("reg-plan-code")?.value || "plan_pro")
+      .trim()
+      .toLowerCase();
+
+    setMsg(registerMsg, "Cuenta base creada. Iniciando checkout de suscripcion...");
+
+    await signInWithEmailAndPassword(auth, payload.correo.toLowerCase(), payload.password);
+    const checkoutResult = await startSubscriptionCheckout({ planCode });
+    const initPoint = String(checkoutResult.data?.initPoint || "").trim();
+    if (!initPoint) {
+      throw new Error("No se recibio initPoint para iniciar el checkout");
+    }
+
+    window.location.assign(initPoint);
+    return;
   } catch (error) {
     console.error(error);
-    setMsg(registerMsg, error.message || "No se pudo registrar", true);
+    const verificationHint =
+      verificationLink
+        ? ` Verifica correo con el link generado: ${verificationLink}`
+        : "";
+    const fallbackMsg =
+      `La cuenta base queda recuperable. Puedes continuar luego desde /activar-plan.html.${verificationHint}`;
+    const baseMsg = error?.message || "No se pudo registrar o iniciar checkout";
+    setMsg(registerMsg, `${baseMsg}. ${fallbackMsg}`, true);
   }
 });

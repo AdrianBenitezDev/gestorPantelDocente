@@ -1,8 +1,103 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwnUser(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function hasActiveTenantAccess(tenantId) {
+      let uid = request.auth != null ? request.auth.uid : "__anonymous__";
+      let profile = get(/databases/$(database)/documents/usuarios/$(uid));
+      return isSignedIn()
+        && profile.exists()
+        && profile.data.tenantId == tenantId
+        && profile.data.access.appEnabled == true;
+    }
+
+    function isAllowedUserProfileUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        "nombre",
+        "contacto",
+        "correoAlt",
+        "distrito",
+        "nivel",
+        "escuela",
+        "usuario",
+        "updatedAt"
+      ]);
+    }
+
+    match /usuarios/{uid} {
+      allow read: if isOwnUser(uid);
+      allow create: if false;
+      allow delete: if false;
+      allow update: if isOwnUser(uid)
+        && isAllowedUserProfileUpdate()
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.correo == resource.data.correo
+        && request.resource.data.usuarioKey == resource.data.usuarioKey
+        && request.resource.data.rol == resource.data.rol
+        && request.resource.data.verificado == resource.data.verificado
+        && request.resource.data.tenantId == resource.data.tenantId
+        && request.resource.data.billing == resource.data.billing
+        && request.resource.data.access == resource.data.access
+        && request.resource.data.onboarding == resource.data.onboarding
+        && request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    match /billingPlans/{planId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /billingAttempts/{attemptId} {
+      allow read: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow write: if false;
+    }
+
+    match /billingEvents/{eventId} {
+      allow read, write: if false;
+    }
+
+    // Frontend actual: acceso directo solo a rutas puntuales de tenants.
+    match /tenants/{tenantId} {
+      allow read: if hasActiveTenantAccess(tenantId);
+      allow create, update, delete: if false;
+
+      match /configuraciones/{configId} {
+        allow read, write: if hasActiveTenantAccess(tenantId)
+          && (configId == "turnosAndHorarios" || configId == "tunosAndHorarios");
+      }
+
+      match /botones/{buttonId} {
+        allow read, write: if hasActiveTenantAccess(tenantId);
+      }
+
+      match /docentes/{docenteId} {
+        allow read, write: if hasActiveTenantAccess(tenantId);
+      }
+
+      match /cursos/{cursoId} {
+        allow read: if hasActiveTenantAccess(tenantId);
+        allow create, update, delete: if false;
+
+        match /items/{itemId} {
+          allow read, write: if hasActiveTenantAccess(tenantId);
+        }
+      }
+
+      // Todo lo demas en tenants/** queda cerrado por defecto.
+      match /{document=**} {
+        allow read, write: if false;
+      }
+    }
+
     match /{document=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if false;
     }
   }
 }

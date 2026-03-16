@@ -9,7 +9,10 @@
   "scripts": {
     "serve": "firebase emulators:start --only functions",
     "deploy": "firebase deploy --only functions",
-    "lint": "echo \"Add lint config\""
+    "lint": "echo \"Add lint config\"",
+    "test:subscription": "node --test tests/subscriptionDomain.test.js tests/firestoreRules.static.test.js",
+    "migrate:billing:dry-run": "node scripts/migrateBillingAccessOnboarding.js --dry-run",
+    "migrate:billing:apply": "node scripts/migrateBillingAccessOnboarding.js --apply"
   },
   "dependencies": {
     "firebase-admin": "^12.7.0",

@@ -15,6 +15,11 @@
 
     <section class="card">
       <h2>Registro</h2>
+      <div class="card">
+        <h3>Plan seleccionado</h3>
+        <p class="subtitle">Plan Pro - ARS 2000 / mes</p>
+        <p class="msg">Al finalizar el registro se iniciara el checkout de suscripcion.</p>
+      </div>
       <form id="register-form" class="grid-form">
         <label>Distrito <input id="reg-distrito" required /></label>
         <label>Nivel <input id="reg-nivel" required /></label>
@@ -25,6 +30,7 @@
         <label>Correo alternativo <input id="reg-correo-alt" type="email" /></label>
         <label>Usuario <input id="reg-usuario" required /></label>
         <label>Contrasena <input id="reg-password" type="password" minlength="8" required /></label>
+        <input id="reg-plan-code" type="hidden" value="plan_pro" />
         <button type="submit">Crear cuenta</button>
       </form>
       <p id="register-msg" class="msg"></p>
