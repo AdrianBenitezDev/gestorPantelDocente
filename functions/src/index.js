@@ -108,7 +108,7 @@ async function createMercadoPagoPreapproval({
   const preapprovalPlanId = shortText(safePlan.mpPreapprovalPlanId, 120);
 
   const payload = {
-    reason: shortText(safePlan.title || "Plan Pro", 120),
+    reason: shortText("Suscripción Panel Docente", 120),
     payer_email: safePayerEmail,
     external_reference: safeExternalReference,
     status: "pending",
