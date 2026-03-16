@@ -304,6 +304,36 @@ function isSubscriptionRequiredError(error) {
     && (detailsCode === "subscription_required" || message.includes("subscription required"));
 }
 
+function redirectToRouteIfNeeded(route) {
+  const target = String(route || "").trim();
+  if (!target) {
+    return false;
+  }
+  const normalizedCurrent = String(window.location.pathname || "")
+    .trim()
+    .replace(/\/+$/, "")
+    .toLowerCase();
+  const normalizedTarget = target.replace(/\/+$/, "").toLowerCase();
+  if (normalizedCurrent === normalizedTarget) {
+    return false;
+  }
+  window.location.replace(target);
+  return true;
+}
+
+function resolveSubscriptionRouteFallback(data = {}) {
+  const nextRoute = String(data?.nextRoute || "").trim();
+  if (nextRoute) {
+    return nextRoute;
+  }
+  const appEnabled = data?.appEnabled === true;
+  const tenantId = String(data?.tenantId || "").trim();
+  if (appEnabled && tenantId) {
+    return "";
+  }
+  return "/activar-plan.html";
+}
+
 async function refreshPacTenantAccess(user) {
   if (!user) {
     state.hasTenantAccess = false;
@@ -316,10 +346,20 @@ async function refreshPacTenantAccess(user) {
     const appEnabled = data.appEnabled === true;
     const tenantId = String(data.tenantId || "").trim();
     state.hasTenantAccess = Boolean(appEnabled && tenantId);
+    if (!state.hasTenantAccess) {
+      const route = resolveSubscriptionRouteFallback(data);
+      redirectToRouteIfNeeded(route);
+    }
     return state.hasTenantAccess;
   } catch (error) {
     console.error("No se pudo validar acceso PAC por suscripcion", error);
     state.hasTenantAccess = false;
+    const detailsCode = String(error?.details?.code || "").trim().toLowerCase();
+    if (detailsCode === "user_profile_missing") {
+      redirectToRouteIfNeeded("/registro.html");
+    } else if (isSubscriptionRequiredError(error)) {
+      redirectToRouteIfNeeded("/activar-plan.html");
+    }
     return false;
   }
 }
