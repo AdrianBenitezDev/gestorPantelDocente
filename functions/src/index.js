@@ -1,4 +1,5 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { defineSecret } = require("firebase-functions/params");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 const zlib = require("zlib");
@@ -11,6 +12,10 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 const allowedCorsOrigins = ["https://horario-escuelas.web.app"];
 const callableOptions = { cors: allowedCorsOrigins, invoker: "public" };
+
+const MP_ACCESS_TOKEN = defineSecret("MP_ACCESS_TOKEN");
+const MP_WEBHOOK_SECRET = defineSecret("MP_WEBHOOK_SECRET");
+const MP_PUBLIC_KEY = defineSecret("MP_PUBLIC_KEY");
 
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
@@ -672,6 +677,37 @@ async function getUserTenantId(uid) {
 exports.health = onCall(callableOptions, () => {
   return { ok: true, service: "gestor-plantel-docente" };
 });
+
+exports.mercadoPagoSetupStatus = onCall(
+  {
+    ...callableOptions,
+    secrets: [MP_ACCESS_TOKEN, MP_WEBHOOK_SECRET, MP_PUBLIC_KEY],
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Auth required");
+    }
+
+    const accessToken = String(MP_ACCESS_TOKEN.value() || "").trim();
+    const webhookSecret = String(MP_WEBHOOK_SECRET.value() || "").trim();
+    const publicKey = String(MP_PUBLIC_KEY.value() || "").trim();
+
+    return {
+      ok: true,
+      mode: "production_only",
+      plan: {
+        code: "plan_pro",
+        amount: 2000,
+        currency: "ARS",
+      },
+      secrets: {
+        hasAccessToken: Boolean(accessToken),
+        hasWebhookSecret: Boolean(webhookSecret),
+        hasPublicKey: Boolean(publicKey),
+      },
+    };
+  }
+);
 
 exports.registerUser = onCall(callableOptions, async (request) => {
   const data = request.data || {};
