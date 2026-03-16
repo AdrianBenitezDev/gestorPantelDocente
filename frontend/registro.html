@@ -3,38 +3,72 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Registro - Gestor Plantel Docente</title>
+  <title>Registro - PanelDocente</title>
   <link rel="stylesheet" href="./css/styles.css" />
 </head>
-<body>
-  <main class="app">
-    <header class="header">
-      <h1>Gestor Plantel Docente</h1>
+<body class="registro-page">
+  <main class="app registro-wrap">
+    <header class="header registro-header">
+      <h1>PanelDocente</h1>
       <p class="subtitle">Registro</p>
     </header>
 
-    <section class="card">
+    <section class="card registro-card">
       <h2>Registro</h2>
-      <div class="card">
+      <div class="card registro-plan-card">
         <h3>Plan seleccionado</h3>
         <p class="subtitle">Plan Pro - ARS 2000 / mes</p>
-        <p class="msg">Al finalizar el registro se iniciara el checkout de suscripcion.</p>
+        <p class="msg registro-plan-msg">-El uso de la plataforma tiene un consto fijo mensual de 2.000$</p>
+        <p class="msg registro-plan-msg">-PanelDocente gestiona la creaci&oacute;n de PAC, ahorr&aacute;ndote horas de trabajo</p>
       </div>
-      <form id="register-form" class="grid-form">
-        <label>Distrito <input id="reg-distrito" required /></label>
-        <label>Nivel <input id="reg-nivel" required /></label>
-        <label>Numero de escuela <input id="reg-escuela" required /></label>
-        <label>Apellido y nombre <input id="reg-nombre" required /></label>
-        <label>Numero de contacto <input id="reg-contacto" required /></label>
-        <label>Correo institucional <input id="reg-correo" type="email" required /></label>
-        <label>Correo alternativo <input id="reg-correo-alt" type="email" /></label>
-        <label>Usuario <input id="reg-usuario" required /></label>
-        <label>Contrasena <input id="reg-password" type="password" minlength="8" required /></label>
+      <form id="register-form" class="grid-form registro-grid">
+        <label>
+          Distrito
+          <input id="reg-distrito" required placeholder="Ejemplo: 004" />
+        </label>
+        <label>
+          Nivel
+          <input id="reg-nivel" required placeholder="Ejemplo: Secundario" />
+        </label>
+        <label>
+          N&uacute;mero de escuela
+          <input id="reg-escuela" required placeholder="Ejemplo: 26" />
+        </label>
+        <label>
+          Apellido y nombre
+          <input id="reg-nombre" required placeholder="Ejemplo: Adri&aacute;n Ben&iacute;tez" />
+        </label>
+        <label>
+          N&uacute;mero de contacto
+          <input id="reg-contacto" required placeholder="Ejemplo: 11 4297-2500" />
+        </label>
+        <label>
+          Correo institucional
+          <input
+            id="reg-correo"
+            type="email"
+            required
+            autocomplete="email"
+            placeholder="secundaria...@abc.gob.ar"
+          />
+        </label>
+        <label>
+          Correo alternativo
+          <input id="reg-correo-alt" type="email" placeholder="Ejemplo: usuario@gmail.com" />
+        </label>
+        <label>
+          Usuario
+          <input id="reg-usuario" required placeholder="Ejemplo: adrian32" />
+        </label>
+        <label>
+          Contrase&ntilde;a
+          <input id="reg-password" type="password" minlength="8" required placeholder="M&iacute;nimo 8 caracteres" />
+        </label>
         <input id="reg-plan-code" type="hidden" value="plan_pro" />
         <button type="submit">Crear cuenta</button>
       </form>
       <p id="register-msg" class="msg"></p>
-      <p class="msg">Ya tienes cuenta? <a href="/horarios.html">Ir a login</a></p>
+      <p class="msg registro-login-msg">&iquest;Ya tienes cuenta? <a href="/horarios.html">Ir a login</a></p>
     </section>
   </main>
 

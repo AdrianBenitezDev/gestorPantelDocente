@@ -1,15 +1,39 @@
-import { signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
+import {
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+} from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-functions.js";
 import { auth, functions } from "./firebaseClient.js";
 
 const registerForm = document.getElementById("register-form");
 const registerMsg = document.getElementById("register-msg");
+const registerEmailInput = document.getElementById("reg-correo");
 
 function setMsg(el, text, isError = false) {
   el.textContent = text;
   el.classList.toggle("error", isError);
   el.classList.toggle("success", !isError);
 }
+
+function hydrateCurrentAccountEmail(user) {
+  if (!registerEmailInput) {
+    return;
+  }
+  const currentValue = String(registerEmailInput.value || "").trim();
+  if (currentValue) {
+    return;
+  }
+  const email = String(user?.email || "").trim().toLowerCase();
+  if (!email) {
+    return;
+  }
+  registerEmailInput.value = email;
+}
+
+onAuthStateChanged(auth, (user) => {
+  hydrateCurrentAccountEmail(user);
+});
+hydrateCurrentAccountEmail(auth.currentUser);
 
 registerForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -27,7 +51,7 @@ registerForm.addEventListener("submit", async (event) => {
   };
 
   if (!payload.correo.includes("@")) {
-    setMsg(registerMsg, "Correo invalido", true);
+    setMsg(registerMsg, "Correo inv\u00e1lido", true);
     return;
   }
 
@@ -42,13 +66,13 @@ registerForm.addEventListener("submit", async (event) => {
       .trim()
       .toLowerCase();
 
-    setMsg(registerMsg, "Cuenta base creada. Iniciando checkout de suscripcion...");
+    setMsg(registerMsg, "Cuenta base creada. Iniciando checkout de suscripci\u00f3n...");
 
     await signInWithEmailAndPassword(auth, payload.correo.toLowerCase(), payload.password);
     const checkoutResult = await startSubscriptionCheckout({ planCode });
     const initPoint = String(checkoutResult.data?.initPoint || "").trim();
     if (!initPoint) {
-      throw new Error("No se recibio initPoint para iniciar el checkout");
+      throw new Error("No se recibi\u00f3 initPoint para iniciar el checkout");
     }
 
     window.location.assign(initPoint);
