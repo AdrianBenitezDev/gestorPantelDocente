@@ -16,34 +16,51 @@
     <section class="card registro-card">
       <h2>Registro</h2>
       <div class="card registro-plan-card">
-        <h3>Plan seleccionado</h3>
-        <p class="subtitle">Plan Pro - ARS 2000 / mes</p>
-        <p class="msg registro-plan-msg">-El uso de la plataforma tiene un consto fijo mensual de 2.000$</p>
+        <h3>Plan Profesional</h3>
+        <p class="msg registro-plan-msg">-El uso de la plataforma tiene un consto mensual fijo de 2.000$</p>
         <p class="msg registro-plan-msg">-PanelDocente gestiona la creaci&oacute;n de PAC, ahorr&aacute;ndote horas de trabajo</p>
       </div>
       <form id="register-form" class="grid-form registro-grid">
         <label>
-          Distrito
+          <span class="registro-field-label">
+            <span class="registro-field-icon" aria-hidden="true">&#128205;</span>
+            <span>Distrito</span>
+          </span>
           <input id="reg-distrito" required placeholder="Ejemplo: 004" />
         </label>
         <label>
-          Nivel
+          <span class="registro-field-label">
+            <span class="registro-field-icon" aria-hidden="true">&#127891;</span>
+            <span>Nivel</span>
+          </span>
           <input id="reg-nivel" required placeholder="Ejemplo: Secundario" />
         </label>
         <label>
-          N&uacute;mero de escuela
+          <span class="registro-field-label">
+            <span class="registro-field-icon" aria-hidden="true">&#127979;</span>
+            <span>N&uacute;mero de escuela</span>
+          </span>
           <input id="reg-escuela" required placeholder="Ejemplo: 26" />
         </label>
         <label>
-          Apellido y nombre
+          <span class="registro-field-label">
+            <span class="registro-field-icon" aria-hidden="true">&#128100;</span>
+            <span>Apellido y nombre</span>
+          </span>
           <input id="reg-nombre" required placeholder="Ejemplo: Adri&aacute;n Ben&iacute;tez" />
         </label>
         <label>
-          N&uacute;mero de contacto
+          <span class="registro-field-label">
+            <span class="registro-field-icon" aria-hidden="true">&#128222;</span>
+            <span>N&uacute;mero de contacto</span>
+          </span>
           <input id="reg-contacto" required placeholder="Ejemplo: 11 4297-2500" />
         </label>
         <label>
-          Correo institucional
+          <span class="registro-field-label">
+            <span class="registro-field-icon" aria-hidden="true">&#128231;</span>
+            <span>Correo institucional</span>
+          </span>
           <input
             id="reg-correo"
             type="email"
@@ -53,19 +70,16 @@
           />
         </label>
         <label>
-          Correo alternativo
+          <span class="registro-field-label">
+            <span class="registro-field-icon" aria-hidden="true">&#128233;</span>
+            <span>Correo alternativo</span>
+          </span>
           <input id="reg-correo-alt" type="email" placeholder="Ejemplo: usuario@gmail.com" />
         </label>
-        <label>
-          Usuario
-          <input id="reg-usuario" required placeholder="Ejemplo: adrian32" />
-        </label>
-        <label>
-          Contrase&ntilde;a
-          <input id="reg-password" type="password" minlength="8" required placeholder="M&iacute;nimo 8 caracteres" />
-        </label>
         <input id="reg-plan-code" type="hidden" value="plan_pro" />
-        <button type="submit">Crear cuenta</button>
+        <div class="registro-submit-wrap">
+          <button type="submit" class="registro-submit-btn">Crear cuenta</button>
+        </div>
       </form>
       <p id="register-msg" class="msg"></p>
       <p class="msg registro-login-msg">&iquest;Ya tienes cuenta? <a href="/horarios.html">Ir a login</a></p>

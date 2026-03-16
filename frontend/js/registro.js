@@ -30,6 +30,33 @@ function hydrateCurrentAccountEmail(user) {
   registerEmailInput.value = email;
 }
 
+function normalizeUsernameSeed(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9_]/g, "")
+    .slice(0, 28);
+}
+
+function buildAutoUsername(payload = {}) {
+  const emailLocal = String(payload.correo || "").split("@")[0] || "";
+  const nameSeed = String(payload.nombre || "").split(" ")[0] || "";
+  const base = normalizeUsernameSeed(emailLocal) || normalizeUsernameSeed(nameSeed) || "usuario";
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const combined = `${base}_${suffix}`.slice(0, 40);
+  if (combined.length >= 3) {
+    return combined;
+  }
+  return `${combined}123`.slice(0, 3);
+}
+
+function buildGeneratedPassword() {
+  const randomPart = Math.random().toString(36).slice(2, 12);
+  const fallbackPart = Date.now().toString(36).slice(-6);
+  return `Pd_${randomPart}${fallbackPart}_A1!`;
+}
+
 onAuthStateChanged(auth, (user) => {
   hydrateCurrentAccountEmail(user);
 });
@@ -46,8 +73,6 @@ registerForm.addEventListener("submit", async (event) => {
     contacto: document.getElementById("reg-contacto").value.trim(),
     correo: document.getElementById("reg-correo").value.trim(),
     correoAlt: document.getElementById("reg-correo-alt").value.trim(),
-    usuario: document.getElementById("reg-usuario").value.trim(),
-    password: document.getElementById("reg-password").value,
   };
 
   if (!payload.correo.includes("@")) {
@@ -55,12 +80,19 @@ registerForm.addEventListener("submit", async (event) => {
     return;
   }
 
+  const generatedPassword = buildGeneratedPassword();
+  const registerPayload = {
+    ...payload,
+    usuario: buildAutoUsername(payload),
+    password: generatedPassword,
+  };
+
   let verificationLink = "";
   try {
     setMsg(registerMsg, "Creando cuenta...");
     const registerUser = httpsCallable(functions, "registerUser");
     const startSubscriptionCheckout = httpsCallable(functions, "startSubscriptionCheckout");
-    const result = await registerUser(payload);
+    const result = await registerUser(registerPayload);
     verificationLink = String(result.data?.verificationLink || "").trim();
     const planCode = String(document.getElementById("reg-plan-code")?.value || "plan_pro")
       .trim()
@@ -68,7 +100,7 @@ registerForm.addEventListener("submit", async (event) => {
 
     setMsg(registerMsg, "Cuenta base creada. Iniciando checkout de suscripci\u00f3n...");
 
-    await signInWithEmailAndPassword(auth, payload.correo.toLowerCase(), payload.password);
+    await signInWithEmailAndPassword(auth, payload.correo.toLowerCase(), generatedPassword);
     const checkoutResult = await startSubscriptionCheckout({ planCode });
     const initPoint = String(checkoutResult.data?.initPoint || "").trim();
     if (!initPoint) {

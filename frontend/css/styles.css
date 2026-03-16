@@ -137,12 +137,23 @@ button {
 .registro-grid {
   margin-top: 12px;
   gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: 1fr;
 }
 
 .registro-grid label {
   color: #1f2e47;
   font-weight: 600;
+}
+
+.registro-field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.registro-field-icon {
+  width: 18px;
+  text-align: center;
 }
 
 .registro-grid input {
@@ -156,10 +167,12 @@ button {
   border-color: #5a93ea;
 }
 
-.registro-grid > button {
-  grid-column: 1 / -1;
-  justify-self: start;
-  min-width: 220px;
+.registro-submit-wrap {
+  margin-top: 6px;
+}
+
+.registro-submit-btn {
+  width: 100%;
   font-weight: 700;
 }
 
