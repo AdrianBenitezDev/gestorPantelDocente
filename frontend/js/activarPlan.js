@@ -4,6 +4,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-functions.js";
 import { auth, functions } from "./firebaseClient.js";
+import { formatBillingStatusLabel, formatUserError } from "./userFacingText.js";
 
 const userName = document.getElementById("activar-user-name");
 const userEmail = document.getElementById("activar-user-email");
@@ -47,7 +48,7 @@ async function loadSubscriptionStatus() {
   const tenantId = String(status.tenantId || "").trim();
   const nextRoute = String(status.nextRoute || "").trim();
 
-  setMsg(statusMsg, `Estado actual: ${billingStatus}`);
+  setMsg(statusMsg, `Estado de tu suscripcion: ${formatBillingStatusLabel(billingStatus)}`);
   if (appEnabled && tenantId) {
     redirectIfNeeded("/horarios.html");
     return;
@@ -60,17 +61,17 @@ async function loadSubscriptionStatus() {
 subscribeBtn?.addEventListener("click", async () => {
   setBusy(subscribeBtn, true);
   try {
-    setMsg(statusMsg, "Iniciando checkout de suscripcion...");
+    setMsg(statusMsg, "Redirigiendote a Mercado Pago para completar el pago...");
     const startSubscriptionCheckout = httpsCallable(functions, "startSubscriptionCheckout");
     const result = await startSubscriptionCheckout({ planCode: "plan_pro" });
     const initPoint = String(result.data?.initPoint || "").trim();
     if (!initPoint) {
-      throw new Error("No se recibio initPoint para continuar");
+      throw new Error("No pudimos iniciar el pago. Intenta nuevamente.");
     }
     window.location.assign(initPoint);
   } catch (error) {
     console.error(error);
-    setMsg(statusMsg, error?.message || "No se pudo iniciar checkout", true);
+    setMsg(statusMsg, formatUserError(error, "No pudimos iniciar el pago. Intenta nuevamente."), true);
   } finally {
     setBusy(subscribeBtn, false);
   }
@@ -95,6 +96,6 @@ onAuthStateChanged(auth, (user) => {
   userEmail.textContent = user.email || "-";
   void loadSubscriptionStatus().catch((error) => {
     console.error(error);
-    setMsg(statusMsg, "No se pudo consultar el estado de suscripcion", true);
+    setMsg(statusMsg, formatUserError(error, "No pudimos consultar tu estado de suscripcion."), true);
   });
 });

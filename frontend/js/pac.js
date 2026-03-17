@@ -1,4 +1,4 @@
-﻿import {
+import {
   GoogleAuthProvider,
   onAuthStateChanged,
   signInWithPopup,
@@ -6,6 +6,7 @@
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-functions.js";
 import { auth, functions } from "./firebaseClient.js";
+import { formatUserError } from "./userFacingText.js";
 
 const connectBtn = document.getElementById("pac-connect-btn");
 const logoutBtn = document.getElementById("pac-logout-btn");
@@ -802,8 +803,8 @@ function updatePacHeaderSummaryStatus() {
     return;
   }
   const status = isPacHeaderComplete(collectPacHeaderData())
-    ? "✅ Listo"
-    : "❌ Faltan Cargar";
+    ? "\u2705 Listo"
+    : "\u274C Faltan Cargar";
   headerSummaryTitle.textContent = `Datos de encabezado del PAC ${status}`;
 }
 
@@ -1265,7 +1266,7 @@ function formatCallableError(error) {
   if (isSubscriptionRequiredError(error)) {
     return "Debes tener una suscripcion activa para usar el modulo PAC.";
   }
-  const base = String(error?.message || "No se pudo ejecutar el proceso PAC");
+  const base = formatUserError(error, "No se pudo ejecutar el proceso PAC.");
   const details = error?.details && typeof error.details === "object" ? error.details : null;
   if (!details) {
     return base;
@@ -1285,13 +1286,13 @@ function formatCallableError(error) {
     lines.push(`API: ${String(details.apiContext)}`);
   }
   if (details.status) {
-    lines.push(`HTTP status: ${String(details.status)}`);
+    lines.push(`Estado HTTP: ${String(details.status)}`);
   }
   if (details.googleReason) {
-    lines.push(`Google reason: ${String(details.googleReason)}`);
+    lines.push(`Motivo de Google: ${String(details.googleReason)}`);
   }
   if (details.googleErrorMessage) {
-    lines.push(`Google message: ${String(details.googleErrorMessage)}`);
+    lines.push(`Mensaje de Google: ${String(details.googleErrorMessage)}`);
   }
 
   return lines.length ? `${base}\n${lines.join("\n")}` : base;
@@ -1588,7 +1589,7 @@ connectBtn.addEventListener("click", async () => {
     setMsg(authMsg, "Permisos Gmail + Sheets + Drive autorizados.");
   } catch (error) {
     console.error(error);
-    setMsg(authMsg, error.message || "No se pudo autorizar Gmail + Sheets + Drive", true);
+    setMsg(authMsg, formatUserError(error, "No se pudo autorizar Gmail + Sheets + Drive."), true);
   }
 });
 

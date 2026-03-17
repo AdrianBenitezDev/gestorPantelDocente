@@ -16,6 +16,7 @@ import {
   where,
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 import { auth, db, functions } from "./firebaseClient.js";
+import { formatUserError } from "./userFacingText.js";
 
 const loginSection = document.getElementById("login-section");
 const loginMsg = document.getElementById("login-msg");
@@ -3140,7 +3141,7 @@ sheetImportForm.addEventListener("submit", async (event) => {
     renderCurrentDocente();
   } catch (error) {
     console.error(error);
-    setMsg(panelMsg, error.message || "No se pudo leer la hoja", true);
+    setMsg(panelMsg, formatUserError(error, "No se pudo leer la hoja."), true);
     resetImportState();
   } finally {
     setLoading(false);
@@ -3210,7 +3211,7 @@ loadCursosBtn.addEventListener("click", async () => {
     renderCurrentCurso();
   } catch (error) {
     console.error(error);
-    setMsg(panelMsg, error.message || "No se pudo leer cursos desde la hoja", true);
+    setMsg(panelMsg, formatUserError(error, "No se pudo leer cursos desde la hoja."), true);
     importReviewCursos.classList.add("is-hidden");
     toggleBulkSaveButton();
   } finally {
@@ -3330,7 +3331,7 @@ acceptDocenteBtn.addEventListener("click", async () => {
     renderCurrentDocente();
   } catch (error) {
     console.error(error);
-    setMsg(panelMsg, error.message || "No se pudo guardar el docente", true);
+    setMsg(panelMsg, formatUserError(error, "No se pudo guardar el docente."), true);
   }
 });
 
@@ -3381,7 +3382,7 @@ acceptCursoBtn.addEventListener("click", async () => {
     renderCurrentCurso();
   } catch (error) {
     console.error(error);
-    setMsg(panelMsg, error.message || "No se pudo guardar el curso", true);
+    setMsg(panelMsg, formatUserError(error, "No se pudo guardar el curso."), true);
   }
 });
 
@@ -3526,7 +3527,7 @@ saveTurnScheduleBtn.addEventListener("click", async () => {
     }
   } catch (error) {
     console.error(error);
-    setMsg(turnScheduleMsg, error.message || "No se pudo guardar turnos y horarios", true);
+    setMsg(turnScheduleMsg, formatUserError(error, "No se pudo guardar turnos y horarios."), true);
   } finally {
     setButtonBusy(saveTurnScheduleBtn, false);
   }
@@ -3662,7 +3663,7 @@ assignMateriaList.addEventListener("click", async (event) => {
     await saveAssignMateriaSelection();
   } catch (error) {
     console.error(error);
-    setMsg(homeMsg, error.message || "No se pudo guardar la designacion", true);
+    setMsg(homeMsg, formatUserError(error, "No se pudo guardar la designacion."), true);
   } finally {
     assignMateriaState.saving = false;
     setButtonBusy(assignMateriaSaveBtn, false);
@@ -3689,7 +3690,7 @@ assignMateriaSaveBtn.addEventListener("click", async () => {
     await saveAssignMateriaSelection();
   } catch (error) {
     console.error(error);
-    setMsg(homeMsg, error.message || "No se pudo guardar la designacion", true);
+    setMsg(homeMsg, formatUserError(error, "No se pudo guardar la designacion."), true);
   } finally {
     assignMateriaState.saving = false;
     setButtonBusy(assignMateriaSaveBtn, false);

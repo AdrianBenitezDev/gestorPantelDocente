@@ -4,6 +4,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-functions.js";
 import { auth, functions } from "./firebaseClient.js";
+import { formatUserError } from "./userFacingText.js";
 
 const registerForm = document.getElementById("register-form");
 const registerMsg = document.getElementById("register-msg");
@@ -98,13 +99,13 @@ registerForm.addEventListener("submit", async (event) => {
       .trim()
       .toLowerCase();
 
-    setMsg(registerMsg, "Cuenta base creada. Iniciando checkout de suscripci\u00f3n...");
+    setMsg(registerMsg, "Cuenta creada. Preparando el pago de la suscripcion...");
 
     await signInWithEmailAndPassword(auth, payload.correo.toLowerCase(), generatedPassword);
     const checkoutResult = await startSubscriptionCheckout({ planCode });
     const initPoint = String(checkoutResult.data?.initPoint || "").trim();
     if (!initPoint) {
-      throw new Error("No se recibi\u00f3 initPoint para iniciar el checkout");
+      throw new Error("No pudimos iniciar el pago. Intenta nuevamente.");
     }
 
     window.location.assign(initPoint);
@@ -117,7 +118,7 @@ registerForm.addEventListener("submit", async (event) => {
         : "";
     const fallbackMsg =
       `La cuenta base queda recuperable. Puedes continuar luego desde /activar-plan.html.${verificationHint}`;
-    const baseMsg = error?.message || "No se pudo registrar o iniciar checkout";
+    const baseMsg = formatUserError(error, "No pudimos completar el registro y el inicio del pago.");
     setMsg(registerMsg, `${baseMsg}. ${fallbackMsg}`, true);
   }
 });

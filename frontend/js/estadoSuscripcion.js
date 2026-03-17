@@ -4,6 +4,11 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-functions.js";
 import { auth, functions } from "./firebaseClient.js";
+import {
+  formatAccessReasonLabel,
+  formatBillingStatusLabel,
+  formatUserError,
+} from "./userFacingText.js";
 
 const userName = document.getElementById("estado-user-name");
 const userEmail = document.getElementById("estado-user-email");
@@ -41,19 +46,6 @@ function redirectIfNeeded(route) {
   window.location.replace(target);
 }
 
-function formatStatus(value) {
-  const status = String(value ?? "null").trim().toLowerCase();
-  if (status === "pending_confirmation") return "pendiente de confirmacion";
-  if (status === "pending_checkout") return "checkout iniciado";
-  if (status === "active") return "activa";
-  if (status === "paused") return "pausada";
-  if (status === "cancelled") return "cancelada";
-  if (status === "rejected") return "rechazada";
-  if (status === "expired") return "expirada";
-  if (status === "error") return "error";
-  return "sin iniciar";
-}
-
 async function fetchStatus() {
   const getSubscriptionStatus = httpsCallable(functions, "getSubscriptionStatus");
   const response = await getSubscriptionStatus();
@@ -63,8 +55,8 @@ async function fetchStatus() {
   const tenantId = String(status.tenantId || "").trim();
   const nextRoute = String(status.nextRoute || "").trim();
 
-  setMsg(statusText, `Estado: ${formatStatus(billingStatus)}`);
-  setMsg(reasonText, `Motivo: ${String(status.reason || "payment_required")}`);
+  setMsg(statusText, `Estado de tu suscripcion: ${formatBillingStatusLabel(billingStatus)}`);
+  setMsg(reasonText, formatAccessReasonLabel(status.reason));
 
   if (appEnabled && tenantId) {
     redirectIfNeeded("/horarios.html");
@@ -82,17 +74,21 @@ async function fetchStatus() {
 retryBtn?.addEventListener("click", async () => {
   setBusy(retryBtn, true);
   try {
-    setMsg(feedbackMsg, "Reintentando checkout...");
+    setMsg(feedbackMsg, "Preparando un nuevo intento de pago...");
     const startSubscriptionCheckout = httpsCallable(functions, "startSubscriptionCheckout");
     const result = await startSubscriptionCheckout({ planCode: "plan_pro" });
     const initPoint = String(result.data?.initPoint || "").trim();
     if (!initPoint) {
-      throw new Error("No se recibio initPoint para continuar");
+      throw new Error("No pudimos iniciar el pago. Intenta nuevamente.");
     }
     window.location.assign(initPoint);
   } catch (error) {
     console.error(error);
-    setMsg(feedbackMsg, error?.message || "No se pudo iniciar reintento de pago", true);
+    setMsg(
+      feedbackMsg,
+      formatUserError(error, "No pudimos iniciar el reintento de pago. Intenta nuevamente."),
+      true
+    );
   } finally {
     setBusy(retryBtn, false);
   }
@@ -105,11 +101,11 @@ syncBtn?.addEventListener("click", async () => {
     const syncSubscriptionStatus = httpsCallable(functions, "syncSubscriptionStatus");
     const response = await syncSubscriptionStatus();
     const data = response.data || {};
-    setMsg(feedbackMsg, `Estado sincronizado: ${formatStatus(data.billingStatus)}`);
+    setMsg(feedbackMsg, `Estado sincronizado: ${formatBillingStatusLabel(data.billingStatus)}`);
     await fetchStatus();
   } catch (error) {
     console.error(error);
-    setMsg(feedbackMsg, error?.message || "No se pudo sincronizar estado", true);
+    setMsg(feedbackMsg, formatUserError(error, "No pudimos sincronizar el estado de tu pago."), true);
   } finally {
     setBusy(syncBtn, false);
   }
@@ -134,6 +130,6 @@ onAuthStateChanged(auth, (user) => {
   userEmail.textContent = user.email || "-";
   void fetchStatus().catch((error) => {
     console.error(error);
-    setMsg(feedbackMsg, "No se pudo consultar estado de suscripcion", true);
+    setMsg(feedbackMsg, formatUserError(error, "No pudimos consultar tu estado de suscripcion."), true);
   });
 });

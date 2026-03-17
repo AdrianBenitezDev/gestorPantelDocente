@@ -1,5 +1,6 @@
-﻿import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-functions.js";
+import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-functions.js";
 import { auth, functions } from "./firebaseClient.js";
+import { formatUserError } from "./userFacingText.js";
 
 const STORAGE_KEY = "pacPreviewPayload";
 
@@ -205,7 +206,7 @@ async function saveToDrive() {
   } catch (error) {
     console.error("saveToDrive preview error", error);
     setDriveResultButton("");
-    setMsg(String(error?.message || "No se pudo guardar en Drive"), true);
+    setMsg(formatUserError(error, "No pudimos guardar el archivo en Drive."), true);
   } finally {
     setBusy(false);
   }
@@ -246,7 +247,7 @@ async function downloadWorkbook() {
   } catch (error) {
     console.error("downloadWorkbook preview error", error);
     setDriveResultButton("");
-    setMsg(String(error?.message || "No se pudo descargar el archivo"), true);
+    setMsg(formatUserError(error, "No pudimos descargar el archivo."), true);
   } finally {
     setBusy(false);
   }
@@ -278,4 +279,3 @@ if (!state.payload) {
   subtitleEl.textContent = `Filas seleccionadas: ${rows.length}`;
   setMsg("Listo para guardar o descargar.");
 }
-
