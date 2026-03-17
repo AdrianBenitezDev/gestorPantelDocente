@@ -27,7 +27,7 @@ function resolveNextRouteForProfile(profile) {
   const tenantId = String(profile.tenantId || "").trim();
   const appEnabled = profile?.access?.appEnabled === true;
   if (appEnabled && tenantId) {
-    return "/horarios.html";
+    return "/index.html";
   }
 
   const billingStatus = normalizeBillingStatus(profile?.billing?.status);
@@ -50,4 +50,3 @@ module.exports = {
   normalizeBillingStatus,
   resolveNextRouteForProfile,
 };
-

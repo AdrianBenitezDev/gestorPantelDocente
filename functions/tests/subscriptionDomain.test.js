@@ -31,13 +31,13 @@ test("routing: usuario sin perfil va a registro", () => {
   assert.equal(resolveNextRouteForProfile("bad_payload"), "/registro.html");
 });
 
-test("routing: usuario activo con tenant entra a horarios", () => {
+test("routing: usuario activo con tenant entra a index", () => {
   const route = resolveNextRouteForProfile({
     tenantId: "tenant_123",
     access: { appEnabled: true },
     billing: { status: "active" },
   });
-  assert.equal(route, "/horarios.html");
+  assert.equal(route, "/index.html");
 });
 
 test("routing: usuario sin pago (status null) va a activar-plan", () => {
@@ -72,4 +72,3 @@ test("routing: usuario rechazado o pendiente de confirmacion va a estado-suscrip
   assert.equal(rejectedRoute, "/estado-suscripcion.html");
   assert.equal(pendingRoute, "/estado-suscripcion.html");
 });
-

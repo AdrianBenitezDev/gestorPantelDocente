@@ -59,7 +59,7 @@ async function fetchStatus() {
   setMsg(reasonText, formatAccessReasonLabel(status.reason));
 
   if (appEnabled && tenantId) {
-    redirectIfNeeded("/horarios.html");
+    redirectIfNeeded("/index.html");
     return status;
   }
 
@@ -114,7 +114,7 @@ syncBtn?.addEventListener("click", async () => {
 logoutBtn?.addEventListener("click", async () => {
   try {
     await signOut(auth);
-    window.location.replace("/horarios.html");
+    window.location.replace("/index.html");
   } catch (error) {
     console.error(error);
     setMsg(feedbackMsg, "No se pudo cerrar sesion", true);
@@ -123,7 +123,7 @@ logoutBtn?.addEventListener("click", async () => {
 
 onAuthStateChanged(auth, (user) => {
   if (!user) {
-    window.location.replace("/horarios.html");
+    window.location.replace("/index.html");
     return;
   }
   userName.textContent = user.displayName || user.email || "Usuario";

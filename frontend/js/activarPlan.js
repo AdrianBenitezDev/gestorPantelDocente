@@ -50,7 +50,7 @@ async function loadSubscriptionStatus() {
 
   setMsg(statusMsg, `Estado de tu suscripcion: ${formatBillingStatusLabel(billingStatus)}`);
   if (appEnabled && tenantId) {
-    redirectIfNeeded("/horarios.html");
+    redirectIfNeeded("/index.html");
     return;
   }
   if (nextRoute && normalizeRoute(nextRoute) !== normalizeRoute("/activar-plan.html")) {
@@ -80,7 +80,7 @@ subscribeBtn?.addEventListener("click", async () => {
 logoutBtn?.addEventListener("click", async () => {
   try {
     await signOut(auth);
-    window.location.replace("/horarios.html");
+    window.location.replace("/index.html");
   } catch (error) {
     console.error(error);
     setMsg(statusMsg, "No se pudo cerrar sesion", true);
@@ -89,7 +89,7 @@ logoutBtn?.addEventListener("click", async () => {
 
 onAuthStateChanged(auth, (user) => {
   if (!user) {
-    window.location.replace("/horarios.html");
+    window.location.replace("/index.html");
     return;
   }
   userName.textContent = user.displayName || user.email || "Usuario";
