@@ -1168,6 +1168,23 @@ a.link-btn:hover {
   flex-wrap: wrap;
 }
 
+.pac-guest-card {
+  text-align: center;
+}
+
+.pac-guest-card h3 {
+  margin: 8px 0 10px;
+  text-align: center;
+}
+
+.pac-guest-image {
+  display: block;
+  margin: 0 auto 8px;
+  width: min(280px, 78%);
+  height: auto;
+  object-fit: contain;
+}
+
 .pac-sheet-custom-section {
   margin: 12px 0 2px;
   padding: 10px;
