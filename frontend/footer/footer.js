@@ -46,6 +46,7 @@
             <h3>Legal y Contacto</h3>
             <ul class="shared-footer-links">
               <li><a href="/politica-privacidad.html">Politica de privacidad</a></li>
+              <li><a href="/condiciones-servicio.html">Condiciones de servicio</a></li>
               <li><a href="mailto:artbenitezdev@gmail.com">artbenitezdev@gmail.com</a></li>
             </ul>
           </section>
