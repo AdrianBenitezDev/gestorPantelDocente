@@ -1628,7 +1628,22 @@ function cancelSelectionFlow() {
   setMsg(runMsg, "Operacion cancelada");
 }
 
-connectBtn.addEventListener("click", async () => {
+function updateHeaderAuthButton(user) {
+  if (!logoutBtn) {
+    return;
+  }
+  if (user) {
+    logoutBtn.textContent = "Cerrar sesion";
+    logoutBtn.dataset.authAction = "logout";
+    logoutBtn.classList.add("google-btn");
+    return;
+  }
+  logoutBtn.textContent = "Iniciar sesion con Google";
+  logoutBtn.dataset.authAction = "login";
+  logoutBtn.classList.add("google-btn");
+}
+
+async function signInAndAuthorizeGoogleScopes() {
   try {
     const provider = new GoogleAuthProvider();
     provider.addScope("https://www.googleapis.com/auth/gmail.readonly");
@@ -1649,11 +1664,19 @@ connectBtn.addEventListener("click", async () => {
     state.accessToken = accessToken;
     persistAccessToken(accessToken, result?.user?.uid || auth.currentUser?.uid || "");
     setMsg(authMsg, "Permisos Gmail + Sheets + Drive autorizados.");
+    return true;
   } catch (error) {
     console.error(error);
     setMsg(authMsg, formatUserError(error, "No se pudo autorizar Gmail + Sheets + Drive."), true);
+    return false;
   }
-});
+}
+
+if (connectBtn) {
+  connectBtn.addEventListener("click", async () => {
+    await signInAndAuthorizeGoogleScopes();
+  });
+}
 
 previewBtn.addEventListener("click", () => {
   runPacProcess(true);
@@ -1742,25 +1765,32 @@ if (floatSaveBtn) {
   });
 }
 
-logoutBtn.addEventListener("click", async () => {
-  try {
-    await signOut(auth);
-    state.accessToken = "";
-    clearPersistedAccessToken();
-    state.headerLoadedFromRemote = false;
-    state.extractionConfigLoadedFromRemote = false;
-    state.hasTenantAccess = false;
-    applyHorariosLinkVisibility(null);
-    cancelSelectionFlow();
-    setMsg(authMsg, "Sesion cerrada");
-    setMsg(runMsg, "");
-  } catch (error) {
-    console.error(error);
-    setMsg(authMsg, "No se pudo cerrar sesion", true);
-  }
-});
+if (logoutBtn) {
+  logoutBtn.addEventListener("click", async () => {
+    if (!auth.currentUser) {
+      await signInAndAuthorizeGoogleScopes();
+      return;
+    }
+    try {
+      await signOut(auth);
+      state.accessToken = "";
+      clearPersistedAccessToken();
+      state.headerLoadedFromRemote = false;
+      state.extractionConfigLoadedFromRemote = false;
+      state.hasTenantAccess = false;
+      applyHorariosLinkVisibility(null);
+      cancelSelectionFlow();
+      setMsg(authMsg, "Sesion cerrada");
+      setMsg(runMsg, "");
+    } catch (error) {
+      console.error(error);
+      setMsg(authMsg, "No se pudo cerrar sesion", true);
+    }
+  });
+}
 
 onAuthStateChanged(auth, (user) => {
+  updateHeaderAuthButton(user);
   if (!user) {
     state.accessToken = "";
     clearPersistedAccessToken();
@@ -1807,6 +1837,7 @@ setDefaultModeOption();
 renderProcessDependentGmailQueries();
 void hydratePacExtractionConfigFromIndexedDb();
 applyHorariosLinkVisibility(null);
+updateHeaderAuthButton(auth.currentUser);
 setDriveResultButton("");
 renderRows([]);
 renderErrors([]);
