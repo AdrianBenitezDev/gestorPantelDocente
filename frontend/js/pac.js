@@ -100,12 +100,16 @@ const PAC_PROCESS_IDB_KEY = "processValue";
 const PAC_EXTRACTION_CONFIG_IDB_KEY = "pacExtractionConfig";
 const PAC_HEADER_IDB_KEY = "encabezadoPac";
 const PAC_USE_CUSTOM_SHEET_STORAGE_KEY = "pacUseCustomSheet";
+const PAC_ACCESS_TOKEN_STORAGE_KEY = "pacAccessToken";
+const PAC_ACCESS_TOKEN_UID_STORAGE_KEY = "pacAccessTokenUid";
+const PAC_ACCESS_TOKEN_AT_STORAGE_KEY = "pacAccessTokenStoredAt";
 const PAC_DEFAULT_SHEET_URL = "https://docs.google.com/spreadsheets/d/1UP0FlTWQdHciMe1dbpj2i1dhsQAk4EsxCtq2Bvxlv2U/edit?usp=sharing";
 const PAC_HORARIOS_ALLOWED_EMAIL = "secundaria3altebrown@abc.gob.ar";
 const PAC_CACHE_DB_NAME = "gpd-pac-cache";
 const PAC_CACHE_DB_VERSION = 1;
 const PAC_CACHE_STORE = "settings";
 const QUERY_PERSIST_DEBOUNCE_MS = 2000;
+const PAC_ACCESS_TOKEN_TTL_MS = 45 * 60 * 1000;
 const PAC_MONTHS = [
   "01",
   "02",
@@ -122,6 +126,63 @@ const PAC_MONTHS = [
 ];
 
 let extractionConfigPersistTimer = null;
+
+function persistAccessToken(accessToken, uid) {
+  if (!window.localStorage) {
+    return;
+  }
+  try {
+    const safeToken = String(accessToken || "").trim();
+    const safeUid = String(uid || "").trim();
+    if (!safeToken || !safeUid) {
+      return;
+    }
+    window.localStorage.setItem(PAC_ACCESS_TOKEN_STORAGE_KEY, safeToken);
+    window.localStorage.setItem(PAC_ACCESS_TOKEN_UID_STORAGE_KEY, safeUid);
+    window.localStorage.setItem(PAC_ACCESS_TOKEN_AT_STORAGE_KEY, String(Date.now()));
+  } catch (error) {
+    console.error("No se pudo persistir accessToken PAC", error);
+  }
+}
+
+function clearPersistedAccessToken() {
+  if (!window.localStorage) {
+    return;
+  }
+  try {
+    window.localStorage.removeItem(PAC_ACCESS_TOKEN_STORAGE_KEY);
+    window.localStorage.removeItem(PAC_ACCESS_TOKEN_UID_STORAGE_KEY);
+    window.localStorage.removeItem(PAC_ACCESS_TOKEN_AT_STORAGE_KEY);
+  } catch (error) {
+    console.error("No se pudo limpiar accessToken PAC persistido", error);
+  }
+}
+
+function restorePersistedAccessToken(user) {
+  if (!window.localStorage || !user) {
+    return "";
+  }
+  try {
+    const storedToken = String(window.localStorage.getItem(PAC_ACCESS_TOKEN_STORAGE_KEY) || "").trim();
+    const storedUid = String(window.localStorage.getItem(PAC_ACCESS_TOKEN_UID_STORAGE_KEY) || "").trim();
+    const storedAt = Number(window.localStorage.getItem(PAC_ACCESS_TOKEN_AT_STORAGE_KEY) || "0");
+    const safeUid = String(user?.uid || "").trim();
+    const ageMs = Date.now() - storedAt;
+    if (!storedToken || !storedUid || !safeUid) {
+      return "";
+    }
+    if (storedUid !== safeUid) {
+      return "";
+    }
+    if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs > PAC_ACCESS_TOKEN_TTL_MS) {
+      return "";
+    }
+    return storedToken;
+  } catch (error) {
+    console.error("No se pudo restaurar accessToken PAC persistido", error);
+    return "";
+  }
+}
 
 function setDefaultModeOption() {
   if (!modeInput) {
@@ -1586,6 +1647,7 @@ connectBtn.addEventListener("click", async () => {
       throw new Error("No se obtuvo accessToken para Gmail/Sheets/Drive");
     }
     state.accessToken = accessToken;
+    persistAccessToken(accessToken, result?.user?.uid || auth.currentUser?.uid || "");
     setMsg(authMsg, "Permisos Gmail + Sheets + Drive autorizados.");
   } catch (error) {
     console.error(error);
@@ -1684,6 +1746,7 @@ logoutBtn.addEventListener("click", async () => {
   try {
     await signOut(auth);
     state.accessToken = "";
+    clearPersistedAccessToken();
     state.headerLoadedFromRemote = false;
     state.extractionConfigLoadedFromRemote = false;
     state.hasTenantAccess = false;
@@ -1699,6 +1762,8 @@ logoutBtn.addEventListener("click", async () => {
 
 onAuthStateChanged(auth, (user) => {
   if (!user) {
+    state.accessToken = "";
+    clearPersistedAccessToken();
     userNameEl.textContent = "Sin sesion";
     userEmailEl.textContent = "-";
     state.headerLoadedFromRemote = false;
@@ -1716,6 +1781,9 @@ onAuthStateChanged(auth, (user) => {
   state.headerLoadedFromRemote = false;
   state.extractionConfigLoadedFromRemote = false;
   state.hasTenantAccess = false;
+  if (!state.accessToken) {
+    state.accessToken = restorePersistedAccessToken(user);
+  }
   applyHorariosLinkVisibility(user);
   void (async () => {
     const hasTenantAccess = await refreshPacTenantAccess(user);
@@ -1725,7 +1793,9 @@ onAuthStateChanged(auth, (user) => {
     await hydratePacHeaderForCurrentUser(user);
     await hydratePacExtractionConfigForCurrentUser(user);
   })();
-  if (!state.accessToken) {
+  if (state.accessToken) {
+    setMsg(authMsg, "Sesion iniciada con permisos Gmail + Sheets + Drive.");
+  } else {
     setMsg(authMsg, "Sesion iniciada. Falta autorizar Gmail + Sheets + Drive.");
   }
 });
