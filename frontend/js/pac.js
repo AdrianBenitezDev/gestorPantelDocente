@@ -29,6 +29,8 @@ const headerContent = document.getElementById("pac-header-content");
 const userNameEl = document.getElementById("pac-user-name");
 const userEmailEl = document.getElementById("pac-user-email");
 const resultsBody = document.getElementById("pac-results-body");
+const guestSection = document.getElementById("pac-guest-section");
+const authenticatedContent = document.getElementById("pac-authenticated-content");
 
 const modeInput = document.getElementById("pac-mode");
 const queryInput = document.getElementById("pac-gmail-query");
@@ -1628,6 +1630,21 @@ function cancelSelectionFlow() {
   setMsg(runMsg, "Operacion cancelada");
 }
 
+function updateGuestView(user) {
+  const hasSession = Boolean(user);
+  if (guestSection) {
+    guestSection.hidden = hasSession;
+    guestSection.classList.toggle("is-hidden", hasSession);
+  }
+  if (authenticatedContent) {
+    authenticatedContent.hidden = !hasSession;
+    authenticatedContent.classList.toggle("is-hidden", !hasSession);
+  }
+  if (!hasSession) {
+    setFloatingVisible(false);
+  }
+}
+
 function updateHeaderAuthButton(user) {
   if (!logoutBtn) {
     return;
@@ -1791,6 +1808,7 @@ if (logoutBtn) {
 
 onAuthStateChanged(auth, (user) => {
   updateHeaderAuthButton(user);
+  updateGuestView(user);
   if (!user) {
     state.accessToken = "";
     clearPersistedAccessToken();
@@ -1838,6 +1856,7 @@ renderProcessDependentGmailQueries();
 void hydratePacExtractionConfigFromIndexedDb();
 applyHorariosLinkVisibility(null);
 updateHeaderAuthButton(auth.currentUser);
+updateGuestView(auth.currentUser);
 setDriveResultButton("");
 renderRows([]);
 renderErrors([]);
