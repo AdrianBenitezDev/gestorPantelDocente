@@ -1183,6 +1183,7 @@ a.link-btn:hover {
   width: min(280px, 78%);
   height: auto;
   object-fit: contain;
+  border-radius: 12px;
 }
 
 .pac-sheet-custom-section {
