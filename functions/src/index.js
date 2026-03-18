@@ -18,7 +18,12 @@ if (!admin.apps.length) {
 }
 
 const db = admin.firestore();
-const allowedCorsOrigins = ["https://horario-escuelas.web.app"];
+const allowedCorsOrigins = [
+  "https://paneldocente.com.ar",
+  "https://www.paneldocente.com.ar",
+  "https://horario-escuelas.web.app",
+];
+const primaryAppOrigin = allowedCorsOrigins[0] || "https://paneldocente.com.ar";
 const callableOptions = { cors: allowedCorsOrigins, invoker: "public" };
 
 const MP_ACCESS_TOKEN = defineSecret("MP_ACCESS_TOKEN");
@@ -112,7 +117,7 @@ async function createMercadoPagoPreapproval({
     payer_email: safePayerEmail,
     external_reference: safeExternalReference,
     status: "pending",
-    back_url: `${allowedCorsOrigins[0] || "https://horario-escuelas.web.app"}/estado-suscripcion.html`,
+    back_url: `${primaryAppOrigin}/estado-suscripcion.html`,
   };
 
   if (preapprovalPlanId) {
