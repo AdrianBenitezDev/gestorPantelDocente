@@ -1,8 +1,14 @@
+import {
+  GoogleAuthProvider,
+  signInWithPopup,
+} from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-functions.js";
 import { auth, functions } from "./firebaseClient.js";
 import { formatUserError } from "./userFacingText.js";
 
 const STORAGE_KEY = "pacPreviewPayload";
+const GOOGLE_SCOPE_SHEETS = "https://www.googleapis.com/auth/spreadsheets";
+const GOOGLE_SCOPE_DRIVE = "https://www.googleapis.com/auth/drive";
 
 const saveBtn = document.getElementById("preview-save-btn");
 const downloadBtn = document.getElementById("preview-download-btn");
@@ -17,6 +23,65 @@ const state = {
   busy: false,
   savedFile: null,
 };
+
+function uniqueScopes(scopes) {
+  const list = Array.isArray(scopes) ? scopes : [];
+  return Array.from(new Set(
+    list
+      .map((scope) => String(scope || "").trim())
+      .filter(Boolean)
+  ));
+}
+
+function getMissingScopesFromError(error) {
+  const details = error?.details && typeof error.details === "object" ? error.details : null;
+  const missingScopes = Array.isArray(details?.missingScopes) ? details.missingScopes : [];
+  return uniqueScopes(missingScopes);
+}
+
+function updatePayloadAccessToken(accessToken) {
+  if (!state.payload || typeof state.payload !== "object") {
+    return;
+  }
+  state.payload.accessToken = String(accessToken || "").trim();
+}
+
+async function signInAndAuthorizeGoogleScopes(options = {}) {
+  const scopes = uniqueScopes(
+    Array.isArray(options.scopes) && options.scopes.length
+      ? options.scopes
+      : [GOOGLE_SCOPE_SHEETS, GOOGLE_SCOPE_DRIVE]
+  );
+  const successMessage =
+    String(options.successMessage || "").trim() || "Permisos de Google autorizados.";
+  const errorMessage =
+    String(options.errorMessage || "").trim() || "No se pudieron autorizar permisos de Google.";
+  try {
+    if (!auth.currentUser) {
+      throw new Error("No hay sesion activa para solicitar permisos.");
+    }
+    const provider = new GoogleAuthProvider();
+    scopes.forEach((scope) => {
+      provider.addScope(scope);
+    });
+    provider.setCustomParameters({
+      include_granted_scopes: "true",
+    });
+    const result = await signInWithPopup(auth, provider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    const accessToken = String(credential?.accessToken || "").trim();
+    if (!accessToken) {
+      throw new Error("No se obtuvo accessToken de Google.");
+    }
+    updatePayloadAccessToken(accessToken);
+    setMsg(successMessage);
+    return true;
+  } catch (error) {
+    console.error("preview scope auth error", error);
+    setMsg(formatUserError(error, errorMessage), true);
+    return false;
+  }
+}
 
 function setMsg(text, isError = false) {
   msgEl.textContent = String(text || "");
@@ -187,10 +252,21 @@ async function saveToDrive() {
     return;
   }
 
-  const payload = buildSavePayload();
-  if (!payload.sheetUrl || !payload.accessToken || !Array.isArray(payload.rows) || !payload.rows.length) {
+  let payload = buildSavePayload();
+  if (!payload.sheetUrl || !Array.isArray(payload.rows) || !payload.rows.length) {
     setMsg("No hay datos suficientes para guardar en Drive", true);
     return;
+  }
+  if (!payload.accessToken) {
+    const authorized = await signInAndAuthorizeGoogleScopes({
+      scopes: [GOOGLE_SCOPE_SHEETS, GOOGLE_SCOPE_DRIVE],
+      successMessage: "Permisos de Sheets/Drive autorizados. Continuando guardado...",
+      errorMessage: "No se pudieron autorizar permisos para guardar en Drive.",
+    });
+    if (!authorized) {
+      return;
+    }
+    payload = buildSavePayload();
   }
 
   setBusy(true);
@@ -198,7 +274,25 @@ async function saveToDrive() {
   setMsg("Guardando en Google Drive...");
   try {
     const callable = httpsCallable(functions, "savePacRowsToDrive");
-    const response = await callable(payload);
+    let response;
+    try {
+      response = await callable(payload);
+    } catch (error) {
+      const missingScopes = getMissingScopesFromError(error);
+      if (!missingScopes.length) {
+        throw error;
+      }
+      const reauthorized = await signInAndAuthorizeGoogleScopes({
+        scopes: missingScopes,
+        successMessage: "Permisos adicionales autorizados. Reintentando guardado...",
+        errorMessage: "No se pudieron autorizar permisos adicionales para guardar.",
+      });
+      if (!reauthorized) {
+        throw error;
+      }
+      payload = buildSavePayload();
+      response = await callable(payload);
+    }
     const result = response.data || {};
     state.savedFile = result;
     setDriveResultButton(String(result.sheetUrl || ""));
@@ -221,11 +315,23 @@ async function downloadWorkbook() {
     return;
   }
 
-  const payload = buildSavePayload();
+  let payload = buildSavePayload();
   payload.delivery = "download";
-  if (!payload.sheetUrl || !payload.accessToken || !Array.isArray(payload.rows) || !payload.rows.length) {
+  if (!payload.sheetUrl || !Array.isArray(payload.rows) || !payload.rows.length) {
     setMsg("No hay datos suficientes para descargar", true);
     return;
+  }
+  if (!payload.accessToken) {
+    const authorized = await signInAndAuthorizeGoogleScopes({
+      scopes: [GOOGLE_SCOPE_SHEETS, GOOGLE_SCOPE_DRIVE],
+      successMessage: "Permisos de Sheets/Drive autorizados. Continuando descarga...",
+      errorMessage: "No se pudieron autorizar permisos para descargar.",
+    });
+    if (!authorized) {
+      return;
+    }
+    payload = buildSavePayload();
+    payload.delivery = "download";
   }
 
   setBusy(true);
@@ -233,7 +339,26 @@ async function downloadWorkbook() {
   setMsg("Generando archivo para descarga...");
   try {
     const callable = httpsCallable(functions, "savePacRowsToDrive");
-    const response = await callable(payload);
+    let response;
+    try {
+      response = await callable(payload);
+    } catch (error) {
+      const missingScopes = getMissingScopesFromError(error);
+      if (!missingScopes.length) {
+        throw error;
+      }
+      const reauthorized = await signInAndAuthorizeGoogleScopes({
+        scopes: missingScopes,
+        successMessage: "Permisos adicionales autorizados. Reintentando descarga...",
+        errorMessage: "No se pudieron autorizar permisos adicionales para descargar.",
+      });
+      if (!reauthorized) {
+        throw error;
+      }
+      payload = buildSavePayload();
+      payload.delivery = "download";
+      response = await callable(payload);
+    }
     const result = response.data || {};
     const fileBase64 = String(result.fileBase64 || "");
     if (!fileBase64) {

@@ -112,6 +112,10 @@ const PAC_CACHE_DB_VERSION = 1;
 const PAC_CACHE_STORE = "settings";
 const QUERY_PERSIST_DEBOUNCE_MS = 2000;
 const PAC_ACCESS_TOKEN_TTL_MS = 45 * 60 * 1000;
+const GOOGLE_SCOPE_GMAIL_READONLY = "https://www.googleapis.com/auth/gmail.readonly";
+const GOOGLE_SCOPE_SHEETS = "https://www.googleapis.com/auth/spreadsheets";
+const GOOGLE_SCOPE_DRIVE_READONLY = "https://www.googleapis.com/auth/drive.readonly";
+const GOOGLE_SCOPE_DRIVE = "https://www.googleapis.com/auth/drive";
 const PAC_MONTHS = [
   "01",
   "02",
@@ -205,6 +209,37 @@ function setDefaultModeOption() {
 
 function mapProcessValueToMode(processValue) {
   return String(processValue || "") === "0" ? "interinos_docx" : "designacion_body";
+}
+
+function uniqueScopes(scopes) {
+  const list = Array.isArray(scopes) ? scopes : [];
+  return Array.from(new Set(
+    list
+      .map((scope) => String(scope || "").trim())
+      .filter(Boolean)
+  ));
+}
+
+function getRunRequiredScopes(previewOnly) {
+  const mode = mapProcessValueToMode(modeInput?.value);
+  const required = [GOOGLE_SCOPE_GMAIL_READONLY];
+  if (!previewOnly) {
+    required.push(GOOGLE_SCOPE_SHEETS);
+  }
+  if (mode === "interinos_docx") {
+    required.push(GOOGLE_SCOPE_DRIVE_READONLY);
+  }
+  return uniqueScopes(required);
+}
+
+function getSaveRequiredScopes() {
+  return [GOOGLE_SCOPE_SHEETS, GOOGLE_SCOPE_DRIVE];
+}
+
+function getMissingScopesFromError(error) {
+  const details = error?.details && typeof error.details === "object" ? error.details : null;
+  const missingScopes = Array.isArray(details?.missingScopes) ? details.missingScopes : [];
+  return uniqueScopes(missingScopes);
 }
 
 function buildDistrictNumberList() {
@@ -1456,8 +1491,15 @@ async function runPacProcess(previewOnly) {
     return;
   }
   if (!state.accessToken) {
-    setMsg(runMsg, "Primero presiona 'Conectar Gmail + Sheets + Drive' para autorizar permisos", true);
-    return;
+    const initialScopes = getRunRequiredScopes(previewOnly);
+    const authorized = await signInAndAuthorizeGoogleScopes({
+      scopes: initialScopes,
+      successMessage: "Google conectado. Permisos autorizados para ejecutar PAC.",
+      errorMessage: "No se pudieron autorizar los permisos para ejecutar PAC.",
+    });
+    if (!authorized) {
+      return;
+    }
   }
 
   state.busy = true;
@@ -1470,8 +1512,30 @@ async function runPacProcess(previewOnly) {
 
   const callable = httpsCallable(functions, "runPacProcess");
   try {
-    const payload = buildPayload(previewOnly);
-    const response = await callable(payload);
+    const invokeCallable = async () => {
+      const payload = buildPayload(previewOnly);
+      return callable(payload);
+    };
+
+    let response;
+    try {
+      response = await invokeCallable();
+    } catch (error) {
+      const missingScopes = getMissingScopesFromError(error);
+      if (!missingScopes.length) {
+        throw error;
+      }
+      const reauthorized = await signInAndAuthorizeGoogleScopes({
+        scopes: missingScopes,
+        successMessage: "Permisos adicionales autorizados. Reintentando PAC...",
+        errorMessage: "No se pudieron autorizar permisos adicionales para PAC.",
+      });
+      if (!reauthorized) {
+        throw error;
+      }
+      response = await invokeCallable();
+    }
+
     const result = response.data || {};
     const rows = decorateRows(Array.isArray(result.rows) ? result.rows : []);
 
@@ -1510,6 +1574,10 @@ async function processSelectedRows(delivery = "drive") {
   if (state.busy) {
     return null;
   }
+  if (!auth.currentUser) {
+    setMsg(runMsg, "Inicia sesion con Google antes de guardar o descargar.", true);
+    return null;
+  }
   setDriveResultButton("");
 
   const encabezadoPac = collectPacHeaderData();
@@ -1545,10 +1613,52 @@ async function processSelectedRows(delivery = "drive") {
   const isDownload = delivery === "download";
   setMsg(runMsg, isDownload ? "Generando archivo para descarga..." : "Guardando archivo en Drive...");
 
+  if (!state.accessToken) {
+    const authorized = await signInAndAuthorizeGoogleScopes({
+      scopes: getSaveRequiredScopes(),
+      successMessage: "Permisos de Sheets/Drive autorizados. Continuando...",
+      errorMessage: "No se pudieron autorizar permisos de Sheets/Drive.",
+    });
+    if (!authorized) {
+      state.busy = false;
+      setBusy(previewBtn, false);
+      setBusy(runBtn, false);
+      if (floatSaveBtn) {
+        setBusy(floatSaveBtn, false);
+      }
+      if (floatDownloadBtn) {
+        setBusy(floatDownloadBtn, false);
+      }
+      return null;
+    }
+  }
+
   const callable = httpsCallable(functions, "savePacRowsToDrive");
   try {
-    const payload = buildSavePayload(selectedRows, delivery);
-    const response = await callable(payload);
+    const invokeCallable = async () => {
+      const payload = buildSavePayload(selectedRows, delivery);
+      return callable(payload);
+    };
+
+    let response;
+    try {
+      response = await invokeCallable();
+    } catch (error) {
+      const missingScopes = getMissingScopesFromError(error);
+      if (!missingScopes.length) {
+        throw error;
+      }
+      const reauthorized = await signInAndAuthorizeGoogleScopes({
+        scopes: missingScopes,
+        successMessage: "Permisos adicionales autorizados. Reintentando guardado...",
+        errorMessage: "No se pudieron autorizar permisos adicionales para guardar.",
+      });
+      if (!reauthorized) {
+        throw error;
+      }
+      response = await invokeCallable();
+    }
+
     const result = response.data || {};
 
     if (isDownload) {
@@ -1660,15 +1770,24 @@ function updateHeaderAuthButton(user) {
   logoutBtn.classList.add("google-btn");
 }
 
-async function signInAndAuthorizeGoogleScopes() {
+async function signInAndAuthorizeGoogleScopes(options = {}) {
+  const scopes = uniqueScopes(
+    Array.isArray(options.scopes) && options.scopes.length
+      ? options.scopes
+      : [GOOGLE_SCOPE_GMAIL_READONLY]
+  );
+  const successMessage =
+    String(options.successMessage || "").trim() ||
+    "Permisos de Google autorizados correctamente.";
+  const errorMessage =
+    String(options.errorMessage || "").trim() ||
+    "No se pudieron autorizar permisos de Google.";
   try {
     const provider = new GoogleAuthProvider();
-    provider.addScope("https://www.googleapis.com/auth/gmail.readonly");
-    provider.addScope("https://www.googleapis.com/auth/spreadsheets");
-    provider.addScope("https://www.googleapis.com/auth/drive.readonly");
-    provider.addScope("https://www.googleapis.com/auth/drive");
+    scopes.forEach((scope) => {
+      provider.addScope(scope);
+    });
     provider.setCustomParameters({
-      prompt: "consent",
       include_granted_scopes: "true",
     });
 
@@ -1676,22 +1795,26 @@ async function signInAndAuthorizeGoogleScopes() {
     const credential = GoogleAuthProvider.credentialFromResult(result);
     const accessToken = credential?.accessToken || "";
     if (!accessToken) {
-      throw new Error("No se obtuvo accessToken para Gmail/Sheets/Drive");
+      throw new Error("No se obtuvo accessToken de Google.");
     }
     state.accessToken = accessToken;
     persistAccessToken(accessToken, result?.user?.uid || auth.currentUser?.uid || "");
-    setMsg(authMsg, "Permisos Gmail + Sheets + Drive autorizados.");
+    setMsg(authMsg, successMessage);
     return true;
   } catch (error) {
     console.error(error);
-    setMsg(authMsg, formatUserError(error, "No se pudo autorizar Gmail + Sheets + Drive."), true);
+    setMsg(authMsg, formatUserError(error, errorMessage), true);
     return false;
   }
 }
 
 if (connectBtn) {
   connectBtn.addEventListener("click", async () => {
-    await signInAndAuthorizeGoogleScopes();
+    await signInAndAuthorizeGoogleScopes({
+      scopes: [GOOGLE_SCOPE_GMAIL_READONLY],
+      successMessage: "Google conectado. Si una accion necesita mas permisos, se pediran en ese momento.",
+      errorMessage: "No se pudo conectar Google para iniciar el proceso PAC.",
+    });
   });
 }
 
@@ -1785,7 +1908,11 @@ if (floatSaveBtn) {
 if (logoutBtn) {
   logoutBtn.addEventListener("click", async () => {
     if (!auth.currentUser) {
-      await signInAndAuthorizeGoogleScopes();
+      await signInAndAuthorizeGoogleScopes({
+        scopes: [GOOGLE_SCOPE_GMAIL_READONLY],
+        successMessage: "Sesion iniciada. Puedes comenzar con la extraccion de Gmail.",
+        errorMessage: "No se pudo iniciar sesion con Google.",
+      });
       return;
     }
     try {
@@ -1818,9 +1945,7 @@ onAuthStateChanged(auth, (user) => {
     state.extractionConfigLoadedFromRemote = false;
     state.hasTenantAccess = false;
     applyHorariosLinkVisibility(null);
-    if (!state.accessToken) {
-      setMsg(authMsg, "Inicia sesion con Google y luego autoriza Gmail + Sheets + Drive.");
-    }
+    setMsg(authMsg, "Inicia sesion con Google. Los permisos se pediran segun la accion que uses.");
     return;
   }
 
@@ -1842,9 +1967,9 @@ onAuthStateChanged(auth, (user) => {
     await hydratePacExtractionConfigForCurrentUser(user);
   })();
   if (state.accessToken) {
-    setMsg(authMsg, "Sesion iniciada con permisos Gmail + Sheets + Drive.");
+    setMsg(authMsg, "Sesion iniciada con Google. Token PAC disponible.");
   } else {
-    setMsg(authMsg, "Sesion iniciada. Falta autorizar Gmail + Sheets + Drive.");
+    setMsg(authMsg, "Sesion iniciada. Presiona 'Conectar Google' para autorizar Gmail.");
   }
 });
 

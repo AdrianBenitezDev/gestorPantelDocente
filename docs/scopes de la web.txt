@@ -1,0 +1,96 @@
+Texto verificación OAuth (Gmail gmail.readonly)
+La aplicación solicita https://www.googleapis.com/auth/gmail.readonly únicamente para leer correos que el propio usuario decide procesar en el módulo PAC. Flujo: el usuario inicia sesión, pulsa “Conectar Google” y autoriza lectura de Gmail; luego ejecuta una extracción con su query (por ejemplo remitente y cantidad de resultados). La app lee solo los mensajes necesarios para esa ejecución, extrae campos laborales/administrativos y arma filas estructuradas para revisión en pantalla. No enviamos correos, no modificamos el buzón y no eliminamos mensajes. El acceso ocurre solo por acción directa del usuario, aplicando principio de mínimo privilegio y sin uso publicitario ni cesión de datos a terceros.
+
+Texto verificación OAuth (Sheets spreadsheets)
+La aplicación solicita https://www.googleapis.com/auth/spreadsheets solo cuando el usuario realiza acciones que requieren escribir en una planilla. Tras extraer datos de Gmail, el usuario valida filas y decide guardar o generar archivo. En ese momento la app crea/actualiza una hoja de cálculo para registrar encabezado y filas procesadas. Sin este permiso, la funcionalidad principal de automatización no puede completarse y el usuario debería cargar datos manualmente. El permiso no se solicita al inicio para todas las acciones, sino de forma incremental cuando la operación lo necesita. El acceso se limita a la ejecución solicitada por el usuario y no se utiliza para finalidades distintas al servicio.
+
+Texto verificación OAuth (Drive drive y drive.readonly)
+La app usa permisos de Drive de forma acotada según el flujo. drive.readonly se utiliza cuando el proceso PAC debe leer archivos enlazados desde correos (por ejemplo documentos fuente en Drive). drive se solicita únicamente cuando el usuario decide guardar/descargar el resultado final: se crea una copia de plantilla, se completa con datos extraídos y se entrega la planilla resultante al usuario. En descarga, la copia puede eliminarse luego de exportar el archivo. No exploramos Drive de forma masiva ni accedemos a archivos ajenos al flujo solicitado. Todos los accesos se disparan por acción explícita del usuario y bajo principio de mínimo privilegio.
+
+Checklist video para Google (5-8 min)
+
+Mostrar pantalla inicial sin sesión y explicar que no hay acceso sin acción del usuario.
+Pulsar Conectar Google y mostrar consentimiento inicial (Gmail lectura).
+Ejecutar Probar extracción en modo que use solo Gmail y mostrar resultados.
+Cambiar a flujo que requiere lectura de Drive y mostrar consentimiento adicional cuando corresponda.
+Seleccionar filas y pulsar Guardar en Drive o Descargar; mostrar consentimiento adicional de Sheets/Drive.
+Mostrar archivo final creado y abierto en Google Sheets/Drive.
+Mostrar que la app no envía ni borra correos.
+Mostrar Política de Privacidad y Términos en producción.
+Cerrar con resumen: permisos incrementales, mínimo privilegio, sin uso publicitario ni terceros.
+
+
+
+
+
+Guion 1 toma (6-7 min)
+
+00:00 - 00:20
+Texto: “Esta es la app PanelDocente. Automatiza la creación del PAC a partir de correos de Gmail, con permisos solicitados de forma incremental.”
+Acción: Mostrar frontend/index.html cargado, sin iniciar flujo.
+
+00:20 - 00:45
+Texto: “Sin acción del usuario no hay acceso a datos. El acceso comienza solo cuando el usuario presiona Conectar Google.”
+Acción: Señalar botón Conectar Google.
+
+00:45 - 01:20
+Texto: “Al conectar, la app solicita primero Gmail de solo lectura (gmail.readonly) para poder leer correos seleccionados y extraer datos.”
+Acción: Clic en Conectar Google, mostrar pantalla de consentimiento.
+
+01:20 - 01:50
+Texto: “La app no envía correos, no elimina mensajes y no modifica el buzón. Solo lectura para esta operación.”
+Acción: Aceptar consentimiento y volver a la app.
+
+01:50 - 02:30
+Texto: “Ahora ejecuto una extracción. El usuario define query, la app lee solo esos mensajes y muestra resultados para revisión.”
+Acción: Ejecutar Probar extracción y mostrar filas resultantes.
+
+02:30 - 03:00
+Texto: “Para procesos con documentos enlazados, la app puede requerir lectura de Drive (drive.readonly) para obtener archivos fuente referenciados en correos.”
+Acción: Cambiar al modo que use documentos en Drive y ejecutar para mostrar solicitud adicional si aparece.
+
+03:00 - 03:40
+Texto: “Este permiso adicional se pide solo cuando la acción lo necesita, no desde el inicio.”
+Acción: Mostrar consentimiento incremental y aceptar.
+
+03:40 - 04:20
+Texto: “Después de revisar filas, si el usuario decide guardar o descargar, la app solicita permisos de Sheets y Drive para crear la planilla final.”
+Acción: Seleccionar filas y pulsar Guardar en Drive o Descargar.
+
+04:20 - 04:50
+Texto: “El permiso de Sheets (spreadsheets) se usa para escribir encabezado y filas. El permiso de Drive (drive) se usa para crear la copia de plantilla y entregar el archivo final.”
+Acción: Mostrar solicitud de consentimiento adicional y aceptar.
+
+04:50 - 05:20
+Texto: “Aquí se ve la planilla final generada por la app en la cuenta del usuario.”
+Acción: Abrir enlace Ir a la planilla guardada en Drive y mostrar archivo.
+
+05:20 - 05:50
+Texto: “La app aplica mínimo privilegio: pide permisos por etapas, según la acción concreta del usuario.”
+Acción: Volver a la app y mostrar mensajes de estado.
+
+05:50 - 06:20
+Texto: “No compartimos datos con terceros, no usamos datos para publicidad, y el acceso solo ocurre por acción explícita del usuario.”
+Acción: Abrir Política de Privacidad y Términos desde el sitio.
+
+06:20 - 06:40
+Texto final: “Resumen: Gmail lectura para extraer datos, Drive lectura solo cuando se necesitan archivos fuente, y Sheets/Drive escritura solo al guardar o descargar resultados.”
+Acción: Cerrar grabación con la pantalla principal.
+
+Si quieres, te paso una segunda versión “más formal/auditoría” con frases exactas para que suene más compliance en revisión de Google.
+
+
+
+
+
+
+GPT-5.3-Codex
+
+High
+
+IDE context
+
+
+Local
+
+Default permissions
