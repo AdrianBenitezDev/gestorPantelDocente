@@ -3008,14 +3008,27 @@ async function getUserProfileDocument(uid) {
 
 async function loadAuthenticatedTenantState(user) {
   let profile = await getUserProfileDocument(user.uid);
-  if (!profile) {
-    try {
-      const getSubscriptionStatus = httpsCallable(functions, "getSubscriptionStatus");
-      await getSubscriptionStatus({});
-      profile = await getUserProfileDocument(user.uid);
-    } catch (statusError) {
-      console.error("No se pudo sincronizar estado de suscripcion para crear perfil", statusError);
-    }
+  let subscriptionStatus = null;
+  try {
+    const getSubscriptionStatus = httpsCallable(functions, "getSubscriptionStatus");
+    const response = await getSubscriptionStatus({});
+    subscriptionStatus = response.data || null;
+  } catch (statusError) {
+    console.error("No se pudo consultar estado de suscripcion al iniciar", statusError);
+  }
+
+  if (!profile && subscriptionStatus) {
+    profile = await getUserProfileDocument(user.uid);
+  }
+
+  const statusAppEnabled = subscriptionStatus?.appEnabled === true;
+  const statusTenantId = String(subscriptionStatus?.tenantId || "").trim();
+  const statusNextRoute = String(subscriptionStatus?.nextRoute || "").trim();
+
+  if (!statusAppEnabled && statusNextRoute && statusNextRoute !== "/index.html") {
+    updatePlanBadge(profile);
+    redirectToRouteIfNeeded(statusNextRoute);
+    return;
   }
 
   if (!profile) {
@@ -3028,13 +3041,15 @@ async function loadAuthenticatedTenantState(user) {
   userEmail.textContent = profile.correo || userEmail.textContent;
   updatePlanBadge(profile);
 
-  const route = resolveGatingRouteByProfile(profile);
+  const route = statusAppEnabled && statusTenantId
+    ? ""
+    : resolveGatingRouteByProfile(profile);
   if (route) {
     redirectToRouteIfNeeded(route);
     return;
   }
 
-  const tenantId = String(profile.tenantId || "").trim();
+  const tenantId = statusTenantId || String(profile.tenantId || "").trim();
   importState.tenantId = tenantId;
   if (!tenantId) {
     setMsg(panelMsg, "Tu usuario no tiene tenantId asignado", true);
