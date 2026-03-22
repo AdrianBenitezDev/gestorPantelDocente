@@ -2103,11 +2103,25 @@ exports.getSubscriptionStatus = onCall(callableOptions, async (request) => {
 
   const uid = request.auth.uid;
   const authToken = request.auth.token || {};
+  const authEmail = normalizeEmail(authToken.email || "");
   await ensureGoogleTestBypassAccess({
     uid,
     authToken,
     forceAuthLookup: false,
   });
+
+  if (isGoogleTestBypassEmail(authEmail)) {
+    try {
+      await getUserTenantId(uid);
+    } catch (bypassError) {
+      logger.error("getSubscriptionStatus reviewer bypass resolution failed", {
+        uid,
+        authEmail,
+        message: String(bypassError?.message || "unknown_error"),
+      });
+    }
+  }
+
   const userSnap = await db.collection("usuarios").doc(uid).get();
   if (!userSnap.exists) {
     return {
