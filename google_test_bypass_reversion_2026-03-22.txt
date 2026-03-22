@@ -1,0 +1,57 @@
+Registro de cambio temporal - Bypass Google Test
+Fecha: 2026-03-22
+
+Objetivo
+- Permitir acceso sin registro ni pago a estos correos para pruebas de Google:
+  - ellariatyrell.341412@gmail.com
+  - artbenitezdev@gmail.com
+
+Archivos modificados
+1) functions/src/index.js
+2) frontend/js/app.js
+
+Detalle de cambios
+- Se agrego allowlist temporal en Cloud Functions:
+  - GOOGLE_TEST_BYPASS_EMAILS
+  - GOOGLE_TEST_BYPASS_TAG
+- Se agregaron helpers en Cloud Functions:
+  - isGoogleTestBypassEmail(...)
+  - resolveAuthIdentityForBypass(...)
+  - ensureGoogleTestBypassAccess(...)
+- Se aplico bypass en puntos criticos:
+  - getUserTenantId(...)
+  - startSubscriptionCheckout
+  - getSubscriptionStatus
+  - syncSubscriptionStatus
+- Frontend:
+  - En frontend/js/app.js, loadAuthenticatedTenantState(...) ahora llama
+    getSubscriptionStatus() si el perfil no existe antes de redirigir a /registro.html.
+
+Como revertir (marcha atras)
+1) En functions/src/index.js borrar:
+   - Constantes GOOGLE_TEST_BYPASS_EMAILS y GOOGLE_TEST_BYPASS_TAG.
+   - Funciones isGoogleTestBypassEmail, resolveAuthIdentityForBypass,
+     ensureGoogleTestBypassAccess.
+2) En functions/src/index.js restaurar logica original en:
+   - getUserTenantId: quitar llamadas a ensureGoogleTestBypassAccess.
+   - startSubscriptionCheckout: quitar bloque bypassCheckout.
+   - getSubscriptionStatus: quitar llamada a ensureGoogleTestBypassAccess.
+   - syncSubscriptionStatus: quitar llamada y respuesta bypassSync.
+3) En frontend/js/app.js revertir loadAuthenticatedTenantState(...) para que:
+   - no llame getSubscriptionStatus() cuando falta perfil.
+   - redirija directo a /registro.html como antes.
+4) (Opcional limpieza de datos de prueba en Firestore)
+   - En usuarios/{uid} de esos correos, eliminar campos:
+     - testing.googleBypassEnabled
+     - testing.googleBypassTag
+     - testing.googleBypassEmail
+     - testing.googleBypassUpdatedAt
+     - billing.bypassEnabled
+     - billing.bypassTag
+     - billing.bypassUpdatedAt
+   - Si se desea limpieza total, borrar tambien tenant de prueba asociado.
+
+Validacion post-reversion
+- Login con los correos de prueba debe volver a requerir registro/suscripcion.
+- getSubscriptionStatus para usuario sin perfil debe devolver nextRoute=/registro.html.
+- startSubscriptionCheckout no debe devolver bypassCheckout.

@@ -25,6 +25,11 @@ const allowedCorsOrigins = [
 ];
 const primaryAppOrigin = allowedCorsOrigins[0] || "https://paneldocente.com.ar";
 const callableOptions = { cors: allowedCorsOrigins, invoker: "public" };
+const GOOGLE_TEST_BYPASS_EMAILS = new Set([
+  "ellariatyrell.341412@gmail.com",
+  "artbenitezdev@gmail.com",
+]);
+const GOOGLE_TEST_BYPASS_TAG = "google_test_allowlist";
 
 const MP_ACCESS_TOKEN = defineSecret("MP_ACCESS_TOKEN");
 const MP_WEBHOOK_SECRET = defineSecret("MP_WEBHOOK_SECRET");
@@ -92,6 +97,174 @@ function normalizePlanCode(value) {
 
 function shortText(value, maxLength = 280) {
   return String(value || "").trim().slice(0, Math.max(0, Number(maxLength) || 0));
+}
+
+function isGoogleTestBypassEmail(value) {
+  const normalized = normalizeEmail(value);
+  if (!normalized) {
+    return false;
+  }
+  return GOOGLE_TEST_BYPASS_EMAILS.has(normalized);
+}
+
+async function resolveAuthIdentityForBypass(uid) {
+  const safeUid = String(uid || "").trim();
+  if (!safeUid) {
+    return { email: "", displayName: "", emailVerified: false };
+  }
+  try {
+    const userRecord = await admin.auth().getUser(safeUid);
+    return {
+      email: normalizeEmail(userRecord.email || ""),
+      displayName: shortText(userRecord.displayName || "", 120),
+      emailVerified: userRecord.emailVerified === true,
+    };
+  } catch (error) {
+    logger.warn("google test bypass auth lookup failed", {
+      uid: safeUid,
+      message: shortText(error?.message || "auth_lookup_failed", 280),
+    });
+    return { email: "", displayName: "", emailVerified: false };
+  }
+}
+
+async function ensureGoogleTestBypassAccess({
+  uid,
+  authToken = {},
+  existingProfile = null,
+  forceAuthLookup = false,
+} = {}) {
+  const safeUid = String(uid || "").trim();
+  if (!safeUid) {
+    return { applied: false, reason: "missing_uid" };
+  }
+
+  const userRef = db.collection("usuarios").doc(safeUid);
+  let profile = existingProfile && typeof existingProfile === "object" ? existingProfile : null;
+  if (!profile) {
+    const profileSnap = await userRef.get();
+    profile = profileSnap.exists ? (profileSnap.data() || {}) : null;
+  }
+  const userData = profile && typeof profile === "object" ? profile : {};
+
+  const tokenEmail = normalizeEmail(authToken?.email || "");
+  const profileEmail = normalizeEmail(userData?.correo || "");
+  let bypassEmail = [tokenEmail, profileEmail].find((candidate) => isGoogleTestBypassEmail(candidate)) || "";
+  let authIdentity = null;
+
+  if (!bypassEmail && (forceAuthLookup || (!tokenEmail && !profileEmail))) {
+    authIdentity = await resolveAuthIdentityForBypass(safeUid);
+    if (isGoogleTestBypassEmail(authIdentity.email)) {
+      bypassEmail = authIdentity.email;
+    }
+  }
+
+  if (!bypassEmail) {
+    return { applied: false, reason: "email_not_allowlisted" };
+  }
+
+  const tenantId = String(userData?.tenantId || "").trim();
+  const appEnabled = userData?.access?.appEnabled === true;
+  const billingStatus = normalizeBillingStatus(userData?.billing?.status);
+  if (tenantId && appEnabled && billingStatus === "active") {
+    return {
+      applied: true,
+      bypassTag: GOOGLE_TEST_BYPASS_TAG,
+      email: bypassEmail,
+      tenantId,
+      alreadyActive: true,
+    };
+  }
+
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const seedFromEmail = shortText(String(bypassEmail.split("@")[0] || ""), 40);
+  const normalizedSeed = normalizeUsername(
+    String(userData?.usuario || userData?.usuarioKey || seedFromEmail || `google_test_${safeUid.slice(0, 8)}`)
+  ).slice(0, 40);
+  const usuarioValue = normalizedSeed.length >= 3 ? normalizedSeed : `gt_${safeUid.slice(0, 6)}`;
+  const displayName = shortText(
+    String(
+      userData?.nombre ||
+      authToken?.name ||
+      authIdentity?.displayName ||
+      seedFromEmail ||
+      "Google Test User"
+    ),
+    120
+  );
+
+  await userRef.set(
+    {
+      uid: safeUid,
+      nombre: displayName,
+      contacto: String(userData?.contacto || "").trim(),
+      correo: bypassEmail,
+      correoAlt: String(userData?.correoAlt || "").trim(),
+      distrito: String(userData?.distrito || "").trim(),
+      nivel: String(userData?.nivel || "").trim(),
+      escuela: String(userData?.escuela || "").trim(),
+      usuario: usuarioValue,
+      usuarioKey: normalizeUsername(String(userData?.usuarioKey || usuarioValue || "")).slice(0, 40),
+      verificado: userData?.verificado === true || authToken?.email_verified === true || authIdentity?.emailVerified === true,
+      rol: String(userData?.rol || "").trim() || "admin_escuela",
+      "billing.planCode": String(userData?.billing?.planCode || "plan_pro").trim() || "plan_pro",
+      "billing.status": userData?.billing?.status ?? null,
+      "billing.lastAttemptId": userData?.billing?.lastAttemptId || null,
+      "billing.mpPreapprovalId": userData?.billing?.mpPreapprovalId || null,
+      "access.appEnabled": userData?.access?.appEnabled === true,
+      "access.reason": String(userData?.access?.reason || "payment_required").trim() || "payment_required",
+      "onboarding.accountCreated": true,
+      "onboarding.checkoutStarted": userData?.onboarding?.checkoutStarted === true,
+      "onboarding.subscriptionActivated": userData?.onboarding?.subscriptionActivated === true,
+      "onboarding.tenantProvisioned": userData?.onboarding?.tenantProvisioned === true,
+      "testing.googleBypassEnabled": true,
+      "testing.googleBypassTag": GOOGLE_TEST_BYPASS_TAG,
+      "testing.googleBypassEmail": bypassEmail,
+      "testing.googleBypassUpdatedAt": now,
+      createdAt: userData?.createdAt || now,
+      updatedAt: now,
+    },
+    { merge: true }
+  );
+
+  await ensureBillingActivation(safeUid, {
+    id: `google_test_bypass_${safeUid}`,
+    payer_email: bypassEmail,
+    preapproval_plan_id: "google_test_bypass_plan_pro",
+  });
+
+  await userRef.set(
+    {
+      "billing.planCode": "plan_pro",
+      "billing.bypassEnabled": true,
+      "billing.bypassTag": GOOGLE_TEST_BYPASS_TAG,
+      "billing.bypassUpdatedAt": now,
+      "access.reason": "active_subscription",
+      "testing.googleBypassEnabled": true,
+      "testing.googleBypassTag": GOOGLE_TEST_BYPASS_TAG,
+      "testing.googleBypassEmail": bypassEmail,
+      "testing.googleBypassUpdatedAt": now,
+      updatedAt: now,
+    },
+    { merge: true }
+  );
+
+  const refreshedSnap = await userRef.get();
+  const refreshed = refreshedSnap.exists ? (refreshedSnap.data() || {}) : {};
+  logger.info("google test bypass access applied", {
+    uid: safeUid,
+    email: bypassEmail,
+    tenantId: String(refreshed?.tenantId || "").trim() || null,
+  });
+
+  return {
+    applied: true,
+    bypassTag: GOOGLE_TEST_BYPASS_TAG,
+    email: bypassEmail,
+    tenantId: String(refreshed?.tenantId || "").trim(),
+    alreadyActive: false,
+    profile: refreshed,
+  };
 }
 
 async function createMercadoPagoPreapproval({
@@ -1377,8 +1550,19 @@ function normalizeSituacionRevista(value) {
 }
 
 async function getUserTenantId(uid) {
-  const userRef = db.collection("usuarios").doc(uid);
-  const userSnap = await userRef.get();
+  const safeUid = String(uid || "").trim();
+  const userRef = db.collection("usuarios").doc(safeUid);
+  let userSnap = await userRef.get();
+  if (!userSnap.exists) {
+    const bypassResult = await ensureGoogleTestBypassAccess({
+      uid: safeUid,
+      forceAuthLookup: true,
+    });
+    if (bypassResult.applied) {
+      userSnap = await userRef.get();
+    }
+  }
+
   if (!userSnap.exists) {
     throw new HttpsError(
       "failed-precondition",
@@ -1390,9 +1574,23 @@ async function getUserTenantId(uid) {
     );
   }
 
-  const userData = userSnap.data() || {};
-  const tenantId = String(userData?.tenantId || "").trim();
-  const appEnabled = userData?.access?.appEnabled === true;
+  let userData = userSnap.data() || {};
+  let tenantId = String(userData?.tenantId || "").trim();
+  let appEnabled = userData?.access?.appEnabled === true;
+
+  if (!tenantId || !appEnabled) {
+    const bypassResult = await ensureGoogleTestBypassAccess({
+      uid: safeUid,
+      existingProfile: userData,
+      forceAuthLookup: false,
+    });
+    if (bypassResult.applied) {
+      userSnap = await userRef.get();
+      userData = userSnap.exists ? (userSnap.data() || {}) : {};
+      tenantId = String(userData?.tenantId || "").trim();
+      appEnabled = userData?.access?.appEnabled === true;
+    }
+  }
 
   if (!tenantId || !appEnabled) {
     throw new HttpsError(
@@ -1732,6 +1930,23 @@ exports.startSubscriptionCheckout = onCall(
       throw new HttpsError("invalid-argument", "planCode must be plan_pro");
     }
 
+    const uid = request.auth.uid;
+    const authToken = request.auth.token || {};
+    const bypassResult = await ensureGoogleTestBypassAccess({
+      uid,
+      authToken,
+      forceAuthLookup: false,
+    });
+    if (bypassResult.applied) {
+      return {
+        ok: true,
+        bypassCheckout: true,
+        bypassTag: bypassResult.bypassTag || GOOGLE_TEST_BYPASS_TAG,
+        initPoint: `${primaryAppOrigin}/index.html`,
+        nextRoute: "/index.html",
+      };
+    }
+
     await ensurePlanProSupport();
     const planRef = db.collection("billingPlans").doc(planCode);
     const planSnap = await planRef.get();
@@ -1743,8 +1958,6 @@ exports.startSubscriptionCheckout = onCall(
       throw new HttpsError("failed-precondition", "Subscription plan is not active");
     }
 
-    const uid = request.auth.uid;
-    const authToken = request.auth.token || {};
     const userRef = db.collection("usuarios").doc(uid);
     const userSnap = await userRef.get();
     if (!userSnap.exists) {
@@ -1888,6 +2101,12 @@ exports.getSubscriptionStatus = onCall(callableOptions, async (request) => {
   }
 
   const uid = request.auth.uid;
+  const authToken = request.auth.token || {};
+  await ensureGoogleTestBypassAccess({
+    uid,
+    authToken,
+    forceAuthLookup: false,
+  });
   const userSnap = await db.collection("usuarios").doc(uid).get();
   if (!userSnap.exists) {
     return {
@@ -1930,6 +2149,12 @@ exports.syncSubscriptionStatus = onCall(
     }
 
     const uid = request.auth.uid;
+    const authToken = request.auth.token || {};
+    const bypassResult = await ensureGoogleTestBypassAccess({
+      uid,
+      authToken,
+      forceAuthLookup: false,
+    });
     const userRef = db.collection("usuarios").doc(uid);
     const userSnap = await userRef.get();
     if (!userSnap.exists) {
@@ -1939,6 +2164,21 @@ exports.syncSubscriptionStatus = onCall(
     }
 
     const userData = userSnap.data() || {};
+    if (bypassResult.applied) {
+      return {
+        ok: true,
+        bypassSync: true,
+        bypassTag: bypassResult.bypassTag || GOOGLE_TEST_BYPASS_TAG,
+        preapprovalId: String(userData?.billing?.mpPreapprovalId || "").trim() || null,
+        billingStatus: userData?.billing?.status ?? null,
+        appEnabled: userData?.access?.appEnabled === true,
+        reason: String(userData?.access?.reason || "payment_required").trim() || "payment_required",
+        planCode: userData?.billing?.planCode || null,
+        tenantId: String(userData?.tenantId || "").trim(),
+        nextRoute: resolveNextRouteForProfile(userData),
+      };
+    }
+
     const preferredPreapprovalId = String(userData?.billing?.mpPreapprovalId || "").trim();
     const preapprovalId = await resolveLatestUserPreapprovalId(uid, preferredPreapprovalId);
     if (!preapprovalId) {

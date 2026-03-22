@@ -3007,7 +3007,17 @@ async function getUserProfileDocument(uid) {
 }
 
 async function loadAuthenticatedTenantState(user) {
-  const profile = await getUserProfileDocument(user.uid);
+  let profile = await getUserProfileDocument(user.uid);
+  if (!profile) {
+    try {
+      const getSubscriptionStatus = httpsCallable(functions, "getSubscriptionStatus");
+      await getSubscriptionStatus({});
+      profile = await getUserProfileDocument(user.uid);
+    } catch (statusError) {
+      console.error("No se pudo sincronizar estado de suscripcion para crear perfil", statusError);
+    }
+  }
+
   if (!profile) {
     updatePlanBadge(null);
     redirectToRouteIfNeeded("/registro.html");
