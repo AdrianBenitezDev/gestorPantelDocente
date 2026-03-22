@@ -19,18 +19,39 @@ function normalizeBillingStatus(value) {
   return normalized || "null";
 }
 
+function hasOwn(source, key) {
+  return Boolean(source && Object.prototype.hasOwnProperty.call(source, key));
+}
+
+function readProfileValue(profile, mapKey, fieldKey) {
+  if (!profile || typeof profile !== "object") {
+    return undefined;
+  }
+  const mapValue = profile[mapKey];
+  if (mapValue && typeof mapValue === "object" && hasOwn(mapValue, fieldKey)) {
+    return mapValue[fieldKey];
+  }
+  const dottedKey = `${mapKey}.${fieldKey}`;
+  if (hasOwn(profile, dottedKey)) {
+    return profile[dottedKey];
+  }
+  return undefined;
+}
+
 function resolveNextRouteForProfile(profile) {
   if (!profile || typeof profile !== "object") {
     return "/registro.html";
   }
 
   const tenantId = String(profile.tenantId || "").trim();
-  const appEnabled = profile?.access?.appEnabled === true;
+  const appEnabled = readProfileValue(profile, "access", "appEnabled") === true;
   if (appEnabled && tenantId) {
     return "/index.html";
   }
 
-  const billingStatus = normalizeBillingStatus(profile?.billing?.status);
+  const billingStatus = normalizeBillingStatus(
+    readProfileValue(profile, "billing", "status")
+  );
   if ([
     "pending_confirmation",
     "rejected",

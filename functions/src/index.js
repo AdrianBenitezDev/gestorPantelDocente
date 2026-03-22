@@ -30,7 +30,9 @@ const GOOGLE_TEST_BYPASS_EMAILS = new Set([
   "artbenitezdev@gmail.com",
 ]);
 const GOOGLE_TEST_BYPASS_TAG = "google_test_allowlist";
-const PAC_DEMO_REVIEWER_EMAILS = Array.from(GOOGLE_TEST_BYPASS_EMAILS);
+const GOOGLE_TEST_BYPASS_EMAILS_CANONICAL = new Set(
+  Array.from(GOOGLE_TEST_BYPASS_EMAILS).map((email) => normalizeEmailForAllowlist(email))
+);
 
 const MP_ACCESS_TOKEN = defineSecret("MP_ACCESS_TOKEN");
 const MP_WEBHOOK_SECRET = defineSecret("MP_WEBHOOK_SECRET");
@@ -39,6 +41,21 @@ const MP_WEBHOOK_TASK_QUEUE_NAME = "processMercadoPagoWebhookTask";
 
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function normalizeEmailForAllowlist(value) {
+  const normalized = normalizeEmail(value);
+  const [rawLocal = "", rawDomain = ""] = normalized.split("@");
+  const local = String(rawLocal || "").trim();
+  const domain = String(rawDomain || "").trim();
+  if (!local || !domain) {
+    return normalized;
+  }
+  if (domain === "gmail.com" || domain === "googlemail.com") {
+    const canonicalLocal = local.split("+")[0].replace(/\./g, "");
+    return `${canonicalLocal}@gmail.com`;
+  }
+  return normalized;
 }
 
 function normalizeUsername(value) {
@@ -101,11 +118,88 @@ function shortText(value, maxLength = 280) {
 }
 
 function isGoogleTestBypassEmail(value) {
-  const normalized = normalizeEmail(value);
+  const normalized = normalizeEmailForAllowlist(value);
   if (!normalized) {
     return false;
   }
-  return GOOGLE_TEST_BYPASS_EMAILS.has(normalized);
+  return GOOGLE_TEST_BYPASS_EMAILS_CANONICAL.has(normalized);
+}
+
+function hasOwn(source, key) {
+  return Boolean(source && Object.prototype.hasOwnProperty.call(source, key));
+}
+
+function readProfileValue(profile, mapKey, fieldKey) {
+  if (!profile || typeof profile !== "object") {
+    return undefined;
+  }
+  const mapValue = profile[mapKey];
+  if (mapValue && typeof mapValue === "object" && hasOwn(mapValue, fieldKey)) {
+    return mapValue[fieldKey];
+  }
+  const dottedKey = `${mapKey}.${fieldKey}`;
+  if (hasOwn(profile, dottedKey)) {
+    return profile[dottedKey];
+  }
+  return undefined;
+}
+
+function profileTenantId(profile) {
+  if (!profile || typeof profile !== "object") {
+    return "";
+  }
+  return String(profile.tenantId || "").trim();
+}
+
+function profileAccessAppEnabled(profile) {
+  return readProfileValue(profile, "access", "appEnabled") === true;
+}
+
+function profileAccessReason(profile, fallback = "payment_required") {
+  const raw = readProfileValue(profile, "access", "reason");
+  return String(raw || fallback).trim() || fallback;
+}
+
+function profileAccessEnabledAt(profile) {
+  return readProfileValue(profile, "access", "enabledAt") || null;
+}
+
+function profileBillingStatusRaw(profile) {
+  const raw = readProfileValue(profile, "billing", "status");
+  return raw === undefined ? null : raw;
+}
+
+function profileBillingPlanCode(profile) {
+  const raw = readProfileValue(profile, "billing", "planCode");
+  return raw || null;
+}
+
+function profileBillingLastAttemptId(profile) {
+  const raw = readProfileValue(profile, "billing", "lastAttemptId");
+  return raw || null;
+}
+
+function profileBillingMpPreapprovalId(profile) {
+  return String(readProfileValue(profile, "billing", "mpPreapprovalId") || "").trim();
+}
+
+function profileBillingActivatedAt(profile) {
+  return readProfileValue(profile, "billing", "activatedAt") || null;
+}
+
+function profileOnboardingFlag(profile, key) {
+  return readProfileValue(profile, "onboarding", key) === true;
+}
+
+function profileOnboardingTenantProvisionedAt(profile) {
+  return readProfileValue(profile, "onboarding", "tenantProvisionedAt") || null;
+}
+
+function hasNestedProfileMap(profile, key) {
+  if (!profile || typeof profile !== "object") {
+    return false;
+  }
+  return Boolean(profile[key] && typeof profile[key] === "object" && !Array.isArray(profile[key]));
 }
 
 async function resolveAuthIdentityForBypass(uid) {
@@ -148,8 +242,8 @@ async function ensureGoogleTestBypassAccess({
   }
   const userData = profile && typeof profile === "object" ? profile : {};
 
-  const tokenEmail = normalizeEmail(authToken?.email || "");
-  const profileEmail = normalizeEmail(userData?.correo || "");
+  const tokenEmail = normalizeEmailForAllowlist(authToken?.email || "");
+  const profileEmail = normalizeEmailForAllowlist(userData?.correo || "");
   let bypassEmail = [tokenEmail, profileEmail].find((candidate) => isGoogleTestBypassEmail(candidate)) || "";
   let authIdentity = null;
 
@@ -164,10 +258,14 @@ async function ensureGoogleTestBypassAccess({
     return { applied: false, reason: "email_not_allowlisted" };
   }
 
-  const tenantId = String(userData?.tenantId || "").trim();
-  const appEnabled = userData?.access?.appEnabled === true;
-  const billingStatus = normalizeBillingStatus(userData?.billing?.status);
-  if (tenantId && appEnabled && billingStatus === "active") {
+  const tenantId = profileTenantId(userData);
+  const appEnabled = profileAccessAppEnabled(userData);
+  const billingStatus = normalizeBillingStatus(profileBillingStatusRaw(userData));
+  const hasNestedAccess = hasNestedProfileMap(userData, "access");
+  const hasNestedBilling = hasNestedProfileMap(userData, "billing");
+  const hasNestedOnboarding = hasNestedProfileMap(userData, "onboarding");
+  const hasNestedTesting = hasNestedProfileMap(userData, "testing");
+  if (tenantId && appEnabled && billingStatus === "active" && hasNestedAccess && hasNestedBilling && hasNestedOnboarding && hasNestedTesting) {
     return {
       applied: true,
       bypassTag: GOOGLE_TEST_BYPASS_TAG,
@@ -208,20 +306,31 @@ async function ensureGoogleTestBypassAccess({
       usuarioKey: normalizeUsername(String(userData?.usuarioKey || usuarioValue || "")).slice(0, 40),
       verificado: userData?.verificado === true || authToken?.email_verified === true || authIdentity?.emailVerified === true,
       rol: String(userData?.rol || "").trim() || "admin_escuela",
-      "billing.planCode": String(userData?.billing?.planCode || "plan_pro").trim() || "plan_pro",
-      "billing.status": userData?.billing?.status ?? null,
-      "billing.lastAttemptId": userData?.billing?.lastAttemptId || null,
-      "billing.mpPreapprovalId": userData?.billing?.mpPreapprovalId || null,
-      "access.appEnabled": userData?.access?.appEnabled === true,
-      "access.reason": String(userData?.access?.reason || "payment_required").trim() || "payment_required",
-      "onboarding.accountCreated": true,
-      "onboarding.checkoutStarted": userData?.onboarding?.checkoutStarted === true,
-      "onboarding.subscriptionActivated": userData?.onboarding?.subscriptionActivated === true,
-      "onboarding.tenantProvisioned": userData?.onboarding?.tenantProvisioned === true,
-      "testing.googleBypassEnabled": true,
-      "testing.googleBypassTag": GOOGLE_TEST_BYPASS_TAG,
-      "testing.googleBypassEmail": bypassEmail,
-      "testing.googleBypassUpdatedAt": now,
+      billing: {
+        planCode: String(profileBillingPlanCode(userData) || "plan_pro").trim() || "plan_pro",
+        status: profileBillingStatusRaw(userData),
+        lastAttemptId: profileBillingLastAttemptId(userData),
+        mpPreapprovalId: profileBillingMpPreapprovalId(userData) || null,
+        activatedAt: profileBillingActivatedAt(userData) || null,
+      },
+      access: {
+        appEnabled,
+        reason: profileAccessReason(userData),
+        enabledAt: profileAccessEnabledAt(userData) || null,
+      },
+      onboarding: {
+        accountCreated: true,
+        checkoutStarted: profileOnboardingFlag(userData, "checkoutStarted"),
+        subscriptionActivated: profileOnboardingFlag(userData, "subscriptionActivated"),
+        tenantProvisioned: profileOnboardingFlag(userData, "tenantProvisioned"),
+        tenantProvisionedAt: profileOnboardingTenantProvisionedAt(userData) || null,
+      },
+      testing: {
+        googleBypassEnabled: true,
+        googleBypassTag: GOOGLE_TEST_BYPASS_TAG,
+        googleBypassEmail: bypassEmail,
+        googleBypassUpdatedAt: now,
+      },
       createdAt: userData?.createdAt || now,
       updatedAt: now,
     },
@@ -236,15 +345,21 @@ async function ensureGoogleTestBypassAccess({
 
   await userRef.set(
     {
-      "billing.planCode": "plan_pro",
-      "billing.bypassEnabled": true,
-      "billing.bypassTag": GOOGLE_TEST_BYPASS_TAG,
-      "billing.bypassUpdatedAt": now,
-      "access.reason": "active_subscription",
-      "testing.googleBypassEnabled": true,
-      "testing.googleBypassTag": GOOGLE_TEST_BYPASS_TAG,
-      "testing.googleBypassEmail": bypassEmail,
-      "testing.googleBypassUpdatedAt": now,
+      billing: {
+        planCode: "plan_pro",
+        bypassEnabled: true,
+        bypassTag: GOOGLE_TEST_BYPASS_TAG,
+        bypassUpdatedAt: now,
+      },
+      access: {
+        reason: "active_subscription",
+      },
+      testing: {
+        googleBypassEnabled: true,
+        googleBypassTag: GOOGLE_TEST_BYPASS_TAG,
+        googleBypassEmail: bypassEmail,
+        googleBypassUpdatedAt: now,
+      },
       updatedAt: now,
     },
     { merge: true }
@@ -686,11 +801,13 @@ async function syncSubscriptionFromMercadoPago({
     const userRef = db.collection("usuarios").doc(safeUid);
     await userRef.set(
       {
-        "billing.status": mappedStatus,
-        "billing.planCode": normalizePlanCode("plan_pro"),
-        "billing.lastAttemptId": safeAttemptId || null,
-        "billing.mpPreapprovalId": safePreapprovalId,
-        "billing.updatedAt": now,
+        billing: {
+          status: mappedStatus,
+          planCode: normalizePlanCode("plan_pro"),
+          lastAttemptId: safeAttemptId || null,
+          mpPreapprovalId: safePreapprovalId,
+          updatedAt: now,
+        },
         updatedAt: now,
       },
       { merge: true }
@@ -738,30 +855,38 @@ async function ensureBillingActivation(uid, preapprovalData = {}) {
     }
 
     const userData = userSnap.data() || {};
-    const existingTenantId = String(userData.tenantId || "").trim();
-    const alreadyEnabled = userData?.access?.appEnabled === true;
-    const billingActivatedAt = userData?.billing?.activatedAt || now;
-    const accessEnabledAt = userData?.access?.enabledAt || now;
-    const tenantProvisionedAt = userData?.onboarding?.tenantProvisionedAt || now;
-    const mpPreapprovalId = String(preapprovalData?.id || userData?.billing?.mpPreapprovalId || "").trim();
-    const planCode = normalizePlanCode(preapprovalData?.preapproval_plan_id ? "plan_pro" : userData?.billing?.planCode || "plan_pro");
+    const existingTenantId = profileTenantId(userData);
+    const alreadyEnabled = profileAccessAppEnabled(userData);
+    const billingActivatedAt = profileBillingActivatedAt(userData) || now;
+    const accessEnabledAt = profileAccessEnabledAt(userData) || now;
+    const tenantProvisionedAt = profileOnboardingTenantProvisionedAt(userData) || now;
+    const mpPreapprovalId = String(preapprovalData?.id || profileBillingMpPreapprovalId(userData) || "").trim();
+    const planCode = normalizePlanCode(
+      preapprovalData?.preapproval_plan_id ? "plan_pro" : profileBillingPlanCode(userData) || "plan_pro"
+    );
     const ownerEmail = normalizeEmail(preapprovalData?.payer_email || userData?.correo || "");
 
     if (existingTenantId && alreadyEnabled) {
       tx.set(
         userRef,
         {
-          "billing.status": "active",
-          "billing.planCode": planCode || "plan_pro",
-          "billing.mpPreapprovalId": mpPreapprovalId || null,
-          "billing.activatedAt": billingActivatedAt,
-          "billing.updatedAt": now,
-          "access.appEnabled": true,
-          "access.reason": "active_subscription",
-          "access.enabledAt": accessEnabledAt,
-          "onboarding.subscriptionActivated": true,
-          "onboarding.tenantProvisioned": true,
-          "onboarding.tenantProvisionedAt": tenantProvisionedAt,
+          billing: {
+            status: "active",
+            planCode: planCode || "plan_pro",
+            mpPreapprovalId: mpPreapprovalId || null,
+            activatedAt: billingActivatedAt,
+            updatedAt: now,
+          },
+          access: {
+            appEnabled: true,
+            reason: "active_subscription",
+            enabledAt: accessEnabledAt,
+          },
+          onboarding: {
+            subscriptionActivated: true,
+            tenantProvisioned: true,
+            tenantProvisionedAt: tenantProvisionedAt,
+          },
           updatedAt: now,
         },
         { merge: true }
@@ -856,17 +981,23 @@ async function ensureBillingActivation(uid, preapprovalData = {}) {
       userRef,
       {
         tenantId,
-        "billing.status": "active",
-        "billing.planCode": planCode || "plan_pro",
-        "billing.mpPreapprovalId": mpPreapprovalId || null,
-        "billing.activatedAt": billingActivatedAt,
-        "billing.updatedAt": now,
-        "access.appEnabled": true,
-        "access.reason": "active_subscription",
-        "access.enabledAt": accessEnabledAt,
-        "onboarding.subscriptionActivated": true,
-        "onboarding.tenantProvisioned": true,
-        "onboarding.tenantProvisionedAt": tenantProvisionedAt,
+        billing: {
+          status: "active",
+          planCode: planCode || "plan_pro",
+          mpPreapprovalId: mpPreapprovalId || null,
+          activatedAt: billingActivatedAt,
+          updatedAt: now,
+        },
+        access: {
+          appEnabled: true,
+          reason: "active_subscription",
+          enabledAt: accessEnabledAt,
+        },
+        onboarding: {
+          subscriptionActivated: true,
+          tenantProvisioned: true,
+          tenantProvisionedAt: tenantProvisionedAt,
+        },
         updatedAt: now,
       },
       { merge: true }
@@ -1576,8 +1707,8 @@ async function getUserTenantId(uid) {
   }
 
   let userData = userSnap.data() || {};
-  let tenantId = String(userData?.tenantId || "").trim();
-  let appEnabled = userData?.access?.appEnabled === true;
+  let tenantId = profileTenantId(userData);
+  let appEnabled = profileAccessAppEnabled(userData);
 
   if (!tenantId || !appEnabled) {
     const bypassResult = await ensureGoogleTestBypassAccess({
@@ -1588,8 +1719,8 @@ async function getUserTenantId(uid) {
     if (bypassResult.applied) {
       userSnap = await userRef.get();
       userData = userSnap.exists ? (userSnap.data() || {}) : {};
-      tenantId = String(userData?.tenantId || "").trim();
-      appEnabled = userData?.access?.appEnabled === true;
+      tenantId = profileTenantId(userData);
+      appEnabled = profileAccessAppEnabled(userData);
     }
   }
 
@@ -2135,12 +2266,12 @@ exports.getSubscriptionStatus = onCall(callableOptions, async (request) => {
   }
 
   const profile = userSnap.data() || {};
-  const tenantId = String(profile.tenantId || "").trim();
-  const appEnabled = profile?.access?.appEnabled === true;
-  const billingStatusRaw = profile?.billing?.status;
+  const tenantId = profileTenantId(profile);
+  const appEnabled = profileAccessAppEnabled(profile);
+  const billingStatusRaw = profileBillingStatusRaw(profile);
   const billingStatus = billingStatusRaw === undefined ? null : billingStatusRaw;
-  const reason = String(profile?.access?.reason || "payment_required").trim() || "payment_required";
-  const planCode = profile?.billing?.planCode || null;
+  const reason = profileAccessReason(profile, "payment_required");
+  const planCode = profileBillingPlanCode(profile);
   const nextRoute = resolveNextRouteForProfile(profile);
 
   return {
@@ -2184,17 +2315,17 @@ exports.syncSubscriptionStatus = onCall(
         ok: true,
         bypassSync: true,
         bypassTag: bypassResult.bypassTag || GOOGLE_TEST_BYPASS_TAG,
-        preapprovalId: String(userData?.billing?.mpPreapprovalId || "").trim() || null,
-        billingStatus: userData?.billing?.status ?? null,
-        appEnabled: userData?.access?.appEnabled === true,
-        reason: String(userData?.access?.reason || "payment_required").trim() || "payment_required",
-        planCode: userData?.billing?.planCode || null,
-        tenantId: String(userData?.tenantId || "").trim(),
+        preapprovalId: profileBillingMpPreapprovalId(userData) || null,
+        billingStatus: profileBillingStatusRaw(userData),
+        appEnabled: profileAccessAppEnabled(userData),
+        reason: profileAccessReason(userData, "payment_required"),
+        planCode: profileBillingPlanCode(userData),
+        tenantId: profileTenantId(userData),
         nextRoute: resolveNextRouteForProfile(userData),
       };
     }
 
-    const preferredPreapprovalId = String(userData?.billing?.mpPreapprovalId || "").trim();
+    const preferredPreapprovalId = profileBillingMpPreapprovalId(userData);
     const preapprovalId = await resolveLatestUserPreapprovalId(uid, preferredPreapprovalId);
     if (!preapprovalId) {
       throw new HttpsError("failed-precondition", "Subscription not found", {
@@ -2215,11 +2346,11 @@ exports.syncSubscriptionStatus = onCall(
     return {
       ok: true,
       preapprovalId: syncResult.preapprovalId,
-      billingStatus: refreshed?.billing?.status ?? null,
-      appEnabled: refreshed?.access?.appEnabled === true,
-      reason: String(refreshed?.access?.reason || "payment_required").trim() || "payment_required",
-      planCode: refreshed?.billing?.planCode || null,
-      tenantId: String(refreshed?.tenantId || "").trim(),
+      billingStatus: profileBillingStatusRaw(refreshed),
+      appEnabled: profileAccessAppEnabled(refreshed),
+      reason: profileAccessReason(refreshed, "payment_required"),
+      planCode: profileBillingPlanCode(refreshed),
+      tenantId: profileTenantId(refreshed),
       nextRoute: resolveNextRouteForProfile(refreshed),
     };
   }
@@ -3261,8 +3392,7 @@ async function pacListMessages(accessToken, queryText, maxResults) {
 }
 
 function isPacDemoReviewer(userEmail) {
-  const safeEmail = normalizeEmail(userEmail);
-  return PAC_DEMO_REVIEWER_EMAILS.includes(safeEmail);
+  return isGoogleTestBypassEmail(userEmail);
 }
 
 function buildPacDemoEmails() {

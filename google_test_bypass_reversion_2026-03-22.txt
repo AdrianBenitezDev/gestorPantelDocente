@@ -55,3 +55,64 @@ Validacion post-reversion
 - Login con los correos de prueba debe volver a requerir registro/suscripcion.
 - getSubscriptionStatus para usuario sin perfil debe devolver nextRoute=/registro.html.
 - startSubscriptionCheckout no debe devolver bypassCheckout.
+
+---
+
+Actualizacion tecnica (2026-03-22) - Fix redireccion persistente a /activar-plan.html
+
+Problema detectado
+- Algunos perfiles en Firestore quedaron con claves literales con punto (ej: "access.appEnabled", "billing.status")
+  por escrituras previas con set(..., { merge: true }).
+- Parte del backend leia solo estructura anidada (access.appEnabled / billing.status), por lo que en ciertos casos
+  el usuario reviewer seguia apareciendo sin acceso y se redirigia a /activar-plan.html.
+
+Archivos ajustados en esta actualizacion
+1) functions/src/index.js
+2) functions/src/subscriptionDomain.js
+3) functions/tests/subscriptionDomain.test.js
+
+Cambios aplicados
+- Se agrego normalizacion canonica de Gmail para allowlist:
+  - normalizeEmailForAllowlist(...)
+  - GOOGLE_TEST_BYPASS_EMAILS_CANONICAL
+  - Soporta aliases de Gmail (puntos y +tag).
+- Se agregaron helpers de compatibilidad de perfil:
+  - readProfileValue(...)
+  - profileAccessAppEnabled(...)
+  - profileBillingStatusRaw(...)
+  - profileBillingPlanCode(...)
+  - profileBillingMpPreapprovalId(...)
+  - profileAccessReason(...)
+  - profileTenantId(...)
+- Se actualizaron puntos criticos para leer ambos formatos (anidado y clave con punto):
+  - getUserTenantId(...)
+  - getSubscriptionStatus
+  - syncSubscriptionStatus
+  - resolveNextRouteForProfile(...)
+- Se corrigieron escrituras para evitar nuevas claves literales con punto cuando se usa set + merge:
+  - syncSubscriptionFromMercadoPago(...) ahora escribe objetos anidados en billing.
+  - ensureGoogleTestBypassAccess(...) y ensureBillingActivation(...) quedan alineadas con estructura anidada.
+- Se agrego test de compatibilidad:
+  - "routing: perfil con claves literales con punto mantiene compatibilidad"
+
+Como revertir SOLO esta actualizacion (si queres volver al estado anterior del bypass)
+1) En functions/src/index.js:
+   - Quitar normalizeEmailForAllowlist y GOOGLE_TEST_BYPASS_EMAILS_CANONICAL.
+   - Restaurar isGoogleTestBypassEmail(...) con comparacion simple de email normalizado.
+   - Quitar helpers de compatibilidad de perfil (readProfileValue/profile*).
+   - Restaurar lecturas directas en getUserTenantId/getSubscriptionStatus/syncSubscriptionStatus.
+   - En syncSubscriptionFromMercadoPago, volver a escritura con claves con punto (no recomendado).
+2) En functions/src/subscriptionDomain.js:
+   - Quitar hasOwn/readProfileValue.
+   - Volver a lecturas directas profile?.access?.appEnabled y profile?.billing?.status.
+3) En functions/tests/subscriptionDomain.test.js:
+   - Quitar test de compatibilidad con claves con punto.
+
+Notas de limpieza de datos (si se quiere dejar Firestore sin campos legacy)
+- En documentos usuarios con campos literales:
+  - "access.appEnabled"
+  - "access.reason"
+  - "billing.status"
+  - "billing.planCode"
+  - "billing.mpPreapprovalId"
+  se puede ejecutar migracion para borrarlos y conservar solo mapas anidados access/billing/onboarding/testing.

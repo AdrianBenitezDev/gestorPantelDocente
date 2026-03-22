@@ -72,3 +72,18 @@ test("routing: usuario rechazado o pendiente de confirmacion va a estado-suscrip
   assert.equal(rejectedRoute, "/estado-suscripcion.html");
   assert.equal(pendingRoute, "/estado-suscripcion.html");
 });
+
+test("routing: perfil con claves literales con punto mantiene compatibilidad", () => {
+  const activeRoute = resolveNextRouteForProfile({
+    tenantId: "tenant_compat",
+    "access.appEnabled": true,
+    "billing.status": "active",
+  });
+  const pendingRoute = resolveNextRouteForProfile({
+    tenantId: "",
+    "access.appEnabled": false,
+    "billing.status": "pending_confirmation",
+  });
+  assert.equal(activeRoute, "/index.html");
+  assert.equal(pendingRoute, "/estado-suscripcion.html");
+});
