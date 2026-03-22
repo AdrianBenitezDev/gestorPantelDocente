@@ -30,6 +30,7 @@ const GOOGLE_TEST_BYPASS_EMAILS = new Set([
   "artbenitezdev@gmail.com",
 ]);
 const GOOGLE_TEST_BYPASS_TAG = "google_test_allowlist";
+const PAC_DEMO_REVIEWER_EMAILS = Array.from(GOOGLE_TEST_BYPASS_EMAILS);
 
 const MP_ACCESS_TOKEN = defineSecret("MP_ACCESS_TOKEN");
 const MP_WEBHOOK_SECRET = defineSecret("MP_WEBHOOK_SECRET");
@@ -3245,6 +3246,115 @@ async function pacListMessages(accessToken, queryText, maxResults) {
   return Array.isArray(data.messages) ? data.messages : [];
 }
 
+function isPacDemoReviewer(userEmail) {
+  const safeEmail = normalizeEmail(userEmail);
+  return PAC_DEMO_REVIEWER_EMAILS.includes(safeEmail);
+}
+
+function buildPacDemoEmails() {
+  return [
+    {
+      cupof: "45218",
+      cuil: "20123456789",
+      dni: "12345678",
+      fechaNacimiento: "15/03/1987",
+      apellidoNombre: "Gomez, Laura Ines",
+      situacionRevista: "T",
+      pid: "PID-000145",
+      cargoModulosHoras: "12",
+      curso: "1",
+      division: "A",
+      messageId: "demo-msg-001",
+      subject: "[DEMO] Designacion Lengua y Literatura 1A",
+      from: "direccion001@abc.gob.ar",
+      date: "Fri, 20 Mar 2026 09:18:00 -0300",
+      attachmentName: "designacion_laura_gomez.docx",
+      missingFields: [],
+    },
+    {
+      cupof: "45219",
+      cuil: "27234567890",
+      dni: "23456789",
+      fechaNacimiento: "02/11/1990",
+      apellidoNombre: "Perez, Mariana Sol",
+      situacionRevista: "TI",
+      pid: "PID-000322",
+      cargoModulosHoras: "8",
+      curso: "2",
+      division: "B",
+      messageId: "demo-msg-002",
+      subject: "[DEMO] Designacion Matematica 2B",
+      from: "direccion017@abc.gob.ar",
+      date: "Fri, 20 Mar 2026 10:06:00 -0300",
+      attachmentName: "designacion_mariana_perez.docx",
+      missingFields: [],
+    },
+    {
+      cupof: "45220",
+      cuil: "20345678901",
+      dni: "34567890",
+      fechaNacimiento: "28/07/1985",
+      apellidoNombre: "Benitez, Carlos Andres",
+      situacionRevista: "P",
+      pid: "PID-000487",
+      cargoModulosHoras: "10",
+      curso: "3",
+      division: "C",
+      messageId: "demo-msg-003",
+      subject: "[DEMO] Designacion Historia 3C",
+      from: "direccion023@abc.gob.ar",
+      date: "Fri, 20 Mar 2026 11:24:00 -0300",
+      attachmentName: "designacion_carlos_benitez.docx",
+      missingFields: [],
+    },
+    {
+      cupof: "45221",
+      cuil: "27456789012",
+      dni: "45678901",
+      fechaNacimiento: "09/01/1993",
+      apellidoNombre: "Lopez, Ana Victoria",
+      situacionRevista: "S",
+      pid: "PID-000581",
+      cargoModulosHoras: "6",
+      curso: "4",
+      division: "A",
+      messageId: "demo-msg-004",
+      subject: "[DEMO] Designacion Ingles 4A",
+      from: "direccion041@abc.gob.ar",
+      date: "Fri, 20 Mar 2026 12:02:00 -0300",
+      attachmentName: "designacion_ana_lopez.docx",
+      missingFields: [],
+    },
+  ];
+}
+
+async function fetchGmailEmails(accessToken, queryText, maxResults) {
+  return pacListMessages(accessToken, queryText, maxResults);
+}
+
+async function getEmails(userEmail, {
+  accessToken = "",
+  gmailQuery = "",
+  maxResults = 30,
+} = {}) {
+  const safeEmail = normalizeEmail(userEmail);
+  if (isPacDemoReviewer(safeEmail)) {
+    console.log("MODO DEMO ACTIVADO", safeEmail);
+    return {
+      demoMode: true,
+      demoEmails: buildPacDemoEmails(),
+      messages: [],
+    };
+  }
+
+  const messages = await fetchGmailEmails(accessToken, gmailQuery, maxResults);
+  return {
+    demoMode: false,
+    demoEmails: [],
+    messages,
+  };
+}
+
 async function pacGetMessage(accessToken, messageId) {
   const endpoint = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}?format=full`;
   return pacFetchJson(endpoint, accessToken, {}, "gmail.getMessage");
@@ -4692,8 +4802,17 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
   }
 
   let messages = [];
+  let demoEmails = [];
+  let demoMode = false;
   try {
-    messages = await pacListMessages(accessToken, gmailQuery, maxResults);
+    const emailResult = await getEmails(authEmail, {
+      accessToken,
+      gmailQuery,
+      maxResults,
+    });
+    demoMode = emailResult?.demoMode === true;
+    demoEmails = Array.isArray(emailResult?.demoEmails) ? emailResult.demoEmails : [];
+    messages = Array.isArray(emailResult?.messages) ? emailResult.messages : [];
   } catch (error) {
     const errorMetadata = pacBuildErrorMetadata(error);
     logger.error("runPacProcess list messages error", {
@@ -4726,7 +4845,7 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
     );
   }
 
-  const rows = [];
+  const rows = demoEmails.map((row) => ({ ...(row || {}) }));
   const errors = [];
   let omittedWithoutIdentity = 0;
   let omittedWithoutCupof = 0;
@@ -4752,194 +4871,201 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
     sheetName = "Hoja 1";
   }
 
-  for (const item of messages) {
-    const messageId = String(item?.id || "").trim();
-    if (!messageId) {
-      continue;
-    }
+  if (!demoMode) {
+    for (const item of messages) {
+      const messageId = String(item?.id || "").trim();
+      if (!messageId) {
+        continue;
+      }
 
-    try {
-      const fullMessage = await pacGetMessage(accessToken, messageId);
-      const headers = Array.isArray(fullMessage?.payload?.headers) ? fullMessage.payload.headers : [];
-      const subject = pacHeaderValue(headers, "Subject");
-      const from = pacHeaderValue(headers, "From");
-      const date = pacHeaderValue(headers, "Date");
-      const threadId = String(fullMessage?.threadId || item?.threadId || "");
-      const mailMetadata = {
-        messageId,
-        threadId,
-        subject,
-        from,
-        date,
-      };
-      const content = pacCollectMessageContent(fullMessage?.payload || {});
+      try {
+        const fullMessage = await pacGetMessage(accessToken, messageId);
+        const headers = Array.isArray(fullMessage?.payload?.headers) ? fullMessage.payload.headers : [];
+        const subject = pacHeaderValue(headers, "Subject");
+        const from = pacHeaderValue(headers, "From");
+        const date = pacHeaderValue(headers, "Date");
+        const threadId = String(fullMessage?.threadId || item?.threadId || "");
+        const mailMetadata = {
+          messageId,
+          threadId,
+          subject,
+          from,
+          date,
+        };
+        const content = pacCollectMessageContent(fullMessage?.payload || {});
 
-      if (mode === "interinos_docx") {
-        const docxAttachments = content.attachments.filter((attachment) =>
-          pacIsDocxAttachment(attachment)
-        );
-        const driveRefs = pacExtractDriveFileRefs(
-          `${String(content?.plainText || "")}\n${String(content?.htmlText || "")}\n${subject}`,
-          content.urls
-        );
+        if (mode === "interinos_docx") {
+          const docxAttachments = content.attachments.filter((attachment) =>
+            pacIsDocxAttachment(attachment)
+          );
+          const driveRefs = pacExtractDriveFileRefs(
+            `${String(content?.plainText || "")}\n${String(content?.htmlText || "")}\n${subject}`,
+            content.urls
+          );
 
-        const sourceCandidates = [
-          ...docxAttachments.map((attachment) => ({
-            type: "attachment",
-            label: String(attachment?.filename || "").trim() || String(attachment?.mimeType || "adjunto"),
-            attachment,
-          })),
-          ...driveRefs.map((ref) => ({
-            type: "drive",
-            label: `drive:${ref.fileId}`,
-            driveRef: ref,
-          })),
-        ];
+          const sourceCandidates = [
+            ...docxAttachments.map((attachment) => ({
+              type: "attachment",
+              label: String(attachment?.filename || "").trim() || String(attachment?.mimeType || "adjunto"),
+              attachment,
+            })),
+            ...driveRefs.map((ref) => ({
+              type: "drive",
+              label: `drive:${ref.fileId}`,
+              driveRef: ref,
+            })),
+          ];
 
-        if (!sourceCandidates.length) {
-          pacPushMailError(errors, mailMetadata, "No se encontro adjunto DOCX ni enlace a Google Docs/Drive", {
+          if (!sourceCandidates.length) {
+            pacPushMailError(errors, mailMetadata, "No se encontro adjunto DOCX ni enlace a Google Docs/Drive", {
+              attachmentsDetected: content.attachments.length,
+              attachmentsSummary: pacBuildAttachmentSummary(content.attachments),
+              driveLinksDetected: driveRefs.length,
+              driveLinksSummary: pacBuildDriveRefsSummary(driveRefs),
+            });
+            continue;
+          }
+
+          let bestRow = null;
+          let bestScore = -1;
+          const sourceErrors = [];
+
+          for (const source of sourceCandidates) {
+            try {
+              let docxBuffer = null;
+              let sourceName = source.label;
+
+              if (source.type === "attachment") {
+                const attachment = source.attachment || {};
+                let attachmentData = String(attachment?.inlineDataChunk || "");
+                if (!attachmentData) {
+                  const attachmentPayload = await pacGetAttachment(
+                    accessToken,
+                    messageId,
+                    attachment.attachmentId
+                  );
+                  attachmentData = String(attachmentPayload?.data || "");
+                }
+                if (!attachmentData) {
+                  throw new Error("Adjunto vacio");
+                }
+                docxBuffer = pacDecodeBase64Url(attachmentData, true);
+                sourceName = String(attachment?.filename || sourceName || "").trim() || sourceName;
+              } else {
+                const ref = source.driveRef || {};
+                const metadata = await pacGetDriveFileMetadata(accessToken, ref.fileId);
+                docxBuffer = await pacGetDriveDocxBuffer(accessToken, metadata);
+                sourceName = String(metadata?.name || source.label || "").trim() || source.label;
+              }
+
+              const docxText = pacExtractDocxText(docxBuffer);
+              const row = pacExtractPacRow(docxText, {
+                messageId,
+                subject,
+                from,
+                date,
+                attachmentName: sourceName,
+              });
+              if (!pacRowHasCupof(row)) {
+                sourceErrors.push(`${source.label}: No se detecto CUPOF en la extraccion`);
+                continue;
+              }
+              const score = pacFieldScore(row);
+              if (score > bestScore) {
+                bestRow = row;
+                bestScore = score;
+              }
+            } catch (sourceError) {
+              sourceErrors.push(`${source.label}: ${String(sourceError?.message || "Error sin detalle")}`);
+            }
+          }
+
+          if (!bestRow) {
+            pacPushMailError(
+              errors,
+              mailMetadata,
+              sourceErrors[0] || "No se pudo extraer datos del adjunto DOCX o del enlace Drive",
+              {
+                attachmentsDetected: content.attachments.length,
+                attachmentsSummary: pacBuildAttachmentSummary(content.attachments),
+                driveLinksDetected: driveRefs.length,
+                driveLinksSummary: pacBuildDriveRefsSummary(driveRefs),
+                sourceErrors: sourceErrors.slice(0, 5),
+              }
+            );
+            continue;
+          }
+
+          if (!pacRowHasDniOrCuil(bestRow)) {
+            omittedWithoutIdentity += 1;
+            pacPushMailError(
+              errors,
+              mailMetadata,
+              "Se omitio el mensaje porque no se detecto DNI ni CUIL en el contenido extraido"
+            );
+            continue;
+          }
+
+          rows.push(bestRow);
+          continue;
+        }
+
+        const bodyText = pacPickMessageBodyText(content);
+        if (!bodyText) {
+          pacPushMailError(errors, mailMetadata, "El mail no tiene cuerpo de texto util", {
             attachmentsDetected: content.attachments.length,
             attachmentsSummary: pacBuildAttachmentSummary(content.attachments),
-            driveLinksDetected: driveRefs.length,
-            driveLinksSummary: pacBuildDriveRefsSummary(driveRefs),
           });
           continue;
         }
 
-        let bestRow = null;
-        let bestScore = -1;
-        const sourceErrors = [];
-
-        for (const source of sourceCandidates) {
-          try {
-            let docxBuffer = null;
-            let sourceName = source.label;
-
-            if (source.type === "attachment") {
-              const attachment = source.attachment || {};
-              let attachmentData = String(attachment?.inlineDataChunk || "");
-              if (!attachmentData) {
-                const attachmentPayload = await pacGetAttachment(
-                  accessToken,
-                  messageId,
-                  attachment.attachmentId
-                );
-                attachmentData = String(attachmentPayload?.data || "");
-              }
-              if (!attachmentData) {
-                throw new Error("Adjunto vacio");
-              }
-              docxBuffer = pacDecodeBase64Url(attachmentData, true);
-              sourceName = String(attachment?.filename || sourceName || "").trim() || sourceName;
-            } else {
-              const ref = source.driveRef || {};
-              const metadata = await pacGetDriveFileMetadata(accessToken, ref.fileId);
-              docxBuffer = await pacGetDriveDocxBuffer(accessToken, metadata);
-              sourceName = String(metadata?.name || source.label || "").trim() || source.label;
-            }
-
-            const docxText = pacExtractDocxText(docxBuffer);
-            const row = pacExtractPacRow(docxText, {
-              messageId,
-              subject,
-              from,
-              date,
-              attachmentName: sourceName,
-            });
-            if (!pacRowHasCupof(row)) {
-              sourceErrors.push(`${source.label}: No se detecto CUPOF en la extraccion`);
-              continue;
-            }
-            const score = pacFieldScore(row);
-            if (score > bestScore) {
-              bestRow = row;
-              bestScore = score;
-            }
-          } catch (sourceError) {
-            sourceErrors.push(`${source.label}: ${String(sourceError?.message || "Error sin detalle")}`);
-          }
-        }
-
-        if (!bestRow) {
+        const extractedBodyRow = pacExtractPacRow(bodyText, {
+          messageId,
+          subject,
+          from,
+          date,
+          attachmentName: "",
+        });
+        if (!pacRowHasCupof(extractedBodyRow)) {
+          omittedWithoutCupof += 1;
           pacPushMailError(
             errors,
             mailMetadata,
-            sourceErrors[0] || "No se pudo extraer datos del adjunto DOCX o del enlace Drive",
-            {
-            attachmentsDetected: content.attachments.length,
-            attachmentsSummary: pacBuildAttachmentSummary(content.attachments),
-            driveLinksDetected: driveRefs.length,
-            driveLinksSummary: pacBuildDriveRefsSummary(driveRefs),
-            sourceErrors: sourceErrors.slice(0, 5),
-            }
+            "Se omitio el mensaje porque no se detecto CUPOF en el cuerpo del mail"
           );
           continue;
         }
-
-        if (!pacRowHasDniOrCuil(bestRow)) {
+        if (!pacRowHasDniOrCuil(extractedBodyRow)) {
           omittedWithoutIdentity += 1;
           pacPushMailError(
             errors,
             mailMetadata,
-            "Se omitio el mensaje porque no se detecto DNI ni CUIL en el contenido extraido"
+            "Se omitio el mensaje porque no se detecto DNI ni CUIL en el cuerpo del mail"
           );
           continue;
         }
 
-        rows.push(bestRow);
-        continue;
-      }
-
-      const bodyText = pacPickMessageBodyText(content);
-      if (!bodyText) {
-        pacPushMailError(errors, mailMetadata, "El mail no tiene cuerpo de texto util", {
-          attachmentsDetected: content.attachments.length,
-          attachmentsSummary: pacBuildAttachmentSummary(content.attachments),
+        rows.push(extractedBodyRow);
+      } catch (messageError) {
+        logger.error("runPacProcess message error", { messageId, messageError });
+        pacPushMailError(errors, {
+          messageId,
+          threadId: String(item?.threadId || ""),
+        }, String(messageError?.message || "No se pudo procesar el mail"), {
+          debugMessage: String(messageError?.message || ""),
         });
-        continue;
       }
-
-      const extractedBodyRow = pacExtractPacRow(bodyText, {
-        messageId,
-        subject,
-        from,
-        date,
-        attachmentName: "",
-      });
-      if (!pacRowHasCupof(extractedBodyRow)) {
-        omittedWithoutCupof += 1;
-        pacPushMailError(
-          errors,
-          mailMetadata,
-          "Se omitio el mensaje porque no se detecto CUPOF en el cuerpo del mail"
-        );
-        continue;
-      }
-      if (!pacRowHasDniOrCuil(extractedBodyRow)) {
-        omittedWithoutIdentity += 1;
-        pacPushMailError(
-          errors,
-          mailMetadata,
-          "Se omitio el mensaje porque no se detecto DNI ni CUIL en el cuerpo del mail"
-        );
-        continue;
-      }
-
-      rows.push(extractedBodyRow);
-    } catch (messageError) {
-      logger.error("runPacProcess message error", { messageId, messageError });
-      pacPushMailError(errors, {
-        messageId,
-        threadId: String(item?.threadId || ""),
-      }, String(messageError?.message || "No se pudo procesar el mail"), {
-        debugMessage: String(messageError?.message || ""),
-      });
     }
   }
 
-  const enrichedRows = rows.length
-    ? await pacEnrichRowsWithExternalData(rows)
-    : [];
+  const enrichedRows = demoMode
+    ? rows.map((row) => ({
+      ...row,
+      missingFields: Array.isArray(row?.missingFields) ? row.missingFields : [],
+    }))
+    : rows.length
+      ? await pacEnrichRowsWithExternalData(rows)
+      : [];
 
   let writeSummary = null;
   if (!previewOnly && enrichedRows.length) {
@@ -4989,8 +5115,10 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
   return {
     ok: true,
     mode,
+    demoMode,
+    demoEmails: demoMode ? safeRows : [],
     gmailQuery,
-    totalMessages: messages.length,
+    totalMessages: demoMode ? safeRows.length : messages.length,
     rowsExtracted: safeRows.length,
     omittedWithoutIdentity,
     omittedWithoutCupof,
