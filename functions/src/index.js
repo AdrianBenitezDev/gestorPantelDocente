@@ -28,6 +28,7 @@ const callableOptions = { cors: allowedCorsOrigins, invoker: "public" };
 const GOOGLE_TEST_BYPASS_EMAILS = new Set([
   "ellariatyrell.341412@gmail.com",
   "artbenitezdev@gmail.com",
+  "eurontyrell.571112@gmail.com",
 ]);
 const GOOGLE_TEST_BYPASS_TAG = "google_test_allowlist";
 const GOOGLE_TEST_BYPASS_EMAILS_CANONICAL = new Set(
