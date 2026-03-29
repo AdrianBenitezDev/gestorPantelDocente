@@ -1,0 +1,133 @@
+GUIA PARA TESTERS DE GOOGLE - FLUJO DE PANELDOCENTE (PAC)
+
+Objetivo
+Esta guia explica, paso a paso, como probar la web y por que se pide cada permiso de Google.
+Esta orientada a revisores que no conocen el producto.
+
+Ruta principal de prueba
+- Pantalla PAC: /index.html
+- Vista previa seleccion: /pac-preview.html (se abre desde PAC)
+
+Resumen funcional rapido
+- La app inicia sesion con Google.
+- El usuario conecta permisos de forma incremental (solo cuando una accion los necesita).
+- La app lee correos de Gmail para extraer datos PAC.
+- El usuario revisa filas, selecciona y luego guarda en Drive o descarga XLSX.
+- No se envian correos ni se borran mensajes.
+
+Prerequisitos para prueba
+1. Acceder con un mail perteneciente a la waylist de testers:
+   - ellariatyrell.341412@gmail.com
+   - eurontyrell.571112@gmail.com
+2. La web reconoce automaticamente el modo tester para esos mails.
+3. La app solicita permiso del usuario para leer Gmail y consulta un remitente especifico (query controlada); 
+cuando no hay resultados reales para esa consulta, carga respuestas de prueba para poder validar el flujo completo.
+
+Flujo detallado (end-to-end)
+1. Abrir /index.html sin sesion activa.
+2. Hacer clic en "Iniciar sesion con Google" (header) o "Conectar Google".
+3. Al autenticar:
+   - Se valida acceso de suscripcion con getSubscriptionStatus.
+   - Si el usuario esta en waylist, se precarga automaticamente encabezadoPac en IndexedDB.
+   - La web autenticada se muestra luego de esa precarga inicial.
+4. Verificar encabezado PAC:
+   - Se completa automaticamente con datos base.
+   - Solo cambia el campo email al email del usuario autenticado.
+   - Queda guardado localmente en IndexedDB (DB: gpd-pac-cache, key: encabezadoPac).
+5. Elegir proceso:
+   - "Crear PAC designacion (cuerpo del mail)" o
+   - "Crear PAC destino definitivo/interinos (DOCX adjunto)".
+6. Ajustar Query Gmail y cantidad maxima de mails.
+7. Hacer clic en "Probar extraccion".
+8. Revisar tabla de resultados y panel de errores.
+9. Seleccionar filas a guardar/descargar.
+10. Hacer clic en:
+   - "Guardar seleccion en Drive", o
+   - "Descargar seleccion" (genera XLSX para descarga).
+11. Confirmar resultado:
+   - Mensaje de exito en UI.
+   - Link a planilla en Drive (si se guardo en Drive).
+
+Permisos de Google y cuando se piden
+1. gmail.readonly
+   - Scope: https://www.googleapis.com/auth/gmail.readonly
+   - Se usa para listar y leer correos necesarios para la extraccion.
+   - Se pide al conectar Google para ejecucion PAC.
+
+2. drive.readonly
+   - Scope: https://www.googleapis.com/auth/drive.readonly
+   - Se usa en modo interinos_docx cuando hay que leer archivos referenciados en links de Drive/Docs.
+   - Se pide solo si la accion lo necesita.
+
+3. spreadsheets
+   - Scope: https://www.googleapis.com/auth/spreadsheets
+   - Se usa para escribir encabezado y filas en la planilla resultado.
+   - Se pide al guardar/descargar resultado.
+
+4. drive
+   - Scope: https://www.googleapis.com/auth/drive
+   - Se usa para copiar plantilla, crear archivo final, exportar XLSX y (en descarga) limpiar archivo temporal.
+   - Se pide al guardar/descargar resultado.
+
+Nota de consentimiento incremental
+- El frontend usa include_granted_scopes=true.
+- Si falta un scope durante una accion, la app detecta missingScopes y vuelve a pedir solo permisos faltantes.
+
+Funciones (backend) involucradas
+1. getSubscriptionStatus
+   - Valida acceso funcional (appEnabled + tenantId) antes de operar PAC.
+
+2. runPacProcess
+   - Lee Gmail segun query y modo.
+   - Extrae filas PAC desde cuerpo o DOCX/link Drive.
+   - En preview devuelve filas para revision.
+   - Verifica scopes requeridos y responde missingScopes si faltan.
+
+3. savePacRowsToDrive
+   - Copia plantilla de Google Sheet.
+   - Escribe encabezado PAC y filas seleccionadas.
+   - Entrega URL de planilla (delivery drive) o archivo XLSX (delivery download).
+   - Verifica scopes de Sheets + Drive.
+
+4. obtenerEncabezadoPac / actuaizarEncabezadoPac
+   - Lectura/guardado del encabezado PAC en Firestore para el tenant.
+
+5. actualizarConfiguracionPacExtraccion
+   - Guarda configuracion de proceso (query y tipo de proceso).
+
+Casos recomendados para QA de Google
+1. Caso A - Solo lectura Gmail
+   - Modo: designacion_body
+   - Accion: Probar extraccion
+   - Esperado: consentimiento con gmail.readonly, filas visibles.
+
+2. Caso B - Gmail + lectura Drive
+   - Modo: interinos_docx
+   - Accion: Probar extraccion con mails que tengan link Drive o DOCX.
+   - Esperado: si aplica, consentimiento adicional drive.readonly.
+
+3. Caso C - Guardado final
+   - Accion: Guardar seleccion en Drive.
+   - Esperado: consentimiento adicional spreadsheets + drive, archivo creado en Drive.
+
+4. Caso D - Descarga
+   - Accion: Descargar seleccion.
+   - Esperado: consentimiento spreadsheets + drive, descarga de XLSX.
+
+Comportamientos de privacidad y minimo privilegio
+- No se envian correos.
+- No se borran ni modifican correos.
+- No se explora Drive en forma masiva.
+- Se accede solo a lo necesario para la accion iniciada por el usuario.
+- Los permisos se solicitan por etapas, no todos al inicio.
+
+Mensajes esperables en errores de permisos
+- "No se pudo leer Gmail. Reautoriza permisos e intenta nuevamente."
+- "Faltan permisos para guardar en Drive. Reautoriza Gmail + Sheets + Drive e intenta nuevamente."
+
+Si el revisor no ve PAC y es redirigido
+1. /registro.html: falta perfil de usuario.
+2. /activar-plan.html: falta estado de acceso/suscripcion.
+3. Para cuentas waylist de testing, esto normalmente se resuelve automaticamente por bypass interno.
+
+Fin de guia.

@@ -107,6 +107,30 @@ const PAC_ACCESS_TOKEN_UID_STORAGE_KEY = "pacAccessTokenUid";
 const PAC_ACCESS_TOKEN_AT_STORAGE_KEY = "pacAccessTokenStoredAt";
 const PAC_DEFAULT_SHEET_URL = "https://docs.google.com/spreadsheets/d/1UP0FlTWQdHciMe1dbpj2i1dhsQAk4EsxCtq2Bvxlv2U/edit?usp=sharing";
 const PAC_HORARIOS_ALLOWED_EMAIL = "secundaria3altebrown@abc.gob.ar";
+const PAC_WAYLIST_EMAILS = new Set([
+  "ellariatyrell.341412@gmail.com",
+  "artbenitezdev@gmail.com",
+  "eurontyrell.571112@gmail.com",
+]);
+const PAC_WAYLIST_EMAILS_CANONICAL = new Set(
+  Array.from(PAC_WAYLIST_EMAILS).map((email) => normalizeEmailForWaylist(email))
+);
+const PAC_WAYLIST_HEADER_TEMPLATE = Object.freeze({
+  anexo: "3031",
+  anio: "2026",
+  categoria: "1°",
+  desde: "01/01/2026",
+  desfavorable: "1°",
+  distrito: "004",
+  domicilioEscuela: "calle prueba",
+  email: "artbenitezdev@gmail.com",
+  escuela: "32",
+  establecimientoReparticion: "32",
+  hasta: "31/12/2026",
+  telefono: "450972892",
+  tipoOrganizacion: "E.E.S",
+  turno: "M",
+});
 const PAC_CACHE_DB_NAME = "gpd-pac-cache";
 const PAC_CACHE_DB_VERSION = 1;
 const PAC_CACHE_STORE = "settings";
@@ -132,6 +156,41 @@ const PAC_MONTHS = [
 ];
 
 let extractionConfigPersistTimer = null;
+
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function normalizeEmailForWaylist(value) {
+  const normalized = normalizeEmail(value);
+  const [rawLocal = "", rawDomain = ""] = normalized.split("@");
+  const local = String(rawLocal || "").trim();
+  const domain = String(rawDomain || "").trim();
+  if (!local || !domain) {
+    return normalized;
+  }
+  if (domain === "gmail.com" || domain === "googlemail.com") {
+    const canonicalLocal = local.split("+")[0].replace(/\./g, "");
+    return `${canonicalLocal}@gmail.com`;
+  }
+  return normalized;
+}
+
+function isWaylistEmail(value) {
+  const normalized = normalizeEmailForWaylist(value);
+  if (!normalized) {
+    return false;
+  }
+  return PAC_WAYLIST_EMAILS_CANONICAL.has(normalized);
+}
+
+function buildWaylistPacHeader(userEmail = "") {
+  const safeEmail = normalizeEmail(userEmail);
+  return {
+    ...PAC_WAYLIST_HEADER_TEMPLATE,
+    email: safeEmail || PAC_WAYLIST_HEADER_TEMPLATE.email,
+  };
+}
 
 function persistAccessToken(accessToken, uid) {
   if (!window.localStorage) {
@@ -982,6 +1041,14 @@ async function hydratePacHeaderForCurrentUser(user) {
   if (!user || state.headerLoadedFromRemote) {
     return;
   }
+  if (isWaylistEmail(user?.email || "")) {
+    const waylistHeader = buildWaylistPacHeader(user?.email || "");
+    applyPacHeaderDataToForm(waylistHeader);
+    await persistPacHeaderInIndexedDb(waylistHeader);
+    state.headerLoadedFromRemote = true;
+    syncPacHeaderOpenStateFromData();
+    return;
+  }
   try {
     const remoteData = await loadPacHeaderFromFirestore();
     if (remoteData) {
@@ -1770,6 +1837,17 @@ function updateHeaderAuthButton(user) {
   logoutBtn.classList.add("google-btn");
 }
 
+async function primeWaylistPacHeaderForUser(user) {
+  if (!user || !isWaylistEmail(user?.email || "")) {
+    return false;
+  }
+  const waylistHeader = buildWaylistPacHeader(user?.email || "");
+  applyPacHeaderDataToForm(waylistHeader);
+  await persistPacHeaderInIndexedDb(waylistHeader);
+  syncPacHeaderOpenStateFromData();
+  return true;
+}
+
 async function signInAndAuthorizeGoogleScopes(options = {}) {
   const scopes = uniqueScopes(
     Array.isArray(options.scopes) && options.scopes.length
@@ -1935,8 +2013,8 @@ if (logoutBtn) {
 
 onAuthStateChanged(auth, (user) => {
   updateHeaderAuthButton(user);
-  updateGuestView(user);
   if (!user) {
+    updateGuestView(user);
     state.accessToken = "";
     clearPersistedAccessToken();
     userNameEl.textContent = "Sin sesion";
@@ -1949,6 +2027,15 @@ onAuthStateChanged(auth, (user) => {
     return;
   }
 
+  if (guestSection) {
+    guestSection.hidden = true;
+    guestSection.classList.add("is-hidden");
+  }
+  if (authenticatedContent) {
+    authenticatedContent.hidden = true;
+    authenticatedContent.classList.add("is-hidden");
+  }
+
   userNameEl.textContent = user.displayName || user.email || "Usuario";
   userEmailEl.textContent = user.email || "-";
   state.headerLoadedFromRemote = false;
@@ -1959,7 +2046,18 @@ onAuthStateChanged(auth, (user) => {
   }
   applyHorariosLinkVisibility(user);
   void (async () => {
+    const waylistHeaderPrimed = await primeWaylistPacHeaderForUser(user);
+    if (waylistHeaderPrimed) {
+      state.headerLoadedFromRemote = true;
+    }
+    if (String(auth.currentUser?.uid || "") !== String(user?.uid || "")) {
+      return;
+    }
+    updateGuestView(user);
     const hasTenantAccess = await refreshPacTenantAccess(user);
+    if (String(auth.currentUser?.uid || "") !== String(user?.uid || "")) {
+      return;
+    }
     if (!hasTenantAccess) {
       return;
     }
@@ -1981,7 +2079,7 @@ renderProcessDependentGmailQueries();
 void hydratePacExtractionConfigFromIndexedDb();
 applyHorariosLinkVisibility(null);
 updateHeaderAuthButton(auth.currentUser);
-updateGuestView(auth.currentUser);
+updateGuestView(null);
 setDriveResultButton("");
 renderRows([]);
 renderErrors([]);
