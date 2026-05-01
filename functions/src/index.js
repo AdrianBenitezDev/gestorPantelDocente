@@ -2164,12 +2164,22 @@ exports.registerUser = onCall(callableOptions, async (request) => {
     });
 
     const link = await admin.auth().generateEmailVerificationLink(correo);
+    let customAuthToken = "";
+    try {
+      customAuthToken = await admin.auth().createCustomToken(uid);
+    } catch (tokenError) {
+      logger.error("createCustomToken failed", {
+        uid,
+        message: String(tokenError?.message || "unknown_error"),
+      });
+    }
 
     return {
       ok: true,
       uid,
       tenantId: null,
       verificationLink: link,
+      customAuthToken,
       message: "Base user created. Subscription required before tenant activation.",
     };
   } catch (err) {

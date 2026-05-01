@@ -1,5 +1,6 @@
 import {
   onAuthStateChanged,
+  signInWithCustomToken,
   signInWithEmailAndPassword,
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-functions.js";
@@ -95,13 +96,18 @@ registerForm.addEventListener("submit", async (event) => {
     const startSubscriptionCheckout = httpsCallable(functions, "startSubscriptionCheckout");
     const result = await registerUser(registerPayload);
     verificationLink = String(result.data?.verificationLink || "").trim();
+    const customAuthToken = String(result.data?.customAuthToken || "").trim();
     const planCode = String(document.getElementById("reg-plan-code")?.value || "plan_pro")
       .trim()
       .toLowerCase();
 
     setMsg(registerMsg, "Cuenta creada. Preparando el pago de la suscripcion...");
 
-    await signInWithEmailAndPassword(auth, payload.correo.toLowerCase(), generatedPassword);
+    if (customAuthToken) {
+      await signInWithCustomToken(auth, customAuthToken);
+    } else {
+      await signInWithEmailAndPassword(auth, payload.correo.toLowerCase(), generatedPassword);
+    }
     const checkoutResult = await startSubscriptionCheckout({ planCode });
     const initPoint = String(checkoutResult.data?.initPoint || "").trim();
     if (!initPoint) {
