@@ -14,6 +14,8 @@ const previewBtn = document.getElementById("pac-preview-btn");
 const authMsg = document.getElementById("pac-auth-msg");
 const runMsg = document.getElementById("pac-run-msg");
 const openDriveBtn = document.getElementById("pac-open-drive-btn");
+const driveSavedOverlay = document.getElementById("pac-drive-saved-overlay");
+const driveSavedCloseBtn = document.getElementById("pac-drive-saved-close-btn");
 const summaryMsg = document.getElementById("pac-summary-msg");
 const errorsMsg = document.getElementById("pac-errors-msg");
 const errorsPanel = document.getElementById("pac-errors-panel");
@@ -146,7 +148,6 @@ const QUERY_PERSIST_DEBOUNCE_MS = 2000;
 const PAC_ACCESS_TOKEN_TTL_MS = 45 * 60 * 1000;
 const GOOGLE_SCOPE_GMAIL_READONLY = "https://www.googleapis.com/auth/gmail.readonly";
 const GOOGLE_SCOPE_SHEETS = "https://www.googleapis.com/auth/spreadsheets";
-const GOOGLE_SCOPE_DRIVE_READONLY = "https://www.googleapis.com/auth/drive.readonly";
 const GOOGLE_SCOPE_DRIVE = "https://www.googleapis.com/auth/drive";
 const PAC_ONBOARDING_STEPS = Object.freeze([
   "Conectate con Gmail",
@@ -339,18 +340,6 @@ function uniqueScopes(scopes) {
   ));
 }
 
-function getRunRequiredScopes(previewOnly) {
-  const mode = mapProcessValueToMode(modeInput?.value);
-  const required = [GOOGLE_SCOPE_GMAIL_READONLY];
-  if (!previewOnly) {
-    required.push(GOOGLE_SCOPE_SHEETS);
-  }
-  if (mode === "interinos_docx") {
-    required.push(GOOGLE_SCOPE_DRIVE_READONLY);
-  }
-  return uniqueScopes(required);
-}
-
 function getSaveRequiredScopes() {
   return [GOOGLE_SCOPE_SHEETS, GOOGLE_SCOPE_DRIVE];
 }
@@ -480,6 +469,15 @@ function setMsg(el, text, isError = false) {
   el.classList.toggle("success", !isError && Boolean(text));
 }
 
+function setDriveSavedOverlayVisible(visible) {
+  if (!driveSavedOverlay) {
+    return;
+  }
+  const isVisible = Boolean(visible);
+  driveSavedOverlay.hidden = !isVisible;
+  driveSavedOverlay.classList.toggle("is-hidden", !isVisible);
+}
+
 function setDriveResultButton(sheetUrl = "") {
   if (!openDriveBtn) {
     return;
@@ -489,11 +487,26 @@ function setDriveResultButton(sheetUrl = "") {
     openDriveBtn.hidden = true;
     openDriveBtn.classList.add("is-hidden");
     openDriveBtn.removeAttribute("href");
+    setDriveSavedOverlayVisible(false);
     return;
   }
   openDriveBtn.href = safeUrl;
   openDriveBtn.hidden = false;
   openDriveBtn.classList.remove("is-hidden");
+}
+
+function showDriveSavedOverlay(sheetUrl = "") {
+  const safeUrl = String(sheetUrl || "").trim();
+  if (!safeUrl) {
+    setDriveSavedOverlayVisible(false);
+    return;
+  }
+  setDriveResultButton(safeUrl);
+  setDriveSavedOverlayVisible(true);
+}
+
+function hideDriveSavedOverlay() {
+  setDriveSavedOverlayVisible(false);
 }
 
 function setBusy(btn, busy) {
@@ -1706,15 +1719,8 @@ async function runPacProcess(previewOnly) {
     return false;
   }
   if (!state.accessToken) {
-    const initialScopes = getRunRequiredScopes(previewOnly);
-    const authorized = await signInAndAuthorizeGoogleScopes({
-      scopes: initialScopes,
-      successMessage: "Google conectado. Permisos autorizados para ejecutar PAC.",
-      errorMessage: "No se pudieron autorizar los permisos para ejecutar PAC.",
-    });
-    if (!authorized) {
-      return false;
-    }
+    setMsg(runMsg, "Presiona 'Conectar Google' para autorizar Gmail antes de ejecutar el PAC.", true);
+    return false;
   }
 
   state.busy = true;
@@ -1730,25 +1736,7 @@ async function runPacProcess(previewOnly) {
       const payload = buildPayload(previewOnly);
       return callable(payload);
     };
-
-    let response;
-    try {
-      response = await invokeCallable();
-    } catch (error) {
-      const missingScopes = getMissingScopesFromError(error);
-      if (!missingScopes.length) {
-        throw error;
-      }
-      const reauthorized = await signInAndAuthorizeGoogleScopes({
-        scopes: missingScopes,
-        successMessage: "Permisos adicionales autorizados. Reintentando PAC...",
-        errorMessage: "No se pudieron autorizar permisos adicionales para PAC.",
-      });
-      if (!reauthorized) {
-        throw error;
-      }
-      response = await invokeCallable();
-    }
+    const response = await invokeCallable();
 
     const result = response.data || {};
     const rows = decorateRows(Array.isArray(result.rows) ? result.rows : []);
@@ -1774,6 +1762,20 @@ async function runPacProcess(previewOnly) {
     }
     return true;
   } catch (error) {
+    const missingScopes = getMissingScopesFromError(error);
+    if (missingScopes.length) {
+      const needsGmail = missingScopes.includes(GOOGLE_SCOPE_GMAIL_READONLY);
+      if (needsGmail) {
+        setMsg(runMsg, "Faltan permisos de Gmail. Presiona 'Conectar Google' y reintenta.", true);
+      } else {
+        setMsg(
+          runMsg,
+          `No se pudo ejecutar por permisos faltantes: ${missingScopes.join(", ")}.`,
+          true
+        );
+      }
+      return false;
+    }
     console.error("PAC callable error", {
       code: error?.code || "",
       message: error?.message || "",
@@ -1894,6 +1896,7 @@ async function processSelectedRows(delivery = "drive") {
     const written = Number(result.rowsWritten || 0);
     const sheetUrlResult = String(result.sheetUrl || "");
     setDriveResultButton(sheetUrlResult);
+    showDriveSavedOverlay(sheetUrlResult);
     setMsg(runMsg, `Archivo guardado en Drive. Filas escritas: ${written}`);
     return result;
   } catch (error) {
@@ -2000,6 +2003,26 @@ async function primeWaylistPacHeaderForUser(user) {
   return true;
 }
 
+async function signInFirebaseWithGoogleAccount() {
+  try {
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({
+      prompt: "select_account",
+    });
+    await signInWithPopup(auth, provider);
+    setMsg(
+      authMsg,
+      "Sesion iniciada con Google. Ahora presiona 'Conectar Google' para autorizar Gmail."
+    );
+    updateStep1Hint();
+    return true;
+  } catch (error) {
+    console.error(error);
+    setMsg(authMsg, formatUserError(error, "No se pudo iniciar sesion con Google."), true);
+    return false;
+  }
+}
+
 async function signInAndAuthorizeGoogleScopes(options = {}) {
   const scopes = uniqueScopes(
     Array.isArray(options.scopes) && options.scopes.length
@@ -2012,16 +2035,32 @@ async function signInAndAuthorizeGoogleScopes(options = {}) {
   const errorMessage =
     String(options.errorMessage || "").trim() ||
     "No se pudieron autorizar permisos de Google.";
+  const currentUserUid = String(auth.currentUser?.uid || "").trim();
+  const currentUserEmail = normalizeEmail(auth.currentUser?.email || "");
+  const extraCustomParameters =
+    options.customParameters && typeof options.customParameters === "object"
+      ? options.customParameters
+      : {};
   try {
     const provider = new GoogleAuthProvider();
     scopes.forEach((scope) => {
       provider.addScope(scope);
     });
-    provider.setCustomParameters({
+    const providerCustomParams = {
       include_granted_scopes: "true",
-    });
+      ...extraCustomParameters,
+    };
+    if (!providerCustomParams.login_hint && currentUserEmail) {
+      providerCustomParams.login_hint = currentUserEmail;
+    }
+    provider.setCustomParameters(providerCustomParams);
 
     const result = await signInWithPopup(auth, provider);
+    const signedUserUid = String(result?.user?.uid || "").trim();
+    if (currentUserUid && signedUserUid && currentUserUid !== signedUserUid) {
+      await signOut(auth);
+      throw new Error("Debes autorizar permisos con la misma cuenta de Google que inicio sesion.");
+    }
     const credential = GoogleAuthProvider.credentialFromResult(result);
     const accessToken = credential?.accessToken || "";
     if (!accessToken) {
@@ -2042,10 +2081,17 @@ async function signInAndAuthorizeGoogleScopes(options = {}) {
 
 if (connectBtn) {
   connectBtn.addEventListener("click", async () => {
+    if (!auth.currentUser) {
+      setMsg(authMsg, "Inicia sesion con Google desde el boton superior antes de conectar Gmail.", true);
+      return;
+    }
     await signInAndAuthorizeGoogleScopes({
       scopes: [GOOGLE_SCOPE_GMAIL_READONLY],
       successMessage: "Google conectado. Si una accion necesita mas permisos, se pediran en ese momento.",
       errorMessage: "No se pudo conectar Google para iniciar el proceso PAC.",
+      customParameters: {
+        prompt: "consent",
+      },
     });
   });
 }
@@ -2149,14 +2195,24 @@ if (floatSaveBtn) {
   });
 }
 
+if (driveSavedCloseBtn) {
+  driveSavedCloseBtn.addEventListener("click", () => {
+    hideDriveSavedOverlay();
+  });
+}
+
+if (driveSavedOverlay) {
+  driveSavedOverlay.addEventListener("click", (event) => {
+    if (event.target === driveSavedOverlay) {
+      hideDriveSavedOverlay();
+    }
+  });
+}
+
 if (logoutBtn) {
   logoutBtn.addEventListener("click", async () => {
     if (!auth.currentUser) {
-      await signInAndAuthorizeGoogleScopes({
-        scopes: [GOOGLE_SCOPE_GMAIL_READONLY],
-        successMessage: "Sesion iniciada. Puedes comenzar con la extraccion de Gmail.",
-        errorMessage: "No se pudo iniciar sesion con Google.",
-      });
+      await signInFirebaseWithGoogleAccount();
       return;
     }
     try {
@@ -2184,6 +2240,7 @@ onAuthStateChanged(auth, (user) => {
     updateGuestView(user);
     state.accessToken = "";
     clearPersistedAccessToken();
+    setDriveResultButton("");
     currentPacSessionLogKey = "";
     userNameEl.textContent = "Sin sesion";
     userEmailEl.textContent = "-";

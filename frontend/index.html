@@ -261,23 +261,6 @@
     <article class="card pac-step-card" data-step-index="5">
       <h2>Paso 5 - Ver resultado</h2>
       <p id="pac-run-msg" class="msg"></p>
-      <a
-        id="pac-open-drive-btn"
-        class="link-btn pac-drive-link-btn is-hidden"
-        href="#"
-        target="_blank"
-        rel="noopener noreferrer"
-        hidden
-      >
-        <span class="pac-drive-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="16" height="16" xmlns="http://www.w3.org/2000/svg">
-            <path fill="#0F9D58" d="M8.1 3.6h7.8l3.4 5.8h-7.8z" />
-            <path fill="#4285F4" d="M5.3 9.4L9.2 3l3.9 6.4-3.9 6.5z" />
-            <path fill="#F4B400" d="M13.1 9.4h7.4L16.5 16H9.2z" />
-          </svg>
-        </span>
-        <span>Ir a la planilla guardada en Drive</span>
-      </a>
       <p id="pac-summary-msg" class="msg"></p>
       <details id="pac-errors-panel" class="pac-errors-panel">
         <summary id="pac-errors-summary" class="pac-errors-summary">Errores detectados (0)</summary>
@@ -374,6 +357,32 @@
       </span>
       <span>Vista previa</span>
     </button>
+  </div>
+
+  <div id="pac-drive-saved-overlay" class="pac-drive-saved-overlay is-hidden" hidden>
+    <div class="pac-drive-saved-card" role="dialog" aria-modal="true" aria-labelledby="pac-drive-saved-title">
+      <h3 id="pac-drive-saved-title" class="pac-drive-saved-title">Su PAC fue guardado correctamente en Drive.</h3>
+      <div class="pac-drive-saved-actions">
+        <a
+          id="pac-open-drive-btn"
+          class="link-btn pac-drive-link-btn is-hidden"
+          href="#"
+          target="_blank"
+          rel="noopener noreferrer"
+          hidden
+        >
+          <span class="pac-drive-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="16" height="16" xmlns="http://www.w3.org/2000/svg">
+              <path fill="#0F9D58" d="M8.1 3.6h7.8l3.4 5.8h-7.8z" />
+              <path fill="#4285F4" d="M5.3 9.4L9.2 3l3.9 6.4-3.9 6.5z" />
+              <path fill="#F4B400" d="M13.1 9.4h7.4L16.5 16H9.2z" />
+            </svg>
+          </span>
+          <span>Ver en Drive</span>
+        </a>
+        <button id="pac-drive-saved-close-btn" type="button" class="google-btn">Cerrar</button>
+      </div>
+    </div>
   </div>
 
   <div id="shared-footer-root"></div>

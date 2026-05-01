@@ -693,6 +693,50 @@ a.link-btn:hover {
   gap: 8px;
 }
 
+.pac-drive-saved-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(17, 33, 64, 0.45);
+  backdrop-filter: blur(2px);
+}
+
+.pac-drive-saved-overlay[hidden] {
+  display: none;
+}
+
+.pac-drive-saved-card {
+  width: min(560px, 100%);
+  border: 1px solid #9eb7e0;
+  border-radius: 14px;
+  background: #edf4ff;
+  box-shadow: 0 18px 40px rgba(13, 31, 67, 0.35);
+  padding: 18px;
+}
+
+.pac-drive-saved-title {
+  margin: 0;
+  font-size: 1.15rem;
+  color: #14305f;
+}
+
+.pac-drive-saved-actions {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pac-drive-saved-actions .pac-drive-link-btn,
+.pac-drive-saved-actions .google-btn {
+  margin-top: 0;
+}
+
 .pac-drive-icon {
   display: inline-flex;
   align-items: center;

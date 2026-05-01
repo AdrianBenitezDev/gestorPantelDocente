@@ -4480,9 +4480,6 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
   if (!previewOnly) {
     requiredScopes.push("https://www.googleapis.com/auth/spreadsheets");
   }
-  if (mode === "interinos_docx") {
-    requiredScopes.push("https://www.googleapis.com/auth/drive.readonly");
-  }
 
   let tokenInfo = null;
   try {
