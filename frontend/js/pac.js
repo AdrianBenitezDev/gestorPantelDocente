@@ -31,6 +31,17 @@ const userEmailEl = document.getElementById("pac-user-email");
 const resultsBody = document.getElementById("pac-results-body");
 const guestSection = document.getElementById("pac-guest-section");
 const authenticatedContent = document.getElementById("pac-authenticated-content");
+const onboardingProgressFill = document.getElementById("pac-onboarding-progress-fill");
+const onboardingProgressText = document.getElementById("pac-onboarding-progress-text");
+const onboardingStepItems = Array.from(document.querySelectorAll(".pac-stepper-item[data-step-marker]"));
+const onboardingStepCards = Array.from(document.querySelectorAll(".pac-step-card[data-step-index]"));
+const onboardingPrevButtons = Array.from(document.querySelectorAll("[data-step-prev]"));
+const onboardingNextButtons = Array.from(document.querySelectorAll("[data-step-next]"));
+const step1HintEl = document.getElementById("pac-step-1-hint");
+const step1NextBtn = document.getElementById("pac-step-1-next-btn");
+const step2NextBtn = document.getElementById("pac-step-2-next-btn");
+const headerCurrentDataEl = document.getElementById("pac-header-current-data");
+const headerStepHintEl = document.getElementById("pac-header-step-hint");
 
 const modeInput = document.getElementById("pac-mode");
 const queryInput = document.getElementById("pac-gmail-query");
@@ -94,6 +105,7 @@ const state = {
   headerLoadedFromRemote: false,
   extractionConfigLoadedFromRemote: false,
   hasTenantAccess: false,
+  currentStep: 1,
 };
 const PAC_GMAIL_QUERY_STORAGE_KEY = "pacGmailQuery";
 const PAC_GMAIL_QUERY_IDB_KEY = "gmailQuery";
@@ -140,6 +152,14 @@ const GOOGLE_SCOPE_GMAIL_READONLY = "https://www.googleapis.com/auth/gmail.reado
 const GOOGLE_SCOPE_SHEETS = "https://www.googleapis.com/auth/spreadsheets";
 const GOOGLE_SCOPE_DRIVE_READONLY = "https://www.googleapis.com/auth/drive.readonly";
 const GOOGLE_SCOPE_DRIVE = "https://www.googleapis.com/auth/drive";
+const PAC_ONBOARDING_STEPS = Object.freeze([
+  "Conectar Gmail",
+  "Encabezado del PAC",
+  "Elegir tipo de PAC",
+  "Configurar extraccion",
+  "Generar resultado",
+]);
+const PAC_ONBOARDING_MAX_STEP = PAC_ONBOARDING_STEPS.length;
 const PAC_MONTHS = [
   "01",
   "02",
@@ -451,6 +471,170 @@ function setBusy(btn, busy) {
   } else if (btn.dataset.originalText) {
     btn.textContent = btn.dataset.originalText;
   }
+}
+
+function clampOnboardingStep(step) {
+  const value = Number(step);
+  if (!Number.isFinite(value)) {
+    return 1;
+  }
+  return Math.min(PAC_ONBOARDING_MAX_STEP, Math.max(1, Math.floor(value)));
+}
+
+function getOnboardingStepLabel(step) {
+  const index = clampOnboardingStep(step) - 1;
+  return PAC_ONBOARDING_STEPS[index] || PAC_ONBOARDING_STEPS[0];
+}
+
+function setOnboardingStep(step) {
+  state.currentStep = clampOnboardingStep(step);
+
+  onboardingStepCards.forEach((card) => {
+    const cardStep = clampOnboardingStep(card.dataset.stepIndex || "1");
+    const isVisible = cardStep === state.currentStep;
+    card.hidden = !isVisible;
+    card.classList.toggle("is-hidden", !isVisible);
+  });
+
+  const progressPercent = (state.currentStep / PAC_ONBOARDING_MAX_STEP) * 100;
+  if (onboardingProgressFill) {
+    onboardingProgressFill.style.width = `${progressPercent}%`;
+  }
+  if (onboardingProgressText) {
+    onboardingProgressText.textContent = `Paso ${state.currentStep} de ${PAC_ONBOARDING_MAX_STEP} - ${getOnboardingStepLabel(state.currentStep)}`;
+  }
+
+  onboardingStepItems.forEach((item) => {
+    const itemStep = clampOnboardingStep(item.dataset.stepMarker || "1");
+    item.classList.toggle("is-active", itemStep === state.currentStep);
+    item.classList.toggle("is-complete", itemStep < state.currentStep);
+  });
+
+  updateSelectionUI();
+}
+
+function updateStep1Hint() {
+  const connected = Boolean(state.accessToken);
+  if (step1HintEl) {
+    step1HintEl.textContent = connected
+      ? "Google conectado. Ya puedes continuar con el onboarding."
+      : "Conecta Google para habilitar la lectura de Gmail.";
+  }
+  if (step1NextBtn) {
+    step1NextBtn.disabled = !connected;
+  }
+}
+
+function formatCurrentHeaderDataForStep(data) {
+  if (!data || typeof data !== "object") {
+    return "";
+  }
+  const parts = [
+    String(data.establecimientoReparticion || "").trim(),
+    data.anexo ? `Anexo ${String(data.anexo).trim()}` : "",
+    data.distrito ? `Distrito ${String(data.distrito).trim()}` : "",
+    data.turno ? `Turno ${String(data.turno).trim()}` : "",
+    data.desde && data.hasta ? `${String(data.desde).trim()} a ${String(data.hasta).trim()}` : "",
+  ].filter(Boolean);
+  return parts.join(" | ");
+}
+
+function updateHeaderStepStatus() {
+  const headerData = collectPacHeaderData();
+  const isComplete = isPacHeaderComplete(headerData);
+  if (headerCurrentDataEl) {
+    const currentData = formatCurrentHeaderDataForStep(headerData);
+    headerCurrentDataEl.textContent = currentData
+      ? `Actual: ${currentData}`
+      : "Todavia no hay datos de encabezado cargados.";
+  }
+  if (headerStepHintEl) {
+    headerStepHintEl.textContent = isComplete
+      ? "Encabezado listo. Puedes seguir al siguiente paso."
+      : "Completa y guarda los datos de encabezado para continuar.";
+  }
+  if (step2NextBtn) {
+    step2NextBtn.textContent = isComplete ? "Siguiente" : "Guardar y siguiente";
+  }
+}
+
+function inferSuggestedStepFromState() {
+  if (!auth.currentUser) {
+    return 1;
+  }
+  if (!state.accessToken) {
+    return 1;
+  }
+  if (!isPacHeaderComplete(collectPacHeaderData())) {
+    return 2;
+  }
+  if (state.rows.length > 0) {
+    return 5;
+  }
+  return 3;
+}
+
+function syncOnboardingFromState({ onlyForward = false } = {}) {
+  updateStep1Hint();
+  updateHeaderStepStatus();
+  const suggestedStep = inferSuggestedStepFromState();
+  if (onlyForward) {
+    if (suggestedStep > state.currentStep) {
+      setOnboardingStep(suggestedStep);
+    }
+    return;
+  }
+  setOnboardingStep(suggestedStep);
+}
+
+async function handleOnboardingNextFromStep(step) {
+  const safeStep = clampOnboardingStep(step);
+  if (safeStep === 1) {
+    if (!state.accessToken) {
+      setMsg(authMsg, "Conecta Google para continuar al siguiente paso.", true);
+      updateStep1Hint();
+      return;
+    }
+    setOnboardingStep(2);
+    return;
+  }
+
+  if (safeStep === 2) {
+    if (!isPacHeaderComplete(collectPacHeaderData())) {
+      setMsg(headerMsg, "Completa todos los datos del encabezado para continuar.", true);
+      if (headerDetails) {
+        headerDetails.open = true;
+      }
+      updateHeaderStepStatus();
+      return;
+    }
+    await savePacHeader();
+    setOnboardingStep(3);
+    return;
+  }
+
+  if (safeStep === 3) {
+    setOnboardingStep(4);
+    return;
+  }
+
+  if (safeStep === 4) {
+    const gmailQuery = String(queryInput?.value || "").trim();
+    const sheetConfig = getSheetConfigFromUi();
+    const sheetUrl = String(sheetConfig.sheetUrl || "").trim();
+    if (!gmailQuery) {
+      window.alert("Selecciona una query de Gmail para continuar.");
+      return;
+    }
+    if (!sheetUrl) {
+      window.alert("Completa la URL de Google Sheet para continuar.");
+      return;
+    }
+    setOnboardingStep(5);
+    return;
+  }
+
+  setOnboardingStep(PAC_ONBOARDING_MAX_STEP);
 }
 
 function isSubscriptionRequiredError(error) {
@@ -957,12 +1141,14 @@ function isPacHeaderComplete(headerData) {
 
 function updatePacHeaderSummaryStatus() {
   if (!headerSummaryTitle) {
+    updateHeaderStepStatus();
     return;
   }
   const status = isPacHeaderComplete(collectPacHeaderData())
     ? "\u2705 Listo"
     : "\u274C Faltan Cargar";
   headerSummaryTitle.textContent = `Datos de encabezado del PAC ${status}`;
+  updateHeaderStepStatus();
 }
 
 function syncPacHeaderOpenStateFromData() {
@@ -1072,6 +1258,7 @@ async function savePacHeader() {
 
   if (!auth.currentUser) {
     setMsg(headerMsg, "Datos guardados en local. Inicia sesion para sincronizar con Firestore.", true);
+    syncOnboardingFromState();
     return;
   }
 
@@ -1092,6 +1279,7 @@ async function savePacHeader() {
     setMsg(headerMsg, `Se guardo en local, pero fallo Firestore: ${formatCallableError(error)}`, true);
   } finally {
     setBusy(headerSaveBtn, false);
+    syncOnboardingFromState({ onlyForward: true });
   }
 }
 
@@ -1290,7 +1478,8 @@ function setFloatingVisible(visible) {
   if (!floatingActions) {
     return;
   }
-  floatingActions.hidden = !visible;
+  const shouldShow = Boolean(visible) && state.currentStep === PAC_ONBOARDING_MAX_STEP;
+  floatingActions.hidden = !shouldShow;
 }
 
 function updateSelectionUI() {
@@ -1330,6 +1519,7 @@ function renderRows(rows = []) {
   if (!safeRows.length) {
     resultsBody.innerHTML = `<tr><td colspan="15">Sin datos</td></tr>`;
     updateSelectionUI();
+    syncOnboardingFromState();
     return;
   }
 
@@ -1365,6 +1555,7 @@ function renderRows(rows = []) {
 
   resultsBody.innerHTML = html;
   updateSelectionUI();
+  syncOnboardingFromState({ onlyForward: true });
 }
 
 function toggleSelectAll(forceValue = null) {
@@ -1819,7 +2010,11 @@ function updateGuestView(user) {
   }
   if (!hasSession) {
     setFloatingVisible(false);
+    setOnboardingStep(1);
+    updateStep1Hint();
+    return;
   }
+  syncOnboardingFromState();
 }
 
 function updateHeaderAuthButton(user) {
@@ -1878,10 +2073,12 @@ async function signInAndAuthorizeGoogleScopes(options = {}) {
     state.accessToken = accessToken;
     persistAccessToken(accessToken, result?.user?.uid || auth.currentUser?.uid || "");
     setMsg(authMsg, successMessage);
+    syncOnboardingFromState({ onlyForward: true });
     return true;
   } catch (error) {
     console.error(error);
     setMsg(authMsg, formatUserError(error, errorMessage), true);
+    updateStep1Hint();
     return false;
   }
 }
@@ -1929,6 +2126,20 @@ if (headerSaveBtn) {
     await savePacHeader();
   });
 }
+
+onboardingPrevButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    const step = clampOnboardingStep(button.dataset.stepPrev || state.currentStep);
+    setOnboardingStep(step - 1);
+  });
+});
+
+onboardingNextButtons.forEach((button) => {
+  button.addEventListener("click", async () => {
+    const step = clampOnboardingStep(button.dataset.stepNext || state.currentStep);
+    await handleOnboardingNextFromStep(step);
+  });
+});
 
 resultsBody.addEventListener("change", (event) => {
   const target = event.target;
@@ -2045,6 +2256,7 @@ onAuthStateChanged(auth, (user) => {
     state.accessToken = restorePersistedAccessToken(user);
   }
   applyHorariosLinkVisibility(user);
+  syncOnboardingFromState();
   void (async () => {
     const waylistHeaderPrimed = await primeWaylistPacHeaderForUser(user);
     if (waylistHeaderPrimed) {
@@ -2063,6 +2275,7 @@ onAuthStateChanged(auth, (user) => {
     }
     await hydratePacHeaderForCurrentUser(user);
     await hydratePacExtractionConfigForCurrentUser(user);
+    syncOnboardingFromState();
   })();
   if (state.accessToken) {
     setMsg(authMsg, "Sesion iniciada con Google. Token PAC disponible.");

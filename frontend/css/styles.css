@@ -1168,6 +1168,122 @@ a.link-btn:hover {
   flex-wrap: wrap;
 }
 
+.pac-onboarding-shell {
+  position: sticky;
+  top: calc(var(--sticky-top) + 4px);
+  z-index: 15;
+  padding-bottom: 10px;
+}
+
+.pac-onboarding-eyebrow {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #2a4b80;
+}
+
+.pac-onboarding-progress {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.pac-onboarding-progress-track {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: #d7e3fa;
+  overflow: hidden;
+}
+
+.pac-onboarding-progress-fill {
+  width: 20%;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #1d78e8 0%, #2eb89a 100%);
+  transition: width 0.25s ease;
+}
+
+.pac-stepper-list {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.pac-stepper-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px solid #b8cbec;
+  background: #edf4ff;
+  color: #3c4f74;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.pac-stepper-number {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid #98b7ea;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.pac-stepper-item.is-active {
+  border-color: #3e82db;
+  background: #ddeafe;
+  color: #143a70;
+}
+
+.pac-stepper-item.is-active .pac-stepper-number {
+  border-color: #1d78e8;
+  background: #1d78e8;
+  color: #fff;
+}
+
+.pac-stepper-item.is-complete {
+  border-color: #70b59e;
+  background: #ddf4ec;
+  color: #245a4c;
+}
+
+.pac-stepper-item.is-complete .pac-stepper-number {
+  border-color: #2a9f80;
+  background: #2a9f80;
+  color: #fff;
+}
+
+.pac-step-card[hidden] {
+  display: none !important;
+}
+
+.pac-step-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.pac-step-actions .google-btn {
+  margin-top: 0;
+}
+
+.pac-header-current-data {
+  margin-top: 8px;
+}
+
 .pac-guest-card {
   text-align: center;
 }
@@ -1485,4 +1601,14 @@ button:hover {
 
 .pac-floating-actions {
   background: rgba(226, 237, 255, 0.96);
+}
+
+@media (max-width: 740px) {
+  .pac-stepper-list {
+    grid-template-columns: 1fr;
+  }
+
+  .pac-onboarding-shell {
+    position: static;
+  }
 }

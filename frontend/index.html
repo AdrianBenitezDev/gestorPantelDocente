@@ -31,15 +31,45 @@
         alt="Ilustracion de bienvenida"
       />
       <h3>Bienvenido!</h3>
-      <p class="subtitle">
-        PanelDocente te ayuda a automatizar la creacion del PAC (planilla adicional docente) a partir de Gmail y Google Sheets,
-        para reducir tiempos y errores en la carga administrativa.
-      </p>
+      <p class="subtitle">Automatizá tu PAC en minutos ⏱️</p>
+      <p class="subtitle">Leé mails automáticamente y generá la planilla sin errores.</p>
+      <p class="subtitle">✔ Ahorra horas de carga manual<br />✔ Evita errores administrativos<br />✔ Funciona con Gmail y Google Sheets</p>
     </section>
 
     <div id="pac-authenticated-content">
-    <section class="card">
-      <h1>Crear PAC</h1>
+    <section id="pac-onboarding-shell" class="card pac-onboarding-shell">
+      <p class="pac-onboarding-eyebrow">Onboarding guiado</p>
+      <div class="pac-onboarding-progress">
+        <div class="pac-onboarding-progress-track">
+          <div id="pac-onboarding-progress-fill" class="pac-onboarding-progress-fill"></div>
+        </div>
+        <p id="pac-onboarding-progress-text" class="subtitle">Paso 1 de 5</p>
+      </div>
+      <ol class="pac-stepper-list">
+        <li class="pac-stepper-item" data-step-marker="1" data-step-label="Conectar Gmail">
+          <span class="pac-stepper-number">1</span>
+          <span>Conectar Gmail</span>
+        </li>
+        <li class="pac-stepper-item" data-step-marker="2" data-step-label="Encabezado del PAC">
+          <span class="pac-stepper-number">2</span>
+          <span>Encabezado del PAC</span>
+        </li>
+        <li class="pac-stepper-item" data-step-marker="3" data-step-label="Elegir tipo de PAC">
+          <span class="pac-stepper-number">3</span>
+          <span>Elegir tipo de PAC</span>
+        </li>
+        <li class="pac-stepper-item" data-step-marker="4" data-step-label="Configurar extraccion">
+          <span class="pac-stepper-number">4</span>
+          <span>Configurar extraccion</span>
+        </li>
+        <li class="pac-stepper-item" data-step-marker="5" data-step-label="Generar resultado">
+          <span class="pac-stepper-number">5</span>
+          <span>Generar resultado</span>
+        </li>
+      </ol>
+    </section>
+    <section class="card pac-step-card" data-step-index="1">
+      <h1>Paso 1 - Conectar Gmail</h1>
       <p class="subtitle">
         Flujo disponible: destino definitivo/interinos (adjunto DOCX) y designacion (datos en cuerpo del mail).
       </p>
@@ -47,9 +77,13 @@
         <button id="pac-connect-btn" type="button">Conectar Google</button>
       </div>
       <p id="pac-auth-msg" class="msg"></p>
+      <p id="pac-step-1-hint" class="subtitle"></p>
+      <div class="pac-step-actions">
+        <button id="pac-step-1-next-btn" type="button" data-step-next="1">Siguiente</button>
+      </div>
     </section>
 
-    <details id="pac-header-details" class="card pac-header-card">
+    <details id="pac-header-details" class="card pac-header-card pac-step-card" data-step-index="2">
       <summary class="pac-header-summary">
         <h3>Datos de encabezado del PAC</h3>
       </summary>
@@ -155,11 +189,17 @@
         </div>
       </div>
       <p id="pac-header-msg" class="msg"></p>
+      <p id="pac-header-current-data" class="subtitle pac-header-current-data"></p>
+      <p id="pac-header-step-hint" class="subtitle"></p>
+      <div class="pac-step-actions">
+        <button type="button" class="google-btn" data-step-prev="2">Anterior</button>
+        <button id="pac-step-2-next-btn" type="button" data-step-next="2">Siguiente</button>
+      </div>
     </details>
 
-    <section class="card">
-      <h2>Parametros de extraccion</h2>
-      <form id="pac-form" class="pac-grid">
+    <section class="card pac-step-card" data-step-index="3">
+      <h2>Paso 3 - Elegir tipo de PAC</h2>
+      <form class="pac-grid">
         <label>
           Proceso
           <select id="pac-mode">
@@ -167,6 +207,16 @@
             <option value="1" selected>Crear PAC designacion (cuerpo del mail)</option>
           </select>
         </label>
+      </form>
+      <div class="pac-step-actions">
+        <button type="button" class="google-btn" data-step-prev="3">Anterior</button>
+        <button type="button" data-step-next="3">Siguiente</button>
+      </div>
+    </section>
+
+    <section class="card pac-step-card" data-step-index="4">
+      <h2>Paso 4 - Configurar extraccion</h2>
+      <form id="pac-form" class="pac-grid">
         <label>
           Query Gmail
           <select id="pac-gmail-query"></select>
@@ -207,6 +257,15 @@
           </label>
         </form>
       </section>
+      <div class="pac-step-actions">
+        <button type="button" class="google-btn" data-step-prev="4">Anterior</button>
+        <button type="button" data-step-next="4">Siguiente</button>
+      </div>
+    </section>
+
+    <section class="card pac-step-card" data-step-index="5">
+      <h2>Paso 5 - Generar resultado</h2>
+      <p class="subtitle">Ejecuta una prueba, selecciona filas y guarda en Drive.</p>
       <div class="review-actions">
         <button id="pac-preview-btn" type="button" class="google-btn">Probar extraccion</button>
         <button id="pac-run-btn" type="button">Guardar seleccion en Drive</button>
@@ -229,9 +288,12 @@
         </span>
         <span>Ir a la planilla guardada en Drive</span>
       </a>
+      <div class="pac-step-actions">
+        <button type="button" class="google-btn" data-step-prev="5">Anterior</button>
+      </div>
     </section>
 
-    <section class="card">
+    <section class="card pac-step-card" data-step-index="5">
       <h2>Resultado</h2>
       <p id="pac-summary-msg" class="msg"></p>
       <details id="pac-errors-panel" class="pac-errors-panel">
