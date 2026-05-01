@@ -260,19 +260,10 @@
       </div>
     </section>
 
-    <section class="card pac-step-card" data-step-index="5">
+    <article class="card pac-step-card" data-step-index="5">
       <h2>Paso 5 - Ver resultado</h2>
       <p class="subtitle">Resultado de la extraccion</p>
-      <div class="pac-step-actions">
-        <button type="button" class="google-btn" data-step-prev="5">Anterior</button>
-      </div>
-    </section>
-
-    <article class="card pac-step-card" data-step-index="5">
       <h3>Resultado</h3>
-      <div class="review-actions">
-        <button id="pac-run-btn" type="button">Guardar seleccion en Drive</button>
-      </div>
       <p id="pac-run-msg" class="msg"></p>
       <a
         id="pac-open-drive-btn"
@@ -347,15 +338,46 @@
           </tbody>
         </table>
       </div>
+      <div class="pac-step-actions">
+        <button type="button" class="google-btn" data-step-prev="5">Anterior</button>
+      </div>
     </article>
     </div>
   </main>
 
   <div id="pac-floating-actions" class="pac-floating-actions" hidden>
-    <button id="pac-float-cancel-btn" type="button">Cancelar</button>
-    <button id="pac-float-download-btn" type="button" class="google-btn">Descargar archivo</button>
-    <button id="pac-float-save-btn" type="button">Guardar en Drive</button>
-    <button id="pac-float-preview-btn" type="button" class="google-btn">Vista previa</button>
+    <button id="pac-float-cancel-btn" type="button" class="pac-float-btn is-secondary">
+      <span class="pac-float-btn-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="14" height="14" xmlns="http://www.w3.org/2000/svg">
+          <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+        </svg>
+      </span>
+      <span>Cancelar</span>
+    </button>
+    <button id="pac-float-download-btn" type="button" class="pac-float-btn">
+      <span class="pac-float-btn-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="14" height="14" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 4v10m0 0l-4-4m4 4l4-4M5 20h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </span>
+      <span>Descargar archivo</span>
+    </button>
+    <button id="pac-float-save-btn" type="button" class="pac-float-btn">
+      <span class="pac-float-btn-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="14" height="14" xmlns="http://www.w3.org/2000/svg">
+          <path d="M6 4h10l4 4v12H4V4h2zm2 0v6h8V4M8 20v-6h8v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+        </svg>
+      </span>
+      <span>Guardar en Drive</span>
+    </button>
+    <button id="pac-float-preview-btn" type="button" class="pac-float-btn">
+      <span class="pac-float-btn-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="14" height="14" xmlns="http://www.w3.org/2000/svg">
+          <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6zm10 3a3 3 0 100-6 3 3 0 000 6z" fill="none" stroke="currentColor" stroke-width="2" />
+        </svg>
+      </span>
+      <span>Vista previa</span>
+    </button>
   </div>
 
   <div id="shared-footer-root"></div>

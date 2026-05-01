@@ -1363,8 +1363,7 @@ a.link-btn:hover {
   transform: translateX(22px);
 }
 
-#pac-preview-btn,
-#pac-run-btn {
+#pac-preview-btn {
   margin-top: 10px;
 }
 
@@ -1497,6 +1496,36 @@ a.link-btn:hover {
 
 .pac-floating-actions[hidden] {
   display: none;
+}
+
+.pac-float-btn {
+  min-height: 38px;
+  border-radius: 10px;
+  padding: 8px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #7ea4df;
+  background: linear-gradient(135deg, #1d78e8 0%, #3b8cf2 52%, #2eb89a 100%);
+  color: #fff;
+  box-shadow: 0 6px 14px rgba(20, 64, 136, 0.22);
+}
+
+.pac-float-btn:hover {
+  filter: brightness(1.05);
+}
+
+.pac-float-btn.is-secondary {
+  border-color: #9bb0d4;
+  background: #e9f0ff;
+  color: #1f3c70;
+  box-shadow: none;
+}
+
+.pac-float-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .pac-row-checkbox,

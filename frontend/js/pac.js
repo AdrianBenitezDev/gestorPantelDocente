@@ -2018,13 +2018,17 @@ if (connectBtn) {
   });
 }
 
-previewBtn.addEventListener("click", async () => {
-  await runPacProcess(true);
-});
+if (previewBtn) {
+  previewBtn.addEventListener("click", async () => {
+    await runPacProcess(true);
+  });
+}
 
-runBtn.addEventListener("click", async () => {
-  await saveSelectedRowsToDrive();
-});
+if (runBtn) {
+  runBtn.addEventListener("click", async () => {
+    await saveSelectedRowsToDrive();
+  });
+}
 
 if (queryInput) {
   queryInput.addEventListener("change", () => {
