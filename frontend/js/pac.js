@@ -22,10 +22,7 @@ const errorsPanel = document.getElementById("pac-errors-panel");
 const errorsSummaryEl = document.getElementById("pac-errors-summary");
 const errorsListEl = document.getElementById("pac-errors-list");
 const headerMsg = document.getElementById("pac-header-msg");
-const headerDetails = document.getElementById("pac-header-details");
-const headerSummary = document.querySelector("#pac-header-details > .pac-header-summary");
-const headerSummaryTitle = document.querySelector("#pac-header-details > .pac-header-summary h3");
-const headerContent = document.getElementById("pac-header-content");
+const headerSummaryTitle = document.getElementById("pac-header-title");
 const userNameEl = document.getElementById("pac-user-name");
 const userEmailEl = document.getElementById("pac-user-email");
 const resultsBody = document.getElementById("pac-results-body");
@@ -602,9 +599,6 @@ async function handleOnboardingNextFromStep(step) {
   if (safeStep === 2) {
     if (!isPacHeaderComplete(collectPacHeaderData())) {
       setMsg(headerMsg, "Completa todos los datos del encabezado para continuar.", true);
-      if (headerDetails) {
-        headerDetails.open = true;
-      }
       updateHeaderStepStatus();
       return;
     }
@@ -1147,24 +1141,12 @@ function updatePacHeaderSummaryStatus() {
   const status = isPacHeaderComplete(collectPacHeaderData())
     ? "\u2705 Listo"
     : "\u274C Faltan Cargar";
-  headerSummaryTitle.textContent = `Datos de encabezado del PAC ${status}`;
+  headerSummaryTitle.textContent = `Paso 2 - Datos de encabezado del PAC ${status}`;
   updateHeaderStepStatus();
 }
 
 function syncPacHeaderOpenStateFromData() {
-  if (!headerDetails) {
-    return;
-  }
-  const shouldOpen = !isPacHeaderComplete(collectPacHeaderData());
-  if (headerDetails.open === shouldOpen) {
-    return;
-  }
-  headerDetails.open = shouldOpen;
-  if (headerContent) {
-    headerContent.style.height = "";
-    headerContent.style.opacity = "";
-    headerContent.style.overflow = "";
-  }
+  // El panel de encabezado ya no es desplegable en el flujo guiado.
 }
 
 async function persistPacHeaderInIndexedDb(headerData) {
@@ -1283,74 +1265,7 @@ async function savePacHeader() {
   }
 }
 
-function initPacHeaderToggleAnimation() {
-  if (!headerDetails || !headerSummary || !headerContent) {
-    return;
-  }
-
-  let animating = false;
-
-  headerSummary.addEventListener("click", (event) => {
-    event.preventDefault();
-    if (animating) {
-      return;
-    }
-
-    const isOpen = headerDetails.open;
-    const currentHeight = headerContent.getBoundingClientRect().height || 0;
-    headerContent.style.overflow = "hidden";
-
-    if (isOpen) {
-      animating = true;
-      headerContent.style.height = `${currentHeight}px`;
-      headerContent.style.opacity = "1";
-      requestAnimationFrame(() => {
-        headerContent.style.height = "0px";
-        headerContent.style.opacity = "0";
-      });
-
-      const onCloseEnd = (closeEvent) => {
-        if (closeEvent?.propertyName !== "height") {
-          return;
-        }
-        headerContent.removeEventListener("transitionend", onCloseEnd);
-        headerDetails.open = false;
-        headerContent.style.height = "";
-        headerContent.style.opacity = "";
-        headerContent.style.overflow = "";
-        animating = false;
-      };
-      headerContent.addEventListener("transitionend", onCloseEnd);
-      return;
-    }
-
-    animating = true;
-    headerDetails.open = true;
-    headerContent.style.height = "0px";
-    headerContent.style.opacity = "0";
-    requestAnimationFrame(() => {
-      const targetHeight = headerContent.scrollHeight;
-      headerContent.style.height = `${targetHeight}px`;
-      headerContent.style.opacity = "1";
-    });
-
-    const onOpenEnd = (openEvent) => {
-      if (openEvent?.propertyName !== "height") {
-        return;
-      }
-      headerContent.removeEventListener("transitionend", onOpenEnd);
-      headerContent.style.height = "";
-      headerContent.style.opacity = "";
-      headerContent.style.overflow = "";
-      animating = false;
-    };
-    headerContent.addEventListener("transitionend", onOpenEnd);
-  });
-}
-
 function initPacHeaderForm() {
-  initPacHeaderToggleAnimation();
-
   if (headerAnioInput && !String(headerAnioInput.value || "").trim()) {
     headerAnioInput.value = String(getCurrentYear());
   }

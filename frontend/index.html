@@ -45,28 +45,23 @@
         </div>
         <p id="pac-onboarding-progress-text" class="subtitle">Paso 1 de 5</p>
       </div>
-      <ol class="pac-stepper-list">
-        <li class="pac-stepper-item" data-step-marker="1" data-step-label="Conectar Gmail">
-          <span class="pac-stepper-number">1</span>
-          <span>Conectar Gmail</span>
-        </li>
-        <li class="pac-stepper-item" data-step-marker="2" data-step-label="Encabezado del PAC">
-          <span class="pac-stepper-number">2</span>
-          <span>Encabezado del PAC</span>
-        </li>
-        <li class="pac-stepper-item" data-step-marker="3" data-step-label="Elegir tipo de PAC">
-          <span class="pac-stepper-number">3</span>
-          <span>Elegir tipo de PAC</span>
-        </li>
-        <li class="pac-stepper-item" data-step-marker="4" data-step-label="Configurar extraccion">
-          <span class="pac-stepper-number">4</span>
-          <span>Configurar extraccion</span>
-        </li>
-        <li class="pac-stepper-item" data-step-marker="5" data-step-label="Generar resultado">
-          <span class="pac-stepper-number">5</span>
-          <span>Generar resultado</span>
-        </li>
-      </ol>
+      <div class="pac-stepper-list" role="list" aria-label="Pasos del onboarding PAC">
+        <article class="pac-stepper-item" data-step-marker="1" data-step-label="Conectar Gmail" role="listitem">
+          <h4>1. Conectar Gmail</h4>
+        </article>
+        <article class="pac-stepper-item" data-step-marker="2" data-step-label="Encabezado del PAC" role="listitem">
+          <h4>2. Encabezado del PAC</h4>
+        </article>
+        <article class="pac-stepper-item" data-step-marker="3" data-step-label="Elegir tipo de PAC" role="listitem">
+          <h4>3. Elegir tipo de PAC</h4>
+        </article>
+        <article class="pac-stepper-item" data-step-marker="4" data-step-label="Configurar extraccion" role="listitem">
+          <h4>4. Configurar extraccion</h4>
+        </article>
+        <article class="pac-stepper-item" data-step-marker="5" data-step-label="Generar resultado" role="listitem">
+          <h4>5. Generar resultado</h4>
+        </article>
+      </div>
     </section>
     <section class="card pac-step-card" data-step-index="1">
       <h1>Paso 1 - Conectar Gmail</h1>
@@ -83,10 +78,8 @@
       </div>
     </section>
 
-    <details id="pac-header-details" class="card pac-header-card pac-step-card" data-step-index="2">
-      <summary class="pac-header-summary">
-        <h3>Datos de encabezado del PAC</h3>
-      </summary>
+    <section id="pac-header-details" class="card pac-header-card pac-step-card" data-step-index="2">
+      <h3 id="pac-header-title" class="pac-header-title">Paso 2 - Datos de encabezado del PAC</h3>
       <div id="pac-header-content" class="pac-header-content">
         <div class="pac-header-content-inner">
           <p class="pac-header-intro">Ingrese los siguientes datos, seran colocados en el encabezado del pac</p>
@@ -195,7 +188,7 @@
         <button type="button" class="google-btn" data-step-prev="2">Anterior</button>
         <button id="pac-step-2-next-btn" type="button" data-step-next="2">Siguiente</button>
       </div>
-    </details>
+    </section>
 
     <section class="card pac-step-card" data-step-index="3">
       <h2>Paso 3 - Elegir tipo de PAC</h2>
@@ -293,8 +286,8 @@
       </div>
     </section>
 
-    <section class="card pac-step-card" data-step-index="5">
-      <h2>Resultado</h2>
+    <article class="card pac-step-card" data-step-index="5">
+      <h3>Resultado</h3>
       <p id="pac-summary-msg" class="msg"></p>
       <details id="pac-errors-panel" class="pac-errors-panel">
         <summary id="pac-errors-summary" class="pac-errors-summary">Errores detectados (0)</summary>
@@ -351,7 +344,7 @@
           </tbody>
         </table>
       </div>
-    </section>
+    </article>
     </div>
   </main>
 

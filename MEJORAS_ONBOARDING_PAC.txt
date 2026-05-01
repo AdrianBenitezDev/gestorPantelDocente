@@ -1,0 +1,41 @@
+﻿MEJORAS_ONBOARDING_PAC.txt
+
+Objetivo
+- Guiar al usuario paso a paso en el modulo PAC, mostrando solo el panel actual.
+
+Mejoras solicitadas
+1. Barra de progreso horizontal fija en pantalla.
+2. Pasos numerados visibles: 1 a 5.
+3. Botones Anterior/Siguiente para navegar entre pasos.
+4. Mostrar unicamente el paso actual y ocultar el resto.
+5. Paso 2 claramente identificado como paso de encabezado PAC.
+6. Quitar comportamiento desplegable del panel de encabezado.
+7. En el paso 5, mostrar tambien el articulo con titulo "Resultado".
+8. Mantener el banner/hero visible todo el tiempo.
+
+Como se implementa
+- HTML:
+  - Se agrega shell de onboarding fijo con:
+    - Barra de progreso.
+    - Tarjetas horizontales de pasos (1..5).
+  - El panel "Datos de encabezado del PAC" deja de ser <details> y pasa a <section>.
+  - Se agrega titulo explicito de paso 2: "Paso 2 - Datos de encabezado del PAC".
+  - El bloque de resultado se define como <article> con <h3>Resultado</h3> dentro del paso 5.
+
+- CSS:
+  - Se estiliza barra de progreso horizontal y relleno dinamico.
+  - Se estilizan tarjetas de paso horizontales (estado activo/completado).
+  - El shell de onboarding queda fijo bajo el top banner.
+  - Se agrega espacio superior al contenido autenticado para evitar solapamiento.
+
+- JavaScript:
+  - Se controla el paso actual con estado (currentStep).
+  - setOnboardingStep() muestra solo paneles del paso actual y oculta el resto.
+  - Botones Anterior/Siguiente cambian currentStep y actualizan barra + indicadores.
+  - Paso 2 valida encabezado completo antes de avanzar.
+  - Se elimina la logica de panel desplegable del encabezado.
+
+Resultado esperado
+- Flujo lineal claro, con menor sobrecarga visual.
+- Navegacion guiada y progreso visible en todo momento.
+- Paso 5 combina acciones de generacion y visualizacion de resultados en el mismo contexto.

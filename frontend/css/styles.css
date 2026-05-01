@@ -1082,27 +1082,16 @@ a.link-btn:hover {
   padding: 10px 12px 12px;
 }
 
-.pac-header-summary {
-  cursor: pointer;
-  user-select: none;
-  color: var(--text);
-  font-weight: 600;
-}
-
-.pac-header-summary h3 {
+.pac-header-title {
   margin: 0;
-  display: inline;
   font-size: 19px;
-}
-
-.pac-header-card[open] .pac-header-summary {
-  margin-bottom: 10px;
+  color: var(--text);
+  font-weight: 700;
 }
 
 .pac-header-content {
-  overflow: hidden;
+  margin-top: 10px;
   opacity: 1;
-  transition: height 0.28s ease, opacity 0.28s ease;
 }
 
 .pac-header-content-inner {
@@ -1169,8 +1158,11 @@ a.link-btn:hover {
 }
 
 .pac-onboarding-shell {
-  position: sticky;
-  top: calc(var(--sticky-top) + 4px);
+  position: fixed;
+  top: 78px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(1280px, calc(100% - 36px));
   z-index: 15;
   padding-bottom: 10px;
 }
@@ -1208,36 +1200,30 @@ a.link-btn:hover {
 
 .pac-stepper-list {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(180px, 1fr);
   gap: 8px;
-  list-style: none;
   margin: 0;
   padding: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .pac-stepper-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  display: block;
   padding: 8px;
   border-radius: 10px;
   border: 1px solid #b8cbec;
   background: #edf4ff;
   color: #3c4f74;
-  font-size: 12px;
-  line-height: 1.2;
+  min-height: 56px;
 }
 
-.pac-stepper-number {
-  width: 22px;
-  height: 22px;
-  border-radius: 999px;
-  border: 1px solid #98b7ea;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+.pac-stepper-item h4 {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.25;
   font-weight: 700;
-  flex-shrink: 0;
 }
 
 .pac-stepper-item.is-active {
@@ -1246,22 +1232,10 @@ a.link-btn:hover {
   color: #143a70;
 }
 
-.pac-stepper-item.is-active .pac-stepper-number {
-  border-color: #1d78e8;
-  background: #1d78e8;
-  color: #fff;
-}
-
 .pac-stepper-item.is-complete {
   border-color: #70b59e;
   background: #ddf4ec;
   color: #245a4c;
-}
-
-.pac-stepper-item.is-complete .pac-stepper-number {
-  border-color: #2a9f80;
-  background: #2a9f80;
-  color: #fff;
 }
 
 .pac-step-card[hidden] {
@@ -1282,6 +1256,10 @@ a.link-btn:hover {
 
 .pac-header-current-data {
   margin-top: 8px;
+}
+
+#pac-authenticated-content {
+  padding-top: 200px;
 }
 
 .pac-guest-card {
@@ -1604,11 +1582,7 @@ button:hover {
 }
 
 @media (max-width: 740px) {
-  .pac-stepper-list {
-    grid-template-columns: 1fr;
-  }
-
-  .pac-onboarding-shell {
-    position: static;
+  #pac-authenticated-content {
+    padding-top: 220px;
   }
 }
