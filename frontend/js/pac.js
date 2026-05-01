@@ -11,10 +11,8 @@ import { formatUserError } from "./userFacingText.js";
 const connectBtn = document.getElementById("pac-connect-btn");
 const logoutBtn = document.getElementById("pac-logout-btn");
 const previewBtn = document.getElementById("pac-preview-btn");
-const runBtn = document.getElementById("pac-run-btn");
 const authMsg = document.getElementById("pac-auth-msg");
 const runMsg = document.getElementById("pac-run-msg");
-const goHorariosLink = document.getElementById("pac-go-horarios-link");
 const openDriveBtn = document.getElementById("pac-open-drive-btn");
 const summaryMsg = document.getElementById("pac-summary-msg");
 const errorsMsg = document.getElementById("pac-errors-msg");
@@ -117,7 +115,6 @@ const PAC_ACCESS_TOKEN_STORAGE_KEY = "pacAccessToken";
 const PAC_ACCESS_TOKEN_UID_STORAGE_KEY = "pacAccessTokenUid";
 const PAC_ACCESS_TOKEN_AT_STORAGE_KEY = "pacAccessTokenStoredAt";
 const PAC_DEFAULT_SHEET_URL = "https://docs.google.com/spreadsheets/d/1UP0FlTWQdHciMe1dbpj2i1dhsQAk4EsxCtq2Bvxlv2U/edit?usp=sharing";
-const PAC_HORARIOS_ALLOWED_EMAIL = "secundaria3altebrown@abc.gob.ar";
 const PAC_WAYLIST_EMAILS = new Set([
   "ellariatyrell.341412@gmail.com",
   "artbenitezdev@gmail.com",
@@ -481,14 +478,6 @@ function setMsg(el, text, isError = false) {
   el.textContent = text;
   el.classList.toggle("error", isError);
   el.classList.toggle("success", !isError && Boolean(text));
-}
-
-function applyHorariosLinkVisibility(user) {
-  if (!goHorariosLink) {
-    return;
-  }
-  const email = String(user?.email || "").trim().toLowerCase();
-  goHorariosLink.hidden = email !== PAC_HORARIOS_ALLOWED_EMAIL;
 }
 
 function setDriveResultButton(sheetUrl = "") {
@@ -1731,7 +1720,6 @@ async function runPacProcess(previewOnly) {
   state.busy = true;
   setDriveResultButton("");
   setBusy(previewBtn, true);
-  setBusy(runBtn, true);
   setMsg(runMsg, previewOnly ? "Ejecutando prueba..." : "Procesando...");
   setMsg(summaryMsg, "");
   renderErrors([]);
@@ -1797,7 +1785,6 @@ async function runPacProcess(previewOnly) {
   } finally {
     state.busy = false;
     setBusy(previewBtn, false);
-    setBusy(runBtn, false);
   }
 }
 
@@ -1834,7 +1821,6 @@ async function processSelectedRows(delivery = "drive") {
 
   state.busy = true;
   setBusy(previewBtn, true);
-  setBusy(runBtn, true);
   if (floatSaveBtn) {
     setBusy(floatSaveBtn, true);
   }
@@ -1853,7 +1839,6 @@ async function processSelectedRows(delivery = "drive") {
     if (!authorized) {
       state.busy = false;
       setBusy(previewBtn, false);
-      setBusy(runBtn, false);
       if (floatSaveBtn) {
         setBusy(floatSaveBtn, false);
       }
@@ -1919,7 +1904,6 @@ async function processSelectedRows(delivery = "drive") {
   } finally {
     state.busy = false;
     setBusy(previewBtn, false);
-    setBusy(runBtn, false);
     if (floatSaveBtn) {
       setBusy(floatSaveBtn, false);
     }
@@ -2072,12 +2056,6 @@ if (previewBtn) {
   });
 }
 
-if (runBtn) {
-  runBtn.addEventListener("click", async () => {
-    await saveSelectedRowsToDrive();
-  });
-}
-
 if (queryInput) {
   queryInput.addEventListener("change", () => {
     schedulePacExtractionConfigPersistence();
@@ -2190,7 +2168,6 @@ if (logoutBtn) {
       state.hasTenantAccess = false;
       state.tenantId = "";
       currentPacSessionLogKey = "";
-      applyHorariosLinkVisibility(null);
       cancelSelectionFlow();
       setMsg(authMsg, "Sesion cerrada");
       setMsg(runMsg, "");
@@ -2214,7 +2191,6 @@ onAuthStateChanged(auth, (user) => {
     state.extractionConfigLoadedFromRemote = false;
     state.hasTenantAccess = false;
     state.tenantId = "";
-    applyHorariosLinkVisibility(null);
     setMsg(authMsg, "Inicia sesion con Google. Los permisos se pediran segun la accion que uses.");
     return;
   }
@@ -2237,7 +2213,6 @@ onAuthStateChanged(auth, (user) => {
   if (!state.accessToken) {
     state.accessToken = restorePersistedAccessToken(user);
   }
-  applyHorariosLinkVisibility(user);
   syncOnboardingFromState();
   void (async () => {
     const waylistHeaderPrimed = await primeWaylistPacHeaderForUser(user);
@@ -2273,7 +2248,6 @@ hydrateSheetCustomizationToggle();
 setDefaultModeOption();
 renderProcessDependentGmailQueries();
 void hydratePacExtractionConfigFromIndexedDb();
-applyHorariosLinkVisibility(null);
 updateHeaderAuthButton(auth.currentUser);
 updateGuestView(null);
 setDriveResultButton("");

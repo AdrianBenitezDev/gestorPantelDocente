@@ -8,7 +8,7 @@ Objetivo
 
 Archivos modificados
 1) functions/src/index.js
-2) frontend/js/app.js
+2) frontend/js/pac.js
 
 Detalle de cambios
 - Se agrego allowlist temporal en Cloud Functions:
@@ -24,7 +24,7 @@ Detalle de cambios
   - getSubscriptionStatus
   - syncSubscriptionStatus
 - Frontend:
-  - En frontend/js/app.js, loadAuthenticatedTenantState(...) ahora llama
+  - En frontend/js/pac.js, loadAuthenticatedTenantState(...) ahora llama
     getSubscriptionStatus() si el perfil no existe antes de redirigir a /registro.html.
 
 Como revertir (marcha atras)
@@ -37,7 +37,7 @@ Como revertir (marcha atras)
    - startSubscriptionCheckout: quitar bloque bypassCheckout.
    - getSubscriptionStatus: quitar llamada a ensureGoogleTestBypassAccess.
    - syncSubscriptionStatus: quitar llamada y respuesta bypassSync.
-3) En frontend/js/app.js revertir loadAuthenticatedTenantState(...) para que:
+3) En frontend/js/pac.js revertir loadAuthenticatedTenantState(...) para que:
    - no llame getSubscriptionStatus() cuando falta perfil.
    - redirija directo a /registro.html como antes.
 4) (Opcional limpieza de datos de prueba en Firestore)

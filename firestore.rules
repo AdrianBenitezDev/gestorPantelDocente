@@ -70,24 +70,7 @@ service cloud.firestore {
 
       match /configuraciones/{configId} {
         allow read, write: if hasActiveTenantAccess(tenantId)
-          && (configId == "turnosAndHorarios" || configId == "tunosAndHorarios");
-      }
-
-      match /botones/{buttonId} {
-        allow read, write: if hasActiveTenantAccess(tenantId);
-      }
-
-      match /docentes/{docenteId} {
-        allow read, write: if hasActiveTenantAccess(tenantId);
-      }
-
-      match /cursos/{cursoId} {
-        allow read: if hasActiveTenantAccess(tenantId);
-        allow create, update, delete: if false;
-
-        match /items/{itemId} {
-          allow read, write: if hasActiveTenantAccess(tenantId);
-        }
+          && (configId == "encabezadoPac" || configId == "pacExtraccion");
       }
 
       // Todo lo demas en tenants/** queda cerrado por defecto.

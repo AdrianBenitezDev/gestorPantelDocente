@@ -20,7 +20,7 @@ Estructura inicial creada para separar la app nueva de `legacy_gas`.
 2. Instalar dependencias de Functions:
    - `cd functions`
    - `npm install`
-3. Completar `firebaseConfig` en `frontend/js/app.js`.
+3. Completar `firebaseConfig` en `frontend/js/pac.js`.
 4. Habilitar en Firebase Console:
    - Authentication -> Email/Password.
    - Firestore Database (modo produccion).
