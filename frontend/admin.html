@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" type="image/png" href="/icon/paneldocente.png?v=20260318-2" />
+  <link rel="stylesheet" href="./css/styles.css?v=20260318-theme1" />
+  <title>Admin | PanelDocente</title>
+</head>
+<body>
+  <header class="top-banner">
+    <div class="brand-block">
+      <img class="brand-icon" src="/icon/paneldocente.png?v=20260318-2" alt="Logo de PanelDocente" />
+      <span class="brand-name">PanelDocente - Admin</span>
+    </div>
+    <div class="user-block">
+      <div class="user-meta">
+        <span class="user-icon" aria-hidden="true">&#128100;</span>
+        <span id="admin-user-name" class="user-name">Sin sesion</span>
+        <span id="admin-user-email" class="user-email">-</span>
+      </div>
+      <button id="admin-logout-btn" type="button" class="google-btn">Cerrar sesion</button>
+    </div>
+  </header>
+
+  <main class="app">
+    <section class="card">
+      <h1>Panel Admin</h1>
+      <p class="subtitle">Acceso restringido por backend al correo autorizado.</p>
+      <p id="admin-status-msg" class="msg"></p>
+    </section>
+
+    <section id="admin-panel" class="card" hidden>
+      <h2>Usuarios</h2>
+      <p id="admin-users-summary" class="subtitle">Total usuarios: 0</p>
+      <div class="admin-table-wrap">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Nombre</th>
+              <th>Correo</th>
+              <th>Distrito</th>
+              <th>Nivel</th>
+              <th>Escuela</th>
+              <th>Plan</th>
+              <th>Estado cobro</th>
+              <th>App habilitada</th>
+              <th>Tenant</th>
+              <th>Creado</th>
+              <th>Actualizado</th>
+              <th>UID</th>
+            </tr>
+          </thead>
+          <tbody id="admin-users-body">
+            <tr>
+              <td colspan="13">Cargando usuarios...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <div id="shared-footer-root"></div>
+  <script src="./footer/footer.js" defer></script>
+  <script type="module" src="./js/admin.js"></script>
+</body>
+</html>

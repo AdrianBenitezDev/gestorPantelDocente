@@ -30,6 +30,7 @@ const GOOGLE_TEST_BYPASS_EMAILS = new Set([
   "artbenitezdev@gmail.com",
   "eurontyrell.571112@gmail.com",
 ]);
+const ADMIN_ALLOWED_EMAIL = "artbenitezdev@gmail.com";
 const GOOGLE_TEST_BYPASS_TAG = "google_test_allowlist";
 const GOOGLE_TEST_BYPASS_EMAILS_CANONICAL = new Set(
   Array.from(GOOGLE_TEST_BYPASS_EMAILS).map((email) => normalizeEmailForAllowlist(email))
@@ -75,7 +76,7 @@ function buildPlanProDefaults(mpPreapprovalPlanId = "") {
   return {
     code: "plan_pro",
     title: "Plan Pro",
-    amount: 2000,
+    amount: 3000,
     currency: "ARS",
     frequency: 1,
     frequencyType: "months",
@@ -116,6 +117,163 @@ function normalizePlanCode(value) {
 
 function shortText(value, maxLength = 280) {
   return String(value || "").trim().slice(0, Math.max(0, Number(maxLength) || 0));
+}
+
+function timestampToMillis(value) {
+  if (value && typeof value.toMillis === "function") {
+    try {
+      return value.toMillis();
+    } catch (_error) {
+      return null;
+    }
+  }
+  return null;
+}
+
+function assertAdminAccess(request) {
+  if (!request?.auth) {
+    throw new HttpsError("unauthenticated", "Auth required");
+  }
+  const uid = String(request.auth.uid || "").trim();
+  const authEmail = normalizeEmail(request.auth.token?.email || "");
+  if (authEmail !== ADMIN_ALLOWED_EMAIL) {
+    logger.warn("admin access denied", {
+      uid,
+      email: authEmail || null,
+    });
+    throw new HttpsError("permission-denied", "Admin access denied", {
+      code: "admin_forbidden",
+    });
+  }
+  return { uid, authEmail };
+}
+
+const METRIC_EVENT_COUNTER_FIELD_BY_TYPE = Object.freeze({
+  inicio_sesion: "iniciosSesion",
+  pac_realizado: "pacRealizados",
+  pac_descargado: "pacDescargados",
+  pac_guardado_drive: "pacGuardadosDrive",
+});
+
+function sanitizeMetricMetadataValue(value) {
+  if (value === null) {
+    return null;
+  }
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : undefined;
+  }
+  if (typeof value === "string") {
+    return shortText(value, 600);
+  }
+  if (Array.isArray(value)) {
+    return value
+      .slice(0, 30)
+      .map((item) => shortText(item, 140))
+      .filter(Boolean);
+  }
+  return shortText(JSON.stringify(value), 1200);
+}
+
+function sanitizeMetricMetadata(rawMetadata) {
+  const source = rawMetadata && typeof rawMetadata === "object" ? rawMetadata : {};
+  const metadata = {};
+  Object.entries(source).forEach(([rawKey, rawValue]) => {
+    const key = shortText(rawKey, 80);
+    if (!key) {
+      return;
+    }
+    const safeValue = sanitizeMetricMetadataValue(rawValue);
+    if (safeValue === undefined) {
+      return;
+    }
+    metadata[key] = safeValue;
+  });
+  return metadata;
+}
+
+function resolveMetricCounterField(eventType) {
+  const safeType = shortText(eventType, 80).toLowerCase();
+  return METRIC_EVENT_COUNTER_FIELD_BY_TYPE[safeType] || "";
+}
+
+async function resolveTenantIdForMetrics(uid) {
+  const safeUid = String(uid || "").trim();
+  if (!safeUid) {
+    return "";
+  }
+  try {
+    const userSnap = await db.collection("usuarios").doc(safeUid).get();
+    if (!userSnap.exists) {
+      return "";
+    }
+    const userData = userSnap.data() || {};
+    const tenantId = profileTenantId(userData);
+    const appEnabled = profileAccessAppEnabled(userData);
+    if (!tenantId || !appEnabled) {
+      return "";
+    }
+    return tenantId;
+  } catch (error) {
+    logger.warn("resolveTenantIdForMetrics failed", {
+      uid: safeUid,
+      message: shortText(error?.message || "unknown_error", 280),
+    });
+    return "";
+  }
+}
+
+async function registerTenantMetricEvent({
+  tenantId,
+  uid = "",
+  email = "",
+  eventType = "",
+  source = "",
+  metadata = {},
+} = {}) {
+  const safeTenantId = String(tenantId || "").trim();
+  const safeEventType = shortText(eventType, 80).toLowerCase();
+  if (!safeTenantId || !safeEventType) {
+    return "";
+  }
+
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const eventRef = db.collection("tenants").doc(safeTenantId).collection("metricasEventos").doc();
+  const summaryRef = db.collection("tenants").doc(safeTenantId).collection("metricasResumen").doc("general");
+  const counterField = resolveMetricCounterField(safeEventType);
+  const safeMetadata = sanitizeMetricMetadata(metadata);
+
+  const batch = db.batch();
+  batch.set(eventRef, {
+    eventId: eventRef.id,
+    tenantId: safeTenantId,
+    uid: shortText(uid, 120),
+    email: normalizeEmail(email),
+    eventType: safeEventType,
+    source: shortText(source, 80) || "web",
+    metadata: safeMetadata,
+    createdAt: now,
+  });
+
+  const summaryPayload = {
+    tenantId: safeTenantId,
+    lastEventAt: now,
+    lastEventType: safeEventType,
+    updatedAt: now,
+    createdAt: now,
+  };
+  if (counterField) {
+    summaryPayload[counterField] = admin.firestore.FieldValue.increment(1);
+  }
+  batch.set(summaryRef, summaryPayload, { merge: true });
+  await batch.commit();
+
+  return eventRef.id;
 }
 
 function isGoogleTestBypassEmail(value) {
@@ -416,7 +574,7 @@ async function createMercadoPagoPreapproval({
     payload.auto_recurring = {
       frequency: Number(safePlan.frequency || 1),
       frequency_type: String(safePlan.frequencyType || "months"),
-      transaction_amount: Number(safePlan.amount || 2000),
+      transaction_amount: Number(safePlan.amount || 3000),
       currency_id: String(safePlan.currency || "ARS"),
     };
   }
@@ -1763,7 +1921,7 @@ exports.mercadoPagoSetupStatus = onCall(
       mode: "production_only",
       plan: {
         code: String(planPro.code || "plan_pro"),
-        amount: Number(planPro.amount || 2000),
+        amount: Number(planPro.amount || 3000),
         currency: String(planPro.currency || "ARS"),
         frequency: Number(planPro.frequency || 1),
         frequencyType: String(planPro.frequencyType || "months"),
@@ -2285,6 +2443,44 @@ exports.getSubscriptionStatus = onCall(callableOptions, async (request) => {
   };
 });
 
+exports.getAdminUsers = onCall(callableOptions, async (request) => {
+  const { authEmail } = assertAdminAccess(request);
+
+  const usersSnap = await db.collection("usuarios").get();
+  const users = usersSnap.docs.map((docSnap) => {
+    const data = docSnap.data() || {};
+    const access = data.access && typeof data.access === "object" ? data.access : {};
+    const billing = data.billing && typeof data.billing === "object" ? data.billing : {};
+    return {
+      uid: String(docSnap.id || "").trim(),
+      nombre: shortText(data.nombre || "", 140),
+      correo: normalizeEmail(data.correo || data.email || ""),
+      distrito: shortText(data.distrito || "", 40),
+      nivel: shortText(data.nivel || "", 80),
+      escuela: shortText(data.escuela || "", 40),
+      tenantId: shortText(data.tenantId || "", 120),
+      appEnabled: access.appEnabled === true,
+      billingStatus: shortText(billing.status || "", 80),
+      planCode: shortText(billing.planCode || "", 80),
+      createdAtMs: timestampToMillis(data.createdAt),
+      updatedAtMs: timestampToMillis(data.updatedAt),
+    };
+  });
+
+  users.sort((a, b) => {
+    const left = Number(a.updatedAtMs || a.createdAtMs || 0);
+    const right = Number(b.updatedAtMs || b.createdAtMs || 0);
+    return right - left;
+  });
+
+  return {
+    ok: true,
+    adminEmail: authEmail,
+    total: users.length,
+    users,
+  };
+});
+
 exports.syncSubscriptionStatus = onCall(
   {
     ...callableOptions,
@@ -2422,6 +2618,26 @@ exports.registerSession = onCall(callableOptions, async (request) => {
     },
     { merge: true }
   );
+
+  try {
+    await registerTenantMetricEvent({
+      tenantId,
+      uid,
+      email,
+      eventType: "inicio_sesion",
+      source,
+      metadata: {
+        provider,
+        sessionId: sessionRef.id,
+      },
+    });
+  } catch (metricError) {
+    logger.warn("registerSession metric event failed", {
+      tenantId,
+      uid,
+      message: shortText(metricError?.message || "metric_write_failed", 280),
+    });
+  }
 
   return {
     ok: true,
@@ -4856,6 +5072,9 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
     throw new HttpsError("unauthenticated", "Auth required");
   }
 
+  const uid = String(request.auth.uid || "").trim();
+  const authEmail = normalizeEmail(request.auth.token?.email || "");
+  const tenantIdForMetrics = await resolveTenantIdForMetrics(uid);
   const data = request.data || {};
   const requestedMode = String(data.mode || "interinos_docx").trim().toLowerCase();
   const mode =
@@ -4891,7 +5110,6 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
     throw new HttpsError("invalid-argument", "Invalid Google Sheet URL/ID");
   }
 
-  const authEmail = normalizeEmail(request.auth.token?.email || "");
   if (authEmail && !authEmail.endsWith("@abc.gob.ar")) {
     logger.warn("runPacProcess email outside abc.gob.ar domain", { email: authEmail });
   }
@@ -5257,6 +5475,35 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
     missingFields: Array.isArray(row.missingFields) ? row.missingFields : [],
   }));
 
+  if (tenantIdForMetrics) {
+    try {
+      await registerTenantMetricEvent({
+        tenantId: tenantIdForMetrics,
+        uid,
+        email: authEmail,
+        eventType: "pac_realizado",
+        source: "pac",
+        metadata: {
+          mode,
+          previewOnly,
+          demoMode,
+          gmailQuery,
+          totalMessages: demoMode ? safeRows.length : messages.length,
+          rowsExtracted: safeRows.length,
+          errorsCount: errors.length,
+          omittedWithoutIdentity,
+          omittedWithoutCupof,
+        },
+      });
+    } catch (metricError) {
+      logger.warn("runPacProcess metric event failed", {
+        tenantId: tenantIdForMetrics,
+        uid,
+        message: shortText(metricError?.message || "metric_write_failed", 280),
+      });
+    }
+  }
+
   return {
     ok: true,
     mode,
@@ -5393,16 +5640,40 @@ exports.savePacRowsToDrive = onCall(callableOptions, async (request) => {
       );
       writeSummary = await pacWriteRowsToSheet(accessToken, copied.id, targetSheetName, startRow, rows);
       const outputSheetUrl = `https://docs.google.com/spreadsheets/d/${copied.id}/edit`;
+      const rowsWritten = Number(writeSummary?.rowsWritten || 0);
 
       if (delivery === "download") {
         const xlsxBuffer = await pacExportSpreadsheetAsXlsx(accessToken, copied.id);
         const cleanTitle = pacNormalizeText(copied.name || outputTitle || "PAC");
         const fileName = `${cleanTitle || "PAC"}.xlsx`;
+        try {
+          await registerTenantMetricEvent({
+            tenantId,
+            uid,
+            email: authEmail,
+            eventType: "pac_descargado",
+            source: "pac",
+            metadata: {
+              delivery,
+              mode,
+              rowsReceived: rows.length,
+              rowsWritten,
+              fileName,
+            },
+          });
+        } catch (metricError) {
+          logger.warn("savePacRowsToDrive metric event failed", {
+            tenantId,
+            uid,
+            eventType: "pac_descargado",
+            message: shortText(metricError?.message || "metric_write_failed", 280),
+          });
+        }
         return {
           ok: true,
           delivery,
           rowsReceived: rows.length,
-          rowsWritten: Number(writeSummary?.rowsWritten || 0),
+          rowsWritten,
           fileName,
           fileMimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
           fileBase64: xlsxBuffer.toString("base64"),
@@ -5418,11 +5689,36 @@ exports.savePacRowsToDrive = onCall(callableOptions, async (request) => {
         };
       }
 
+      try {
+        await registerTenantMetricEvent({
+          tenantId,
+          uid,
+          email: authEmail,
+          eventType: "pac_guardado_drive",
+          source: "pac",
+          metadata: {
+            delivery,
+            mode,
+            rowsReceived: rows.length,
+            rowsWritten,
+            sheetId: copied.id,
+            sheetName: targetSheetName,
+          },
+        });
+      } catch (metricError) {
+        logger.warn("savePacRowsToDrive metric event failed", {
+          tenantId,
+          uid,
+          eventType: "pac_guardado_drive",
+          message: shortText(metricError?.message || "metric_write_failed", 280),
+        });
+      }
+
       return {
         ok: true,
         delivery,
         rowsReceived: rows.length,
-        rowsWritten: Number(writeSummary?.rowsWritten || 0),
+        rowsWritten,
         sheetId: copied.id,
         sheetName: targetSheetName,
         sheetUrl: outputSheetUrl,

@@ -103,6 +103,7 @@ const state = {
   headerLoadedFromRemote: false,
   extractionConfigLoadedFromRemote: false,
   hasTenantAccess: false,
+  tenantId: "",
   currentStep: 1,
 };
 const PAC_GMAIL_QUERY_STORAGE_KEY = "pacGmailQuery";
@@ -174,9 +175,53 @@ const PAC_MONTHS = [
 ];
 
 let extractionConfigPersistTimer = null;
+let currentPacSessionLogKey = "";
 
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+async function registerPacSessionIfNeeded(user) {
+  const uid = String(user?.uid || "").trim();
+  const email = normalizeEmail(user?.email || "");
+  const tenantId = String(state.tenantId || "").trim();
+  if (!uid || !email || !tenantId || !state.hasTenantAccess) {
+    return;
+  }
+
+  const key = `${uid}:${tenantId}`;
+  if (currentPacSessionLogKey === key) {
+    return;
+  }
+
+  const storageKey = `gpd_session_logged_${key}`;
+  try {
+    if (window.sessionStorage?.getItem(storageKey) === "1") {
+      currentPacSessionLogKey = key;
+      return;
+    }
+  } catch (error) {
+    console.error("No se pudo leer sessionStorage PAC", error);
+  }
+
+  try {
+    const registerSession = httpsCallable(functions, "registerSession");
+    await registerSession({
+      tenantId,
+      email,
+      nombre: String(user?.displayName || "").trim(),
+      provider: String(user?.providerData?.[0]?.providerId || "").trim(),
+      source: "pac",
+    });
+    currentPacSessionLogKey = key;
+    try {
+      window.sessionStorage?.setItem(storageKey, "1");
+    } catch (error) {
+      console.error("No se pudo escribir sessionStorage PAC", error);
+    }
+  } catch (error) {
+    console.error("No se pudo registrar sesion PAC", error);
+  }
 }
 
 function normalizeEmailForWaylist(value) {
@@ -678,6 +723,7 @@ function resolveSubscriptionRouteFallback(data = {}) {
 async function refreshPacTenantAccess(user) {
   if (!user) {
     state.hasTenantAccess = false;
+    state.tenantId = "";
     return false;
   }
   try {
@@ -686,6 +732,7 @@ async function refreshPacTenantAccess(user) {
     const data = response.data || {};
     const appEnabled = data.appEnabled === true;
     const tenantId = String(data.tenantId || "").trim();
+    state.tenantId = tenantId;
     state.hasTenantAccess = Boolean(appEnabled && tenantId);
     if (!state.hasTenantAccess) {
       const route = resolveSubscriptionRouteFallback(data);
@@ -695,6 +742,7 @@ async function refreshPacTenantAccess(user) {
   } catch (error) {
     console.error("No se pudo validar acceso PAC por suscripcion", error);
     state.hasTenantAccess = false;
+    state.tenantId = "";
     const detailsCode = String(error?.details?.code || "").trim().toLowerCase();
     if (detailsCode === "user_profile_missing") {
       redirectToRouteIfNeeded("/registro.html");
@@ -2140,6 +2188,8 @@ if (logoutBtn) {
       state.headerLoadedFromRemote = false;
       state.extractionConfigLoadedFromRemote = false;
       state.hasTenantAccess = false;
+      state.tenantId = "";
+      currentPacSessionLogKey = "";
       applyHorariosLinkVisibility(null);
       cancelSelectionFlow();
       setMsg(authMsg, "Sesion cerrada");
@@ -2157,11 +2207,13 @@ onAuthStateChanged(auth, (user) => {
     updateGuestView(user);
     state.accessToken = "";
     clearPersistedAccessToken();
+    currentPacSessionLogKey = "";
     userNameEl.textContent = "Sin sesion";
     userEmailEl.textContent = "-";
     state.headerLoadedFromRemote = false;
     state.extractionConfigLoadedFromRemote = false;
     state.hasTenantAccess = false;
+    state.tenantId = "";
     applyHorariosLinkVisibility(null);
     setMsg(authMsg, "Inicia sesion con Google. Los permisos se pediran segun la accion que uses.");
     return;
@@ -2181,6 +2233,7 @@ onAuthStateChanged(auth, (user) => {
   state.headerLoadedFromRemote = false;
   state.extractionConfigLoadedFromRemote = false;
   state.hasTenantAccess = false;
+  state.tenantId = "";
   if (!state.accessToken) {
     state.accessToken = restorePersistedAccessToken(user);
   }
@@ -2202,6 +2255,7 @@ onAuthStateChanged(auth, (user) => {
     if (!hasTenantAccess) {
       return;
     }
+    await registerPacSessionIfNeeded(user);
     await hydratePacHeaderForCurrentUser(user);
     await hydratePacExtractionConfigForCurrentUser(user);
     syncOnboardingFromState();

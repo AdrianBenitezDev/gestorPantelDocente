@@ -1660,3 +1660,45 @@ button:hover {
     padding-top: 220px;
   }
 }
+
+.admin-table-wrap {
+  overflow-x: auto;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #eef4ff;
+}
+
+.admin-table {
+  width: 100%;
+  min-width: 1200px;
+  border-collapse: collapse;
+  background: #ffffff;
+}
+
+.admin-table th,
+.admin-table td {
+  border: 1px solid var(--border);
+  padding: 8px;
+  text-align: left;
+  vertical-align: top;
+  font-size: 13px;
+}
+
+.admin-table th {
+  background: #dde9ff;
+  color: #334a76;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.admin-flag-ok {
+  color: #0f7c41;
+  font-weight: 700;
+}
+
+.admin-flag-off {
+  color: #aa1f2f;
+  font-weight: 700;
+}
