@@ -155,7 +155,7 @@ const PAC_ONBOARDING_STEPS = Object.freeze([
   "Encabezado del PAC",
   "Elegir tipo de PAC",
   "Configurar extraccion",
-  "Generar resultado",
+  "Ver resultado",
 ]);
 const PAC_ONBOARDING_MAX_STEP = PAC_ONBOARDING_STEPS.length;
 const PAC_MONTHS = [
@@ -629,7 +629,7 @@ async function handleOnboardingNextFromStep(step) {
       window.alert("Completa la URL de Google Sheet para continuar.");
       return;
     }
-    setOnboardingStep(5);
+    await runPacProcess(true);
     return;
   }
 
@@ -1662,11 +1662,11 @@ function renderErrors(errors) {
 
 async function runPacProcess(previewOnly) {
   if (state.busy) {
-    return;
+    return false;
   }
   if (!auth.currentUser) {
     setMsg(runMsg, "Inicia sesion con Google antes de ejecutar el proceso", true);
-    return;
+    return false;
   }
   if (!state.accessToken) {
     const initialScopes = getRunRequiredScopes(previewOnly);
@@ -1676,7 +1676,7 @@ async function runPacProcess(previewOnly) {
       errorMessage: "No se pudieron autorizar los permisos para ejecutar PAC.",
     });
     if (!authorized) {
-      return;
+      return false;
     }
   }
 
@@ -1733,6 +1733,10 @@ async function runPacProcess(previewOnly) {
     renderErrors(result.errors);
 
     setMsg(runMsg, previewOnly ? "Prueba finalizada" : "Proceso completado");
+    if (previewOnly) {
+      setOnboardingStep(5);
+    }
+    return true;
   } catch (error) {
     console.error("PAC callable error", {
       code: error?.code || "",
@@ -1741,6 +1745,7 @@ async function runPacProcess(previewOnly) {
       customData: error?.customData || null,
     });
     setMsg(runMsg, formatCallableError(error), true);
+    return false;
   } finally {
     state.busy = false;
     setBusy(previewBtn, false);
@@ -2013,8 +2018,8 @@ if (connectBtn) {
   });
 }
 
-previewBtn.addEventListener("click", () => {
-  runPacProcess(true);
+previewBtn.addEventListener("click", async () => {
+  await runPacProcess(true);
 });
 
 runBtn.addEventListener("click", async () => {
