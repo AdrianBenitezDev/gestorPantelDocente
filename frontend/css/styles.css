@@ -1160,11 +1160,15 @@ a.link-btn:hover {
 .pac-onboarding-shell {
   position: fixed;
   top: 78px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(1280px, calc(100% - 36px));
+  left: 18px;
+  right: 18px;
+  width: auto;
+  max-width: 1280px;
+  margin-left: auto;
+  margin-right: auto;
   z-index: 15;
   padding-bottom: 10px;
+  box-sizing: border-box;
 }
 
 .pac-onboarding-eyebrow {
@@ -1299,27 +1303,64 @@ a.link-btn:hover {
   font-size: 13px;
 }
 
-.pac-sheet-custom-toggle {
+.pac-sheet-switch-row {
   display: flex;
-  flex-direction: row;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 12px;
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: #fff;
-  justify-content: flex-start;
+  margin-top: 10px;
 }
 
-.pac-sheet-custom-toggle span {
+.pac-sheet-switch-title {
   font-size: 13px;
-  color: var(--text);
+  color: #24385f;
+  font-weight: 700;
 }
 
-.pac-sheet-custom-toggle input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
+.pac-switch {
+  position: relative;
+  display: inline-block;
+  width: 52px;
+  height: 30px;
+}
+
+.pac-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
   margin: 0;
+}
+
+.pac-switch-slider {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: #c7d6f2;
+  transition: background-color 0.2s ease;
+}
+
+.pac-switch-slider::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s ease;
+}
+
+.pac-switch input:checked + .pac-switch-slider {
+  background: #1d78e8;
+}
+
+.pac-switch input:checked + .pac-switch-slider::before {
+  transform: translateX(22px);
 }
 
 #pac-preview-btn,

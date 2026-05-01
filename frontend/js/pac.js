@@ -47,6 +47,7 @@ const sheetUrlInput = document.getElementById("pac-sheet-url");
 const sheetNameInput = document.getElementById("pac-sheet-name");
 const startRowInput = document.getElementById("pac-start-row");
 const useCustomSheetInput = document.getElementById("pac-use-custom-sheet");
+const sheetCustomSection = document.getElementById("pac-sheet-custom-section");
 
 const headerSaveBtn = document.getElementById("pac-header-save-btn");
 const headerEstablecimientoInput = document.getElementById("pac-header-establecimiento");
@@ -379,6 +380,10 @@ function getSheetConfigFromUi() {
 
 function applySheetCustomizationUi() {
   const useCustomSheet = Boolean(useCustomSheetInput?.checked);
+  if (sheetCustomSection) {
+    sheetCustomSection.hidden = !useCustomSheet;
+    sheetCustomSection.classList.toggle("is-hidden", !useCustomSheet);
+  }
   if (!useCustomSheet && sheetUrlInput) {
     sheetUrlInput.value = PAC_DEFAULT_SHEET_URL;
   }
@@ -1487,13 +1492,13 @@ function toggleSelectAll(forceValue = null) {
 }
 
 function buildPayload(previewOnly) {
-  const maxResults = Number(maxResultsInput.value || 30);
+  const maxResults = Number(maxResultsInput.value || 10);
   const sheetConfig = getSheetConfigFromUi();
   const processMode = mapProcessValueToMode(modeInput.value);
   return {
     mode: processMode,
     gmailQuery: String(queryInput.value || "").trim(),
-    maxResults: Number.isFinite(maxResults) ? maxResults : 30,
+    maxResults: Number.isFinite(maxResults) ? maxResults : 10,
     sheetUrl: sheetConfig.sheetUrl,
     sheetName: sheetConfig.sheetName,
     startRow: sheetConfig.startRow,

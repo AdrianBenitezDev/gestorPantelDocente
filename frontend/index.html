@@ -211,25 +211,29 @@
       <h2>Paso 4 - Configurar extraccion</h2>
       <form id="pac-form" class="pac-grid">
         <label>
-          Query Gmail
+          Mail que contien la informacion
           <select id="pac-gmail-query"></select>
         </label>
         <label>
-          Max mails a leer
-          <input id="pac-max-results" type="number" min="1" max="100" value="30" />
+          Buscar en ....
+          <input id="pac-max-results" type="number" min="1" max="100" value="10" />
         </label>
       </form>
 
-      <section class="pac-sheet-custom-section">
+      <div class="pac-sheet-switch-row">
+        <span class="pac-sheet-switch-title">Google Sheet personalizado</span>
+        <label class="pac-switch" for="pac-use-custom-sheet">
+          <input id="pac-use-custom-sheet" type="checkbox" />
+          <span class="pac-switch-slider" aria-hidden="true"></span>
+        </label>
+      </div>
+
+      <section id="pac-sheet-custom-section" class="pac-sheet-custom-section">
         <h3>Personaliza la tabla de google sheet</h3>
         <p>
           puedes utilizar la plantilla de la web o puedes colocar los datos extraidos en una hoja existente
           de tu pertenencia (debe tener acceso de edición: publica)
         </p>
-        <label class="pac-sheet-custom-toggle">
-          <span>utilizar un archivo de google sheet personalizado</span>
-          <input id="pac-use-custom-sheet" type="checkbox" />
-        </label>
         <form class="pac-grid">
           <label>
             URL plantilla Google Sheet
@@ -258,9 +262,18 @@
 
     <section class="card pac-step-card" data-step-index="5">
       <h2>Paso 5 - Generar resultado</h2>
-      <p class="subtitle">Ejecuta una prueba, selecciona filas y guarda en Drive.</p>
+      <p class="subtitle">Ejecutar extraccion</p>
       <div class="review-actions">
-        <button id="pac-preview-btn" type="button" class="google-btn">Probar extraccion</button>
+        <button id="pac-preview-btn" type="button" class="google-btn">Listo, Extraer</button>
+      </div>
+      <div class="pac-step-actions">
+        <button type="button" class="google-btn" data-step-prev="5">Anterior</button>
+      </div>
+    </section>
+
+    <article class="card pac-step-card" data-step-index="5">
+      <h3>Resultado</h3>
+      <div class="review-actions">
         <button id="pac-run-btn" type="button">Guardar seleccion en Drive</button>
       </div>
       <p id="pac-run-msg" class="msg"></p>
@@ -281,13 +294,6 @@
         </span>
         <span>Ir a la planilla guardada en Drive</span>
       </a>
-      <div class="pac-step-actions">
-        <button type="button" class="google-btn" data-step-prev="5">Anterior</button>
-      </div>
-    </section>
-
-    <article class="card pac-step-card" data-step-index="5">
-      <h3>Resultado</h3>
       <p id="pac-summary-msg" class="msg"></p>
       <details id="pac-errors-panel" class="pac-errors-panel">
         <summary id="pac-errors-summary" class="pac-errors-summary">Errores detectados (0)</summary>
