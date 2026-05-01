@@ -1242,6 +1242,10 @@ a.link-btn:hover {
   color: #245a4c;
 }
 
+.pac-stepper-item.is-complete h4::after {
+  content: " \2705";
+}
+
 .pac-step-card[hidden] {
   display: none !important;
 }

@@ -151,10 +151,10 @@ const GOOGLE_SCOPE_SHEETS = "https://www.googleapis.com/auth/spreadsheets";
 const GOOGLE_SCOPE_DRIVE_READONLY = "https://www.googleapis.com/auth/drive.readonly";
 const GOOGLE_SCOPE_DRIVE = "https://www.googleapis.com/auth/drive";
 const PAC_ONBOARDING_STEPS = Object.freeze([
-  "Conectar Gmail",
-  "Encabezado del PAC",
-  "Elegir tipo de PAC",
-  "Configurar extraccion",
+  "Conectate con Gmail",
+  "Perzonaliza el encabezado del Pac",
+  "Elije el tipo de PAC",
+  "Configurara la extraccion",
   "Ver resultado",
 ]);
 const PAC_ONBOARDING_MAX_STEP = PAC_ONBOARDING_STEPS.length;
@@ -1146,7 +1146,7 @@ function updatePacHeaderSummaryStatus() {
   const status = isPacHeaderComplete(collectPacHeaderData())
     ? "\u2705 Listo"
     : "\u274C Faltan Cargar";
-  headerSummaryTitle.textContent = `Paso 2 - Datos de encabezado del PAC ${status}`;
+  headerSummaryTitle.textContent = `Paso 2 - Perzonaliza el encabezado del Pac ${status}`;
   updateHeaderStepStatus();
 }
 
@@ -1732,7 +1732,7 @@ async function runPacProcess(previewOnly) {
     setMsg(summaryMsg, summaryText);
     renderErrors(result.errors);
 
-    setMsg(runMsg, previewOnly ? "Prueba finalizada" : "Proceso completado");
+    setMsg(runMsg, previewOnly ? "" : "Proceso completado");
     if (previewOnly) {
       setOnboardingStep(5);
     }
