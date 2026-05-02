@@ -4,7 +4,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-functions.js";
 import { auth, functions } from "./firebaseClient.js";
-import { formatUserError } from "./userFacingText.js";
+import { formatUserError } from "./userFacingText.js?v=20260502-registro-fix1";
 
 const registerForm = document.getElementById("register-form");
 const registerMsg = document.getElementById("register-msg");
@@ -22,6 +22,12 @@ let latestEmailStatus = {
   hasProfile: false,
   nextRoute: "/activar-plan.html",
 };
+const REGISTER_RECOVERABLE_ERROR_CODES = new Set([
+  "subscription_required",
+  "subscription_not_found",
+  "mercadopago_preapproval_failed",
+  "mercadopago_preapproval_lookup_failed",
+]);
 
 function setMsg(el, text, isError = false) {
   el.textContent = text;
@@ -173,6 +179,17 @@ function scheduleRegisterEmailPrecheck() {
   }, CHECK_EMAIL_DEBOUNCE_MS);
 }
 
+function shouldShowRecoverableHint(error, verificationLink = "") {
+  if (String(verificationLink || "").trim()) {
+    return true;
+  }
+  const detailsCode = normalizeEmailValue(error?.details?.code || "");
+  if (!detailsCode) {
+    return true;
+  }
+  return REGISTER_RECOVERABLE_ERROR_CODES.has(detailsCode);
+}
+
 function hydrateCurrentAccountEmail(user) {
   if (!registerEmailInput) {
     return;
@@ -220,6 +237,9 @@ onAuthStateChanged(auth, (user) => {
   hydrateCurrentAccountEmail(user);
 });
 hydrateCurrentAccountEmail(auth.currentUser);
+window.setTimeout(() => {
+  void runRegisterEmailPrecheck({ silent: true });
+}, 350);
 
 if (registerEmailInput) {
   registerEmailInput.addEventListener("input", () => {
@@ -300,9 +320,13 @@ registerForm.addEventListener("submit", async (event) => {
       verificationLink
         ? ` Verifica correo con el link generado: ${verificationLink}`
         : "";
-    const fallbackMsg =
-      `La cuenta base queda recuperable. Puedes continuar luego desde /activar-plan.html.${verificationHint}`;
     const baseMsg = formatUserError(error, "No pudimos completar el registro y el inicio del pago.");
-    setMsg(registerMsg, `${baseMsg}. ${fallbackMsg}`, true);
+    if (shouldShowRecoverableHint(error, verificationLink)) {
+      const fallbackMsg =
+        `La cuenta base queda recuperable. Puedes continuar luego desde /activar-plan.html.${verificationHint}`;
+      setMsg(registerMsg, `${baseMsg}. ${fallbackMsg}`, true);
+      return;
+    }
+    setMsg(registerMsg, baseMsg, true);
   }
 });
