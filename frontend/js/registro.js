@@ -19,6 +19,7 @@ let latestEmailStatus = {
   correo: "",
   checked: false,
   exists: false,
+  hasProfile: false,
   nextRoute: "/activar-plan.html",
 };
 
@@ -59,7 +60,10 @@ function clearExistingEmailMessageIfNeeded() {
   if (!current) {
     return;
   }
-  if (current.startsWith("Este correo ya esta registrado")) {
+  if (
+    current.startsWith("Este correo ya esta registrado") ||
+    current.startsWith("Este correo ya existe en Google Auth")
+  ) {
     setMsg(registerMsg, "");
   }
 }
@@ -72,6 +76,7 @@ async function checkRegisterEmailStatus(rawEmail, options = {}) {
       correo,
       checked: false,
       exists: false,
+      hasProfile: false,
       nextRoute: "/activar-plan.html",
     };
   }
@@ -92,6 +97,7 @@ async function checkRegisterEmailStatus(rawEmail, options = {}) {
       correo,
       checked: true,
       exists: data.exists === true,
+      hasProfile: data.hasProfile === true,
       nextRoute: String(data.nextRoute || "/activar-plan.html").trim() || "/activar-plan.html",
     };
     return latestEmailStatus;
@@ -104,6 +110,7 @@ async function checkRegisterEmailStatus(rawEmail, options = {}) {
       correo,
       checked: false,
       exists: false,
+      hasProfile: false,
       nextRoute: "/activar-plan.html",
     };
   }
@@ -117,6 +124,7 @@ async function runRegisterEmailPrecheck(options = {}) {
       correo,
       checked: false,
       exists: false,
+      hasProfile: false,
       nextRoute: "/activar-plan.html",
     };
     setRegisterSubmitEnabled(true);
@@ -131,7 +139,7 @@ async function runRegisterEmailPrecheck(options = {}) {
     return status;
   }
 
-  if (status.exists) {
+  if (status.exists && status.hasProfile) {
     setRegisterSubmitEnabled(false);
     if (!silent) {
       setMsg(registerMsg, formatExistingEmailMessage(status), true);
@@ -139,8 +147,18 @@ async function runRegisterEmailPrecheck(options = {}) {
     return status;
   }
 
+  let keepInfoMessage = false;
+  if (status.exists && !status.hasProfile && !silent) {
+    setMsg(
+      registerMsg,
+      "Este correo ya existe en Google Auth, pero aun no tiene perfil completo. Puedes continuar con este registro.",
+      false
+    );
+    keepInfoMessage = true;
+  }
+
   setRegisterSubmitEnabled(true);
-  if (!silent) {
+  if (!silent && !keepInfoMessage) {
     clearExistingEmailMessageIfNeeded();
   }
   return status;
@@ -209,6 +227,7 @@ if (registerEmailInput) {
       correo: "",
       checked: false,
       exists: false,
+      hasProfile: false,
       nextRoute: "/activar-plan.html",
     };
     scheduleRegisterEmailPrecheck();
@@ -237,7 +256,7 @@ registerForm.addEventListener("submit", async (event) => {
   }
 
   const precheck = await runRegisterEmailPrecheck({ silent: true });
-  if (precheck.exists) {
+  if (precheck.exists && precheck.hasProfile) {
     setMsg(registerMsg, formatExistingEmailMessage(precheck), true);
     return;
   }

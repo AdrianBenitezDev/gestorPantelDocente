@@ -2106,6 +2106,7 @@ exports.registerUser = onCall(callableOptions, async (request) => {
   }
 
   let userRecord;
+  let reusedExistingAuthUser = false;
   try {
     userRecord = await admin.auth().createUser({
       email: correo,
@@ -2117,22 +2118,37 @@ exports.registerUser = onCall(callableOptions, async (request) => {
     logger.error("createUser failed", err);
     const authCode = String(err?.errorInfo?.code || err?.code || "").trim().toLowerCase();
     if (authCode.includes("email-already-exists")) {
-      throw new HttpsError("already-exists", "Email already exists", {
-        code: "email_already_exists",
-      });
-    }
-    if (authCode.includes("invalid-email")) {
+      try {
+        userRecord = await admin.auth().getUserByEmail(correo);
+        reusedExistingAuthUser = true;
+      } catch (lookupError) {
+        logger.error("createUser existing email lookup failed", lookupError);
+        throw new HttpsError("already-exists", "Email already exists", {
+          code: "email_already_exists",
+        });
+      }
+    } else if (authCode.includes("invalid-email")) {
       throw new HttpsError("invalid-argument", "Invalid email", {
         code: "invalid_email",
       });
+    } else {
+      throw new HttpsError("failed-precondition", "Could not create auth user", {
+        code: "create_auth_user_failed",
+      });
     }
-    throw new HttpsError("failed-precondition", "Could not create auth user", {
-      code: "create_auth_user_failed",
-    });
   }
 
   const uid = userRecord.uid;
   const createdAt = admin.firestore.FieldValue.serverTimestamp();
+
+  if (reusedExistingAuthUser) {
+    const existingProfileSnap = await db.collection("usuarios").doc(uid).get();
+    if (existingProfileSnap.exists) {
+      throw new HttpsError("already-exists", "Email already exists", {
+        code: "email_already_exists",
+      });
+    }
+  }
 
   const profile = {
     uid,
@@ -2146,7 +2162,7 @@ exports.registerUser = onCall(callableOptions, async (request) => {
     escuela,
     usuario,
     usuarioKey: usernameKey,
-    verificado: false,
+    verificado: userRecord.emailVerified === true,
     rol: "admin_escuela",
     billing: {
       planCode: null,
@@ -2193,6 +2209,7 @@ exports.registerUser = onCall(callableOptions, async (request) => {
       tenantId: null,
       verificationLink: link,
       customAuthToken,
+      reusedExistingAuthUser,
       message: "Base user created. Subscription required before tenant activation.",
     };
   } catch (err) {
