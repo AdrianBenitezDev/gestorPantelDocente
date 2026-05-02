@@ -5,7 +5,7 @@ import { getFunctions } from "https://www.gstatic.com/firebasejs/10.13.2/firebas
 
 const firebaseConfig = {
   apiKey: "AIzaSyA5C8KGrPO5gFnWu65XPuqZvfdQkX0Y7XU",
-  authDomain: "horario-escuelas.firebaseapp.com",
+  authDomain: "paneldocente.com.ar",
   projectId: "horario-escuelas",
   storageBucket: "horario-escuelas.firebasestorage.app",
   messagingSenderId: "564487094591",
