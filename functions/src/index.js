@@ -2115,7 +2115,20 @@ exports.registerUser = onCall(callableOptions, async (request) => {
     });
   } catch (err) {
     logger.error("createUser failed", err);
-    throw new HttpsError("already-exists", "Email already exists or is invalid");
+    const authCode = String(err?.errorInfo?.code || err?.code || "").trim().toLowerCase();
+    if (authCode.includes("email-already-exists")) {
+      throw new HttpsError("already-exists", "Email already exists", {
+        code: "email_already_exists",
+      });
+    }
+    if (authCode.includes("invalid-email")) {
+      throw new HttpsError("invalid-argument", "Invalid email", {
+        code: "invalid_email",
+      });
+    }
+    throw new HttpsError("failed-precondition", "Could not create auth user", {
+      code: "create_auth_user_failed",
+    });
   }
 
   const uid = userRecord.uid;
@@ -2190,6 +2203,65 @@ exports.registerUser = onCall(callableOptions, async (request) => {
       logger.error("rollback deleteUser failed", rollbackErr);
     }
     throw new HttpsError("internal", "Could not complete registration");
+  }
+});
+
+exports.checkRegisterEmailStatus = onCall(callableOptions, async (request) => {
+  const data = request.data || {};
+  const correo = normalizeEmail(assertString(data.correo, "correo", 5, 120));
+  if (!correo.includes("@")) {
+    throw new HttpsError("invalid-argument", "Invalid email", {
+      code: "invalid_email",
+    });
+  }
+
+  try {
+    const userRecord = await admin.auth().getUserByEmail(correo);
+    const uid = String(userRecord?.uid || "").trim();
+    const providerIds = Array.isArray(userRecord?.providerData)
+      ? userRecord.providerData
+        .map((item) => String(item?.providerId || "").trim())
+        .filter(Boolean)
+      : [];
+
+    let hasProfile = false;
+    let nextRoute = "/activar-plan.html";
+    if (uid) {
+      const profileSnap = await db.collection("usuarios").doc(uid).get();
+      hasProfile = profileSnap.exists;
+      if (profileSnap.exists) {
+        nextRoute = resolveNextRouteForProfile(profileSnap.data() || {});
+      }
+    }
+
+    return {
+      ok: true,
+      correo,
+      exists: true,
+      uid,
+      emailVerified: userRecord.emailVerified === true,
+      providerIds,
+      hasProfile,
+      nextRoute,
+    };
+  } catch (error) {
+    const authCode = String(error?.errorInfo?.code || error?.code || "").trim().toLowerCase();
+    if (authCode.includes("user-not-found")) {
+      return {
+        ok: true,
+        correo,
+        exists: false,
+      };
+    }
+
+    logger.error("checkRegisterEmailStatus failed", {
+      correo,
+      code: authCode || "unknown",
+      message: String(error?.message || "unknown_error"),
+    });
+    throw new HttpsError("internal", "Could not verify email status", {
+      code: "check_email_status_failed",
+    });
   }
 });
 

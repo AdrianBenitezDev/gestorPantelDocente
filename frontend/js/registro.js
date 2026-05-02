@@ -1,7 +1,6 @@
 import {
   onAuthStateChanged,
   signInWithCustomToken,
-  signInWithEmailAndPassword,
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-functions.js";
 import { auth, functions } from "./firebaseClient.js";
@@ -10,11 +9,150 @@ import { formatUserError } from "./userFacingText.js";
 const registerForm = document.getElementById("register-form");
 const registerMsg = document.getElementById("register-msg");
 const registerEmailInput = document.getElementById("reg-correo");
+const registerSubmitBtn = registerForm?.querySelector("button[type='submit']") || null;
+const CHECK_EMAIL_DEBOUNCE_MS = 450;
+const EMAIL_FORMAT_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+let checkEmailTimer = null;
+let checkEmailSeq = 0;
+let latestEmailStatus = {
+  correo: "",
+  checked: false,
+  exists: false,
+  nextRoute: "/activar-plan.html",
+};
 
 function setMsg(el, text, isError = false) {
   el.textContent = text;
   el.classList.toggle("error", isError);
   el.classList.toggle("success", !isError);
+}
+
+function setRegisterSubmitEnabled(enabled) {
+  if (!registerSubmitBtn) {
+    return;
+  }
+  registerSubmitBtn.disabled = !enabled;
+}
+
+function normalizeEmailValue(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isValidEmailFormat(value) {
+  const normalized = normalizeEmailValue(value);
+  return EMAIL_FORMAT_PATTERN.test(normalized);
+}
+
+function formatExistingEmailMessage(status = {}) {
+  const route = String(status.nextRoute || "/activar-plan.html").trim() || "/activar-plan.html";
+  const email = normalizeEmailValue(status.correo || "");
+  const currentSessionEmail = normalizeEmailValue(auth.currentUser?.email || "");
+  if (email && currentSessionEmail && email === currentSessionEmail) {
+    return `Este correo ya esta registrado para tu sesion actual. Continua desde ${route}.`;
+  }
+  return `Este correo ya esta registrado. Inicia sesion y continua desde ${route}.`;
+}
+
+function clearExistingEmailMessageIfNeeded() {
+  const current = String(registerMsg?.textContent || "").trim();
+  if (!current) {
+    return;
+  }
+  if (current.startsWith("Este correo ya esta registrado")) {
+    setMsg(registerMsg, "");
+  }
+}
+
+async function checkRegisterEmailStatus(rawEmail, options = {}) {
+  const silent = options.silent === true;
+  const correo = normalizeEmailValue(rawEmail);
+  if (!correo || !isValidEmailFormat(correo)) {
+    return {
+      correo,
+      checked: false,
+      exists: false,
+      nextRoute: "/activar-plan.html",
+    };
+  }
+
+  if (latestEmailStatus.checked && latestEmailStatus.correo === correo) {
+    return latestEmailStatus;
+  }
+
+  const seq = ++checkEmailSeq;
+  try {
+    const callable = httpsCallable(functions, "checkRegisterEmailStatus");
+    const response = await callable({ correo });
+    if (seq !== checkEmailSeq) {
+      return latestEmailStatus;
+    }
+    const data = response.data || {};
+    latestEmailStatus = {
+      correo,
+      checked: true,
+      exists: data.exists === true,
+      nextRoute: String(data.nextRoute || "/activar-plan.html").trim() || "/activar-plan.html",
+    };
+    return latestEmailStatus;
+  } catch (error) {
+    console.error("checkRegisterEmailStatus error", error);
+    if (!silent) {
+      setMsg(registerMsg, formatUserError(error, "No pudimos validar el correo ingresado."), true);
+    }
+    return {
+      correo,
+      checked: false,
+      exists: false,
+      nextRoute: "/activar-plan.html",
+    };
+  }
+}
+
+async function runRegisterEmailPrecheck(options = {}) {
+  const silent = options.silent === true;
+  const correo = normalizeEmailValue(registerEmailInput?.value || "");
+  if (!correo || !isValidEmailFormat(correo)) {
+    latestEmailStatus = {
+      correo,
+      checked: false,
+      exists: false,
+      nextRoute: "/activar-plan.html",
+    };
+    setRegisterSubmitEnabled(true);
+    if (!silent) {
+      clearExistingEmailMessageIfNeeded();
+    }
+    return latestEmailStatus;
+  }
+
+  const status = await checkRegisterEmailStatus(correo, { silent });
+  if (normalizeEmailValue(registerEmailInput?.value || "") !== status.correo) {
+    return status;
+  }
+
+  if (status.exists) {
+    setRegisterSubmitEnabled(false);
+    if (!silent) {
+      setMsg(registerMsg, formatExistingEmailMessage(status), true);
+    }
+    return status;
+  }
+
+  setRegisterSubmitEnabled(true);
+  if (!silent) {
+    clearExistingEmailMessageIfNeeded();
+  }
+  return status;
+}
+
+function scheduleRegisterEmailPrecheck() {
+  if (checkEmailTimer) {
+    clearTimeout(checkEmailTimer);
+  }
+  checkEmailTimer = setTimeout(() => {
+    void runRegisterEmailPrecheck();
+  }, CHECK_EMAIL_DEBOUNCE_MS);
 }
 
 function hydrateCurrentAccountEmail(user) {
@@ -30,6 +168,7 @@ function hydrateCurrentAccountEmail(user) {
     return;
   }
   registerEmailInput.value = email;
+  scheduleRegisterEmailPrecheck();
 }
 
 function normalizeUsernameSeed(value) {
@@ -64,6 +203,21 @@ onAuthStateChanged(auth, (user) => {
 });
 hydrateCurrentAccountEmail(auth.currentUser);
 
+if (registerEmailInput) {
+  registerEmailInput.addEventListener("input", () => {
+    latestEmailStatus = {
+      correo: "",
+      checked: false,
+      exists: false,
+      nextRoute: "/activar-plan.html",
+    };
+    scheduleRegisterEmailPrecheck();
+  });
+  registerEmailInput.addEventListener("blur", () => {
+    void runRegisterEmailPrecheck();
+  });
+}
+
 registerForm.addEventListener("submit", async (event) => {
   event.preventDefault();
 
@@ -79,6 +233,12 @@ registerForm.addEventListener("submit", async (event) => {
 
   if (!payload.correo.includes("@")) {
     setMsg(registerMsg, "Correo inv\u00e1lido", true);
+    return;
+  }
+
+  const precheck = await runRegisterEmailPrecheck({ silent: true });
+  if (precheck.exists) {
+    setMsg(registerMsg, formatExistingEmailMessage(precheck), true);
     return;
   }
 
@@ -103,11 +263,10 @@ registerForm.addEventListener("submit", async (event) => {
 
     setMsg(registerMsg, "Cuenta creada. Preparando el pago de la suscripcion...");
 
-    if (customAuthToken) {
-      await signInWithCustomToken(auth, customAuthToken);
-    } else {
-      await signInWithEmailAndPassword(auth, payload.correo.toLowerCase(), generatedPassword);
+    if (!customAuthToken) {
+      throw new Error("No se pudo iniciar sesion automaticamente luego del registro.");
     }
+    await signInWithCustomToken(auth, customAuthToken);
     const checkoutResult = await startSubscriptionCheckout({ planCode });
     const initPoint = String(checkoutResult.data?.initPoint || "").trim();
     if (!initPoint) {

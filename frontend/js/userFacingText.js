@@ -23,6 +23,10 @@ const ACCESS_REASON_LABELS = {
 };
 
 const DETAILS_CODE_MESSAGES = {
+  email_already_exists: "Este correo ya esta registrado. Inicia sesion y continua desde /activar-plan.html.",
+  invalid_email: "El correo ingresado no tiene un formato valido.",
+  create_auth_user_failed: "No pudimos crear la cuenta en este momento.",
+  check_email_status_failed: "No pudimos validar el correo en este momento.",
   subscription_required: "Debes tener una suscripcion activa para continuar.",
   subscription_not_found: "No encontramos una suscripcion asociada a tu cuenta.",
   user_profile_missing: "No encontramos tu perfil de usuario.",
