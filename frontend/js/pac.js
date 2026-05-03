@@ -96,6 +96,7 @@ const floatPreviewBtn = document.getElementById("pac-float-preview-btn");
 
 const state = {
   accessToken: "",
+  grantedScopes: new Set(),
   rows: [],
   selectedRowIds: new Set(),
   busy: false,
@@ -116,10 +117,10 @@ const PAC_USE_CUSTOM_SHEET_STORAGE_KEY = "pacUseCustomSheet";
 const PAC_ACCESS_TOKEN_STORAGE_KEY = "pacAccessToken";
 const PAC_ACCESS_TOKEN_UID_STORAGE_KEY = "pacAccessTokenUid";
 const PAC_ACCESS_TOKEN_AT_STORAGE_KEY = "pacAccessTokenStoredAt";
+const PAC_ACCESS_TOKEN_SCOPES_STORAGE_KEY = "pacAccessTokenScopes";
 const PAC_DEFAULT_SHEET_URL = "https://docs.google.com/spreadsheets/d/1UP0FlTWQdHciMe1dbpj2i1dhsQAk4EsxCtq2Bvxlv2U/edit?usp=sharing";
 const PAC_WAYLIST_EMAILS = new Set([
   "ellariatyrell.341412@gmail.com",
-  "artbenitezdev@gmail.com",
   "eurontyrell.571112@gmail.com",
 ]);
 const PAC_WAYLIST_EMAILS_CANONICAL = new Set(
@@ -253,19 +254,21 @@ function buildWaylistPacHeader(userEmail = "") {
   };
 }
 
-function persistAccessToken(accessToken, uid) {
+function persistAccessToken(accessToken, uid, scopes = []) {
   if (!window.localStorage) {
     return;
   }
   try {
     const safeToken = String(accessToken || "").trim();
     const safeUid = String(uid || "").trim();
+    const safeScopes = uniqueScopes(scopes);
     if (!safeToken || !safeUid) {
       return;
     }
     window.localStorage.setItem(PAC_ACCESS_TOKEN_STORAGE_KEY, safeToken);
     window.localStorage.setItem(PAC_ACCESS_TOKEN_UID_STORAGE_KEY, safeUid);
     window.localStorage.setItem(PAC_ACCESS_TOKEN_AT_STORAGE_KEY, String(Date.now()));
+    window.localStorage.setItem(PAC_ACCESS_TOKEN_SCOPES_STORAGE_KEY, JSON.stringify(safeScopes));
   } catch (error) {
     console.error("No se pudo persistir accessToken PAC", error);
   }
@@ -279,6 +282,7 @@ function clearPersistedAccessToken() {
     window.localStorage.removeItem(PAC_ACCESS_TOKEN_STORAGE_KEY);
     window.localStorage.removeItem(PAC_ACCESS_TOKEN_UID_STORAGE_KEY);
     window.localStorage.removeItem(PAC_ACCESS_TOKEN_AT_STORAGE_KEY);
+    window.localStorage.removeItem(PAC_ACCESS_TOKEN_SCOPES_STORAGE_KEY);
   } catch (error) {
     console.error("No se pudo limpiar accessToken PAC persistido", error);
   }
@@ -307,6 +311,34 @@ function restorePersistedAccessToken(user) {
   } catch (error) {
     console.error("No se pudo restaurar accessToken PAC persistido", error);
     return "";
+  }
+}
+
+function restorePersistedGrantedScopes(user) {
+  if (!window.localStorage || !user) {
+    return [];
+  }
+  try {
+    const storedToken = String(window.localStorage.getItem(PAC_ACCESS_TOKEN_STORAGE_KEY) || "").trim();
+    const storedUid = String(window.localStorage.getItem(PAC_ACCESS_TOKEN_UID_STORAGE_KEY) || "").trim();
+    const storedAt = Number(window.localStorage.getItem(PAC_ACCESS_TOKEN_AT_STORAGE_KEY) || "0");
+    const rawScopes = String(window.localStorage.getItem(PAC_ACCESS_TOKEN_SCOPES_STORAGE_KEY) || "").trim();
+    const safeUid = String(user?.uid || "").trim();
+    const ageMs = Date.now() - storedAt;
+    if (!storedToken || !storedUid || !safeUid || !rawScopes) {
+      return [];
+    }
+    if (storedUid !== safeUid) {
+      return [];
+    }
+    if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs > PAC_ACCESS_TOKEN_TTL_MS) {
+      return [];
+    }
+    const parsed = JSON.parse(rawScopes);
+    return uniqueScopes(Array.isArray(parsed) ? parsed : []);
+  } catch (error) {
+    console.error("No se pudo restaurar scopes PAC persistidos", error);
+    return [];
   }
 }
 
@@ -344,9 +376,31 @@ function getSaveRequiredScopes() {
   return [GOOGLE_SCOPE_SHEETS, GOOGLE_SCOPE_DRIVE];
 }
 
+function rememberGrantedScopes(scopes) {
+  uniqueScopes(scopes).forEach((scope) => {
+    state.grantedScopes.add(scope);
+  });
+}
+
+function clearGrantedScopes() {
+  state.grantedScopes.clear();
+}
+
+function hasAllGrantedScopes(scopes) {
+  const required = uniqueScopes(scopes);
+  if (!required.length) {
+    return true;
+  }
+  return required.every((scope) => state.grantedScopes.has(scope));
+}
+
 function getMissingScopesFromError(error) {
   const details = error?.details && typeof error.details === "object" ? error.details : null;
   const missingScopes = Array.isArray(details?.missingScopes) ? details.missingScopes : [];
+  const grantedScopes = Array.isArray(details?.grantedScopes) ? details.grantedScopes : [];
+  if (grantedScopes.length) {
+    rememberGrantedScopes(grantedScopes);
+  }
   return uniqueScopes(missingScopes);
 }
 
@@ -1739,6 +1793,7 @@ async function runPacProcess(previewOnly) {
     const response = await invokeCallable();
 
     const result = response.data || {};
+    rememberGrantedScopes(result?.diagnostics?.grantedScopes || []);
     const rows = decorateRows(Array.isArray(result.rows) ? result.rows : []);
 
     state.rows = rows;
@@ -1821,6 +1876,22 @@ async function processSelectedRows(delivery = "drive") {
     return null;
   }
 
+  const saveRequiredScopes = getSaveRequiredScopes();
+  if (!hasAllGrantedScopes(saveRequiredScopes)) {
+    const authorized = await signInAndAuthorizeGoogleScopes({
+      scopes: saveRequiredScopes,
+      successMessage: "Permisos de Sheets/Drive autorizados. Continuando...",
+      errorMessage: "No se pudieron autorizar permisos para guardar en Drive.",
+      customParameters: {
+        prompt: "consent",
+      },
+    });
+    if (!authorized) {
+      setMsg(runMsg, "No se concedieron permisos de Sheets/Drive. Reintenta para continuar.", true);
+      return null;
+    }
+  }
+
   state.busy = true;
   setBusy(previewBtn, true);
   if (floatSaveBtn) {
@@ -1837,6 +1908,9 @@ async function processSelectedRows(delivery = "drive") {
       scopes: getSaveRequiredScopes(),
       successMessage: "Permisos de Sheets/Drive autorizados. Continuando...",
       errorMessage: "No se pudieron autorizar permisos de Sheets/Drive.",
+      customParameters: {
+        prompt: "consent",
+      },
     });
     if (!authorized) {
       state.busy = false;
@@ -1870,6 +1944,9 @@ async function processSelectedRows(delivery = "drive") {
         scopes: missingScopes,
         successMessage: "Permisos adicionales autorizados. Reintentando guardado...",
         errorMessage: "No se pudieron autorizar permisos adicionales para guardar.",
+        customParameters: {
+          prompt: "consent",
+        },
       });
       if (!reauthorized) {
         throw error;
@@ -1940,6 +2017,7 @@ function openPreviewTab() {
     startRow: sheetConfig.startRow,
     encabezadoPac: collectPacHeaderData(),
     accessToken: state.accessToken,
+    grantedScopes: Array.from(state.grantedScopes),
     savedFile: state.savedFile || null,
   };
 
@@ -2067,7 +2145,12 @@ async function signInAndAuthorizeGoogleScopes(options = {}) {
       throw new Error("No se obtuvo accessToken de Google.");
     }
     state.accessToken = accessToken;
-    persistAccessToken(accessToken, result?.user?.uid || auth.currentUser?.uid || "");
+    rememberGrantedScopes(scopes);
+    persistAccessToken(
+      accessToken,
+      result?.user?.uid || auth.currentUser?.uid || "",
+      Array.from(state.grantedScopes)
+    );
     setMsg(authMsg, successMessage);
     syncOnboardingFromState({ onlyForward: true });
     return true;
@@ -2218,6 +2301,7 @@ if (logoutBtn) {
     try {
       await signOut(auth);
       state.accessToken = "";
+      clearGrantedScopes();
       clearPersistedAccessToken();
       state.headerLoadedFromRemote = false;
       state.extractionConfigLoadedFromRemote = false;
@@ -2239,6 +2323,7 @@ onAuthStateChanged(auth, (user) => {
   if (!user) {
     updateGuestView(user);
     state.accessToken = "";
+    clearGrantedScopes();
     clearPersistedAccessToken();
     setDriveResultButton("");
     currentPacSessionLogKey = "";
@@ -2269,6 +2354,8 @@ onAuthStateChanged(auth, (user) => {
   state.tenantId = "";
   if (!state.accessToken) {
     state.accessToken = restorePersistedAccessToken(user);
+    clearGrantedScopes();
+    rememberGrantedScopes(restorePersistedGrantedScopes(user));
   }
   syncOnboardingFromState();
   void (async () => {

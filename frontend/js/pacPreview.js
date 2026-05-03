@@ -22,6 +22,7 @@ const state = {
   payload: null,
   busy: false,
   savedFile: null,
+  grantedScopes: new Set(),
 };
 
 function uniqueScopes(scopes) {
@@ -36,6 +37,10 @@ function uniqueScopes(scopes) {
 function getMissingScopesFromError(error) {
   const details = error?.details && typeof error.details === "object" ? error.details : null;
   const missingScopes = Array.isArray(details?.missingScopes) ? details.missingScopes : [];
+  const grantedScopes = Array.isArray(details?.grantedScopes) ? details.grantedScopes : [];
+  if (grantedScopes.length) {
+    rememberGrantedScopes(grantedScopes);
+  }
   return uniqueScopes(missingScopes);
 }
 
@@ -44,6 +49,28 @@ function updatePayloadAccessToken(accessToken) {
     return;
   }
   state.payload.accessToken = String(accessToken || "").trim();
+}
+
+function updatePayloadGrantedScopes(scopes = []) {
+  if (!state.payload || typeof state.payload !== "object") {
+    return;
+  }
+  state.payload.grantedScopes = uniqueScopes(scopes);
+}
+
+function rememberGrantedScopes(scopes) {
+  uniqueScopes(scopes).forEach((scope) => {
+    state.grantedScopes.add(scope);
+  });
+  updatePayloadGrantedScopes(Array.from(state.grantedScopes));
+}
+
+function hasAllGrantedScopes(scopes) {
+  const required = uniqueScopes(scopes);
+  if (!required.length) {
+    return true;
+  }
+  return required.every((scope) => state.grantedScopes.has(scope));
 }
 
 async function signInAndAuthorizeGoogleScopes(options = {}) {
@@ -56,6 +83,10 @@ async function signInAndAuthorizeGoogleScopes(options = {}) {
     String(options.successMessage || "").trim() || "Permisos de Google autorizados.";
   const errorMessage =
     String(options.errorMessage || "").trim() || "No se pudieron autorizar permisos de Google.";
+  const extraCustomParameters =
+    options.customParameters && typeof options.customParameters === "object"
+      ? options.customParameters
+      : {};
   try {
     if (!auth.currentUser) {
       throw new Error("No hay sesion activa para solicitar permisos.");
@@ -66,6 +97,7 @@ async function signInAndAuthorizeGoogleScopes(options = {}) {
     });
     provider.setCustomParameters({
       include_granted_scopes: "true",
+      ...extraCustomParameters,
     });
     const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
@@ -74,6 +106,7 @@ async function signInAndAuthorizeGoogleScopes(options = {}) {
       throw new Error("No se obtuvo accessToken de Google.");
     }
     updatePayloadAccessToken(accessToken);
+    rememberGrantedScopes(scopes);
     setMsg(successMessage);
     return true;
   } catch (error) {
@@ -257,11 +290,28 @@ async function saveToDrive() {
     setMsg("No hay datos suficientes para guardar en Drive", true);
     return;
   }
+  if (!hasAllGrantedScopes([GOOGLE_SCOPE_SHEETS, GOOGLE_SCOPE_DRIVE])) {
+    const authorizedSaveScopes = await signInAndAuthorizeGoogleScopes({
+      scopes: [GOOGLE_SCOPE_SHEETS, GOOGLE_SCOPE_DRIVE],
+      successMessage: "Permisos de Sheets/Drive autorizados. Continuando guardado...",
+      errorMessage: "No se pudieron autorizar permisos para guardar en Drive.",
+      customParameters: {
+        prompt: "consent",
+      },
+    });
+    if (!authorizedSaveScopes) {
+      return;
+    }
+    payload = buildSavePayload();
+  }
   if (!payload.accessToken) {
     const authorized = await signInAndAuthorizeGoogleScopes({
       scopes: [GOOGLE_SCOPE_SHEETS, GOOGLE_SCOPE_DRIVE],
       successMessage: "Permisos de Sheets/Drive autorizados. Continuando guardado...",
       errorMessage: "No se pudieron autorizar permisos para guardar en Drive.",
+      customParameters: {
+        prompt: "consent",
+      },
     });
     if (!authorized) {
       return;
@@ -286,6 +336,9 @@ async function saveToDrive() {
         scopes: missingScopes,
         successMessage: "Permisos adicionales autorizados. Reintentando guardado...",
         errorMessage: "No se pudieron autorizar permisos adicionales para guardar.",
+        customParameters: {
+          prompt: "consent",
+        },
       });
       if (!reauthorized) {
         throw error;
@@ -321,11 +374,29 @@ async function downloadWorkbook() {
     setMsg("No hay datos suficientes para descargar", true);
     return;
   }
+  if (!hasAllGrantedScopes([GOOGLE_SCOPE_SHEETS, GOOGLE_SCOPE_DRIVE])) {
+    const authorizedSaveScopes = await signInAndAuthorizeGoogleScopes({
+      scopes: [GOOGLE_SCOPE_SHEETS, GOOGLE_SCOPE_DRIVE],
+      successMessage: "Permisos de Sheets/Drive autorizados. Continuando descarga...",
+      errorMessage: "No se pudieron autorizar permisos para descargar.",
+      customParameters: {
+        prompt: "consent",
+      },
+    });
+    if (!authorizedSaveScopes) {
+      return;
+    }
+    payload = buildSavePayload();
+    payload.delivery = "download";
+  }
   if (!payload.accessToken) {
     const authorized = await signInAndAuthorizeGoogleScopes({
       scopes: [GOOGLE_SCOPE_SHEETS, GOOGLE_SCOPE_DRIVE],
       successMessage: "Permisos de Sheets/Drive autorizados. Continuando descarga...",
       errorMessage: "No se pudieron autorizar permisos para descargar.",
+      customParameters: {
+        prompt: "consent",
+      },
     });
     if (!authorized) {
       return;
@@ -351,6 +422,9 @@ async function downloadWorkbook() {
         scopes: missingScopes,
         successMessage: "Permisos adicionales autorizados. Reintentando descarga...",
         errorMessage: "No se pudieron autorizar permisos adicionales para descargar.",
+        customParameters: {
+          prompt: "consent",
+        },
       });
       if (!reauthorized) {
         throw error;
@@ -398,6 +472,7 @@ if (!state.payload) {
   setMsg("No hay datos de vista previa. Volve a la pantalla PAC y ejecuta Probar extraccion.", true);
 } else {
   state.savedFile = state.payload.savedFile || null;
+  rememberGrantedScopes(state.payload.grantedScopes || []);
   const rows = Array.isArray(state.payload.rows) ? state.payload.rows : [];
   renderRows(rows);
   setDriveResultButton(String(state.savedFile?.sheetUrl || ""));

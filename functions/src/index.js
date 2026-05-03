@@ -25,9 +25,9 @@ const allowedCorsOrigins = [
 ];
 const primaryAppOrigin = allowedCorsOrigins[0] || "https://paneldocente.com.ar";
 const callableOptions = { cors: allowedCorsOrigins, invoker: "public" };
+const savePacRowsCallableOptions = { ...callableOptions, timeoutSeconds: 300 };
 const GOOGLE_TEST_BYPASS_EMAILS = new Set([
   "ellariatyrell.341412@gmail.com",
-  "artbenitezdev@gmail.com",
   "eurontyrell.571112@gmail.com",
 ]);
 const ADMIN_ALLOWED_EMAIL = "artbenitezdev@gmail.com";
@@ -3944,22 +3944,59 @@ async function pacResolveBirthDateByDni(dni, cache = new Map()) {
   }
 
   if (cache.has(dniDigits)) {
-    return cache.get(dniDigits);
+    return await cache.get(dniDigits);
   }
 
-  const fetchedDate = await fetchFechaNacimientoByDni(dniDigits);
-  const normalizedDate = pacNormalizeDate(fetchedDate);
-  const finalDate = normalizedDate || UNKNOWN_BIRTHDATE;
-  cache.set(dniDigits, finalDate);
-  return finalDate;
+  const lookupPromise = (async () => {
+    const fetchedDate = await fetchFechaNacimientoByDni(dniDigits);
+    const normalizedDate = pacNormalizeDate(fetchedDate);
+    return normalizedDate || UNKNOWN_BIRTHDATE;
+  })();
+  cache.set(dniDigits, lookupPromise);
+  try {
+    const finalDate = await lookupPromise;
+    cache.set(dniDigits, finalDate);
+    return finalDate;
+  } catch (error) {
+    cache.delete(dniDigits);
+    throw error;
+  }
+}
+
+async function pacMapWithConcurrency(items, concurrency, mapper) {
+  const list = Array.isArray(items) ? items : [];
+  const safeConcurrency = Math.max(1, Math.min(20, Number(concurrency) || 6));
+  if (!list.length) {
+    return [];
+  }
+
+  const results = new Array(list.length);
+  let nextIndex = 0;
+  const totalWorkers = Math.min(safeConcurrency, list.length);
+
+  async function worker() {
+    while (true) {
+      const currentIndex = nextIndex;
+      if (currentIndex >= list.length) {
+        return;
+      }
+      nextIndex += 1;
+      results[currentIndex] = await mapper(list[currentIndex], currentIndex);
+    }
+  }
+
+  const workers = [];
+  for (let idx = 0; idx < totalWorkers; idx += 1) {
+    workers.push(worker());
+  }
+  await Promise.all(workers);
+  return results;
 }
 
 async function pacEnrichRowsWithExternalData(rows) {
   const list = Array.isArray(rows) ? rows : [];
   const cache = new Map();
-  const enrichedRows = [];
-
-  for (const row of list) {
+  return pacMapWithConcurrency(list, 6, async (row) => {
     const item = row && typeof row === "object" ? { ...row } : {};
     const dniFromField = pacNormalizeDni(item.dni || "");
     const dniFromCuil = pacDniFromCuil(item.cuil || "");
@@ -3968,16 +4005,18 @@ async function pacEnrichRowsWithExternalData(rows) {
       item.dni = dniFromCuil;
     }
 
-    const fetchedBirthDate = await pacResolveBirthDateByDni(dniForLookup, cache);
     const extractedBirthDate = pacNormalizeDate(item.fechaNacimiento || "");
-    item.fechaNacimiento = fetchedBirthDate !== UNKNOWN_BIRTHDATE
-      ? fetchedBirthDate
-      : (extractedBirthDate || UNKNOWN_BIRTHDATE);
+    if (extractedBirthDate) {
+      item.fechaNacimiento = extractedBirthDate;
+    } else {
+      const fetchedBirthDate = await pacResolveBirthDateByDni(dniForLookup, cache);
+      item.fechaNacimiento = fetchedBirthDate !== UNKNOWN_BIRTHDATE
+        ? fetchedBirthDate
+        : UNKNOWN_BIRTHDATE;
+    }
     item.situacionRevista = pacNormalizeSituacionRevista(item.situacionRevista || "");
-    enrichedRows.push(item);
-  }
-
-  return enrichedRows;
+    return item;
+  });
 }
 
 function pacBuildFieldMapFromHeaders(headerRows) {
@@ -4986,7 +5025,7 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
   };
 });
 
-exports.savePacRowsToDrive = onCall(callableOptions, async (request) => {
+exports.savePacRowsToDrive = onCall(savePacRowsCallableOptions, async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Auth required");
   }
