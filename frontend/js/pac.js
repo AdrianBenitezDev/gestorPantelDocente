@@ -151,8 +151,8 @@ const GOOGLE_SCOPE_GMAIL_READONLY = "https://www.googleapis.com/auth/gmail.reado
 const GOOGLE_SCOPE_SHEETS = "https://www.googleapis.com/auth/spreadsheets";
 const GOOGLE_SCOPE_DRIVE = "https://www.googleapis.com/auth/drive";
 const PAC_FIXED_GMAIL_QUERIES = Object.freeze([
-  "from:artbenitez@abc.gob.ar",
   "from:artbenitez@gmail.com",
+  "from:artbenitez@abc.gob.ar",
 ]);
 const PAC_ONBOARDING_STEPS = Object.freeze([
   "Conectate con Gmail",
