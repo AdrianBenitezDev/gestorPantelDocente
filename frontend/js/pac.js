@@ -150,6 +150,9 @@ const PAC_ACCESS_TOKEN_TTL_MS = 45 * 60 * 1000;
 const GOOGLE_SCOPE_GMAIL_READONLY = "https://www.googleapis.com/auth/gmail.readonly";
 const GOOGLE_SCOPE_SHEETS = "https://www.googleapis.com/auth/spreadsheets";
 const GOOGLE_SCOPE_DRIVE = "https://www.googleapis.com/auth/drive";
+const PAC_FIXED_GMAIL_QUERIES = Object.freeze([
+  "from:artbenitez@abc.gob.ar",
+]);
 const PAC_ONBOARDING_STEPS = Object.freeze([
   "Conectate con Gmail",
   "Perzonaliza el encabezado del Pac",
@@ -415,7 +418,8 @@ function buildDistrictNumberList() {
 function buildGmailQueryOptionsByProcess(processValue) {
   const prefix = String(processValue || "") === "0" ? "sad" : "apdsad";
   const districts = buildDistrictNumberList();
-  return districts.map((district) => `from:${prefix}${district}@abc.gob.ar`);
+  const generatedQueries = districts.map((district) => `from:${prefix}${district}@abc.gob.ar`);
+  return Array.from(new Set([...PAC_FIXED_GMAIL_QUERIES, ...generatedQueries]));
 }
 
 function renderProcessDependentGmailQueries() {
