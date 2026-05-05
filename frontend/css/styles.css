@@ -821,6 +821,13 @@ a.link-btn:hover {
   flex-wrap: wrap;
 }
 
+.pac-table-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .pac-table {
   width: 100%;
   min-width: 900px;
@@ -860,6 +867,36 @@ a.link-btn:hover {
 
 .pac-floating-actions[hidden] {
   display: none;
+}
+
+.pac-copy-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%) translateY(12px);
+  z-index: 90;
+  max-width: min(92vw, 760px);
+  border: 1px solid #7ea4df;
+  border-radius: 12px;
+  padding: 12px 16px;
+  background: rgba(29, 63, 120, 0.95);
+  color: #fff;
+  box-shadow: 0 8px 24px rgba(17, 45, 90, 0.28);
+  font-size: 13px;
+  line-height: 1.35;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.pac-copy-toast.is-error {
+  border-color: #f4b2b2;
+  background: rgba(145, 35, 35, 0.95);
+}
+
+.pac-copy-toast:not(.is-hidden) {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }
 
 .pac-float-btn {

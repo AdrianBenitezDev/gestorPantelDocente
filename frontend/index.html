@@ -270,7 +270,10 @@
       </details>
       <p id="pac-errors-msg" class="msg is-hidden" aria-hidden="true"></p>
       <div class="pac-table-toolbar">
-        <button id="pac-select-all-btn" type="button" class="google-btn">Seleccionar todo</button>
+        <div class="pac-table-toolbar-actions">
+          <button id="pac-select-all-btn" type="button" class="google-btn">Seleccionar todo</button>
+          <button id="pac-copy-selected-btn" type="button" class="google-btn">Copiar filas seleccionadas</button>
+        </div>
         <span id="pac-selected-count" class="subtitle">Filas seleccionadas: 0</span>
       </div>
       <div class="pac-table-wrap">
@@ -386,6 +389,7 @@
       </div>
     </div>
   </div>
+  <div id="pac-copy-toast" class="pac-copy-toast is-hidden" hidden aria-live="polite"></div>
 
   <div id="shared-footer-root"></div>
   <script src="./footer/footer.js" defer></script>

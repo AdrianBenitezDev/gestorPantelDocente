@@ -85,8 +85,10 @@ const headerFormInputs = [
 ].filter(Boolean);
 
 const selectAllBtn = document.getElementById("pac-select-all-btn");
+const copySelectedBtn = document.getElementById("pac-copy-selected-btn");
 const selectAllCheckbox = document.getElementById("pac-select-all-checkbox");
 const selectedCountEl = document.getElementById("pac-selected-count");
+const copyToast = document.getElementById("pac-copy-toast");
 
 const floatingActions = document.getElementById("pac-floating-actions");
 const floatCancelBtn = document.getElementById("pac-float-cancel-btn");
@@ -177,6 +179,7 @@ const PAC_MONTHS = [
 
 let extractionConfigPersistTimer = null;
 let currentPacSessionLogKey = "";
+let copyToastTimer = null;
 
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
@@ -567,6 +570,28 @@ function showDriveSavedOverlay(sheetUrl = "") {
 
 function hideDriveSavedOverlay() {
   setDriveSavedOverlayVisible(false);
+}
+
+function showCopyToast(message, isError = false) {
+  const text = String(message || "").trim();
+  if (!text) {
+    return;
+  }
+  if (!copyToast) {
+    setMsg(runMsg, text, isError);
+    return;
+  }
+  copyToast.textContent = text;
+  copyToast.classList.toggle("is-error", Boolean(isError));
+  copyToast.hidden = false;
+  copyToast.classList.remove("is-hidden");
+  if (copyToastTimer) {
+    clearTimeout(copyToastTimer);
+  }
+  copyToastTimer = setTimeout(() => {
+    copyToast.classList.add("is-hidden");
+    copyToast.hidden = true;
+  }, 4200);
 }
 
 function setBusy(btn, busy) {
@@ -1530,6 +1555,9 @@ function updateSelectionUI() {
     selectAllBtn.textContent = allChecked ? "Deseleccionar todo" : "Seleccionar todo";
     selectAllBtn.disabled = total === 0;
   }
+  if (copySelectedBtn) {
+    copySelectedBtn.disabled = total === 0 || selected === 0;
+  }
 
   const hasRows = total > 0;
   setFloatingVisible(hasRows);
@@ -1599,6 +1627,87 @@ function toggleSelectAll(forceValue = null) {
     state.selectedRowIds.clear();
   }
   renderRows(state.rows);
+}
+
+function normalizeClipboardCell(value) {
+  return String(value ?? "")
+    .replace(/\t/g, " ")
+    .replace(/\r?\n/g, " ")
+    .trim();
+}
+
+function buildClipboardTextFromRows(rows = []) {
+  const safeRows = Array.isArray(rows) ? rows : [];
+  return safeRows
+    .map((row) => {
+      const cuilParts = splitCuilParts(row.cuil, row.dni);
+      const modCarr = deriveModCarr(row.curso);
+      const columns = [
+        row.cupof,
+        cuilParts.prefix,
+        cuilParts.dni,
+        cuilParts.suffix,
+        "",
+        row.fechaNacimiento,
+        row.apellidoNombre,
+        row.situacionRevista,
+        modCarr,
+        row.pid,
+        row.cargoModulosHoras,
+        "",
+        row.curso,
+        row.division,
+      ];
+      return columns.map(normalizeClipboardCell).join("\t");
+    })
+    .join("\n");
+}
+
+async function writeTextToClipboard(text) {
+  const safeText = String(text || "");
+  if (!safeText) {
+    return;
+  }
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(safeText);
+    return;
+  }
+  const helper = document.createElement("textarea");
+  helper.value = safeText;
+  helper.setAttribute("readonly", "true");
+  helper.style.position = "fixed";
+  helper.style.top = "-1000px";
+  helper.style.opacity = "0";
+  document.body.appendChild(helper);
+  helper.focus();
+  helper.select();
+  const copied = document.execCommand("copy");
+  document.body.removeChild(helper);
+  if (!copied) {
+    throw new Error("No se pudo copiar con fallback");
+  }
+}
+
+async function copySelectedRowsToClipboard() {
+  const selectedRows = getSelectedRows();
+  if (!selectedRows.length) {
+    showCopyToast("No hay filas seleccionadas para copiar.", true);
+    return;
+  }
+  const clipboardText = buildClipboardTextFromRows(selectedRows);
+  if (!clipboardText) {
+    showCopyToast("No se pudo preparar el contenido para copiar.", true);
+    return;
+  }
+  try {
+    await writeTextToClipboard(clipboardText);
+    showCopyToast(
+      `se copiaron ${selectedRows.length} al porta papeles, ahora puede pegarlas manualmente en tu archivo personalizado`
+    );
+  } catch (error) {
+    console.error("copySelectedRowsToClipboard error", error);
+    showCopyToast("No se pudo copiar al portapapeles. Intenta nuevamente.", true);
+  }
 }
 
 function buildPayload(previewOnly) {
@@ -2281,6 +2390,12 @@ resultsBody.addEventListener("change", (event) => {
 if (selectAllBtn) {
   selectAllBtn.addEventListener("click", () => {
     toggleSelectAll();
+  });
+}
+
+if (copySelectedBtn) {
+  copySelectedBtn.addEventListener("click", async () => {
+    await copySelectedRowsToClipboard();
   });
 }
 
