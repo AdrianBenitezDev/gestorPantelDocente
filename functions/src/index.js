@@ -5092,7 +5092,7 @@ exports.savePacRowsToDrive = onCall(savePacRowsCallableOptions, async (request) 
 
   const requiredScopes = [
     "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/drive.file",
   ];
 
   let tokenInfo = null;
@@ -5110,7 +5110,7 @@ exports.savePacRowsToDrive = onCall(savePacRowsCallableOptions, async (request) 
   if (tokenInfo && missingScopes.length) {
     throw new HttpsError(
       "failed-precondition",
-      "Faltan permisos para guardar en Drive. Reautoriza Gmail + Sheets + Drive e intenta nuevamente.",
+      "Faltan permisos para guardar en Drive. Reautoriza Sheets + Drive (drive.file) e intenta nuevamente.",
       {
         errorType: "missing_scopes_save_drive",
         requiredScopes,

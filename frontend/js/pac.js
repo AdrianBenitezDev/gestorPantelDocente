@@ -149,10 +149,9 @@ const QUERY_PERSIST_DEBOUNCE_MS = 2000;
 const PAC_ACCESS_TOKEN_TTL_MS = 45 * 60 * 1000;
 const GOOGLE_SCOPE_GMAIL_READONLY = "https://www.googleapis.com/auth/gmail.readonly";
 const GOOGLE_SCOPE_SHEETS = "https://www.googleapis.com/auth/spreadsheets";
+const GOOGLE_SCOPE_DRIVE_FILE = "https://www.googleapis.com/auth/drive.file";
 const GOOGLE_SCOPE_DRIVE = "https://www.googleapis.com/auth/drive";
-const PAC_FIXED_GMAIL_QUERIES = Object.freeze([
-  "from:artbenitez@abc.gob.ar",
-]);
+const PAC_FIXED_GMAIL_QUERIES = Object.freeze([]);
 const PAC_ONBOARDING_STEPS = Object.freeze([
   "Conectate con Gmail",
   "Perzonaliza el encabezado del Pac",
@@ -376,12 +375,15 @@ function uniqueScopes(scopes) {
 }
 
 function getSaveRequiredScopes() {
-  return [GOOGLE_SCOPE_SHEETS, GOOGLE_SCOPE_DRIVE];
+  return [GOOGLE_SCOPE_SHEETS, GOOGLE_SCOPE_DRIVE_FILE];
 }
 
 function rememberGrantedScopes(scopes) {
   uniqueScopes(scopes).forEach((scope) => {
     state.grantedScopes.add(scope);
+    if (scope === GOOGLE_SCOPE_DRIVE) {
+      state.grantedScopes.add(GOOGLE_SCOPE_DRIVE_FILE);
+    }
   });
 }
 
@@ -1884,10 +1886,12 @@ async function processSelectedRows(delivery = "drive") {
   if (!hasAllGrantedScopes(saveRequiredScopes)) {
     const authorized = await signInAndAuthorizeGoogleScopes({
       scopes: saveRequiredScopes,
+      authContext: "save-to-drive",
       successMessage: "Permisos de Sheets/Drive autorizados. Continuando...",
       errorMessage: "No se pudieron autorizar permisos para guardar en Drive.",
       customParameters: {
         prompt: "consent",
+        include_granted_scopes: "false",
       },
     });
     if (!authorized) {
@@ -1910,10 +1914,12 @@ async function processSelectedRows(delivery = "drive") {
   if (!state.accessToken) {
     const authorized = await signInAndAuthorizeGoogleScopes({
       scopes: getSaveRequiredScopes(),
+      authContext: "save-to-drive",
       successMessage: "Permisos de Sheets/Drive autorizados. Continuando...",
       errorMessage: "No se pudieron autorizar permisos de Sheets/Drive.",
       customParameters: {
         prompt: "consent",
+        include_granted_scopes: "false",
       },
     });
     if (!authorized) {
@@ -1946,10 +1952,12 @@ async function processSelectedRows(delivery = "drive") {
       }
       const reauthorized = await signInAndAuthorizeGoogleScopes({
         scopes: missingScopes,
+        authContext: "save-to-drive",
         successMessage: "Permisos adicionales autorizados. Reintentando guardado...",
         errorMessage: "No se pudieron autorizar permisos adicionales para guardar.",
         customParameters: {
           prompt: "consent",
+          include_granted_scopes: "false",
         },
       });
       if (!reauthorized) {
@@ -2111,6 +2119,7 @@ async function signInAndAuthorizeGoogleScopes(options = {}) {
       ? options.scopes
       : [GOOGLE_SCOPE_GMAIL_READONLY]
   );
+  const authContext = String(options.authContext || "general").trim() || "general";
   const successMessage =
     String(options.successMessage || "").trim() ||
     "Permisos de Google autorizados correctamente.";
@@ -2135,6 +2144,14 @@ async function signInAndAuthorizeGoogleScopes(options = {}) {
     if (!providerCustomParams.login_hint && currentUserEmail) {
       providerCustomParams.login_hint = currentUserEmail;
     }
+    if (authContext === "save-to-drive") {
+      console.info("[PAC OAuth] scopes solicitados", {
+        context: authContext,
+        scopes,
+        includeGrantedScopes: providerCustomParams.include_granted_scopes,
+        prompt: providerCustomParams.prompt || "",
+      });
+    }
     provider.setCustomParameters(providerCustomParams);
 
     const result = await signInWithPopup(auth, provider);
@@ -2148,8 +2165,23 @@ async function signInAndAuthorizeGoogleScopes(options = {}) {
     if (!accessToken) {
       throw new Error("No se obtuvo accessToken de Google.");
     }
+    const grantedScopes = uniqueScopes(
+      String(
+        result?._tokenResponse?.oauthScope ||
+        result?._tokenResponse?.scope ||
+        ""
+      ).split(/\s+/)
+    );
+    if (authContext === "save-to-drive") {
+      console.info("[PAC OAuth] respuesta de autenticacion", {
+        context: authContext,
+        userEmail: normalizeEmail(result?.user?.email || ""),
+        tokenRecibido: Boolean(accessToken),
+        grantedScopes,
+      });
+    }
     state.accessToken = accessToken;
-    rememberGrantedScopes(scopes);
+    rememberGrantedScopes(grantedScopes.length ? grantedScopes : scopes);
     persistAccessToken(
       accessToken,
       result?.user?.uid || auth.currentUser?.uid || "",
