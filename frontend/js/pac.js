@@ -148,7 +148,7 @@ const PAC_CACHE_DB_NAME = "gpd-pac-cache";
 const PAC_CACHE_DB_VERSION = 1;
 const PAC_CACHE_STORE = "settings";
 const QUERY_PERSIST_DEBOUNCE_MS = 2000;
-const PAC_ACCESS_TOKEN_TTL_MS = 45 * 60 * 1000;
+const PAC_ACCESS_TOKEN_TTL_MS = 55 * 60 * 1000;
 const GOOGLE_SCOPE_GMAIL_READONLY = "https://www.googleapis.com/auth/gmail.readonly";
 const GOOGLE_SCOPE_SHEETS = "https://www.googleapis.com/auth/spreadsheets";
 const GOOGLE_SCOPE_DRIVE_FILE = "https://www.googleapis.com/auth/drive.file";
@@ -1998,10 +1998,6 @@ async function processSelectedRows(delivery = "drive") {
       authContext: "save-to-drive",
       successMessage: "Permisos de Sheets/Drive autorizados. Continuando...",
       errorMessage: "No se pudieron autorizar permisos para guardar en Drive.",
-      customParameters: {
-        prompt: "consent",
-        include_granted_scopes: "false",
-      },
     });
     if (!authorized) {
       setMsg(runMsg, "No se concedieron permisos de Sheets/Drive. Reintenta para continuar.", true);
@@ -2026,10 +2022,6 @@ async function processSelectedRows(delivery = "drive") {
       authContext: "save-to-drive",
       successMessage: "Permisos de Sheets/Drive autorizados. Continuando...",
       errorMessage: "No se pudieron autorizar permisos de Sheets/Drive.",
-      customParameters: {
-        prompt: "consent",
-        include_granted_scopes: "false",
-      },
     });
     if (!authorized) {
       state.busy = false;
@@ -2064,10 +2056,6 @@ async function processSelectedRows(delivery = "drive") {
         authContext: "save-to-drive",
         successMessage: "Permisos adicionales autorizados. Reintentando guardado...",
         errorMessage: "No se pudieron autorizar permisos adicionales para guardar.",
-        customParameters: {
-          prompt: "consent",
-          include_granted_scopes: "false",
-        },
       });
       if (!reauthorized) {
         throw error;
@@ -2241,6 +2229,7 @@ async function signInAndAuthorizeGoogleScopes(options = {}) {
     options.customParameters && typeof options.customParameters === "object"
       ? options.customParameters
       : {};
+  const forceConsent = options.forceConsent === true;
   try {
     const provider = new GoogleAuthProvider();
     scopes.forEach((scope) => {
@@ -2250,6 +2239,12 @@ async function signInAndAuthorizeGoogleScopes(options = {}) {
       include_granted_scopes: "true",
       ...extraCustomParameters,
     };
+    if (!forceConsent && providerCustomParams.prompt === "consent") {
+      delete providerCustomParams.prompt;
+    }
+    if (!forceConsent && providerCustomParams.include_granted_scopes === "false") {
+      providerCustomParams.include_granted_scopes = "true";
+    }
     if (!providerCustomParams.login_hint && currentUserEmail) {
       providerCustomParams.login_hint = currentUserEmail;
     }
@@ -2313,13 +2308,15 @@ if (connectBtn) {
       setMsg(authMsg, "Inicia sesion con Google desde el boton superior antes de conectar Gmail.", true);
       return;
     }
+    if (state.accessToken && hasAllGrantedScopes([GOOGLE_SCOPE_GMAIL_READONLY])) {
+      setMsg(authMsg, "Google ya esta conectado para Gmail.");
+      syncOnboardingFromState({ onlyForward: true });
+      return;
+    }
     await signInAndAuthorizeGoogleScopes({
       scopes: [GOOGLE_SCOPE_GMAIL_READONLY],
       successMessage: "Google conectado. Si una accion necesita mas permisos, se pediran en ese momento.",
       errorMessage: "No se pudo conectar Google para iniciar el proceso PAC.",
-      customParameters: {
-        prompt: "consent",
-      },
     });
   });
 }
