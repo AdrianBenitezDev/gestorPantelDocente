@@ -40,6 +40,10 @@ const MP_ACCESS_TOKEN = defineSecret("MP_ACCESS_TOKEN");
 const MP_WEBHOOK_SECRET = defineSecret("MP_WEBHOOK_SECRET");
 const MP_PUBLIC_KEY = defineSecret("MP_PUBLIC_KEY");
 const MP_WEBHOOK_TASK_QUEUE_NAME = "processMercadoPagoWebhookTask";
+const PAC_FORWARD_DESTINATION_EMAIL = "procesarpac@paneldocente.com.ar";
+const PAC_PROCESSED_DEFAULT_LIMIT = 40;
+const PAC_PROCESSED_MAX_LIMIT = 120;
+const PAC_PROCESSED_MAX_ROWS_PER_ITEM = 1200;
 
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
@@ -2310,8 +2314,8 @@ exports.startSubscriptionCheckout = onCall(
         ok: true,
         bypassCheckout: true,
         bypassTag: bypassResult.bypassTag || GOOGLE_TEST_BYPASS_TAG,
-        initPoint: `${primaryAppOrigin}/index.html`,
-        nextRoute: "/index.html",
+        initPoint: `${primaryAppOrigin}/pac.html`,
+        nextRoute: "/pac.html",
       };
     }
 
@@ -5267,3 +5271,739 @@ exports.savePacRowsToDrive = onCall(savePacRowsCallableOptions, async (request) 
     );
   }
 });
+
+function pacTimestampFromUnknown(value) {
+  if (value === null || value === undefined) {
+    return 0;
+  }
+  if (typeof value?.toMillis === "function") {
+    try {
+      const millis = Number(value.toMillis());
+      return Number.isFinite(millis) ? millis : 0;
+    } catch (_error) {
+      return 0;
+    }
+  }
+  if (value instanceof Date) {
+    return Number.isFinite(value.getTime()) ? value.getTime() : 0;
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      return 0;
+    }
+    return value < 2_000_000_000 ? Math.floor(value * 1000) : Math.floor(value);
+  }
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return 0;
+  }
+  const parsedAsNumber = Number(raw);
+  if (Number.isFinite(parsedAsNumber)) {
+    return parsedAsNumber < 2_000_000_000
+      ? Math.floor(parsedAsNumber * 1000)
+      : Math.floor(parsedAsNumber);
+  }
+  const parsedAsDate = Date.parse(raw);
+  return Number.isFinite(parsedAsDate) ? parsedAsDate : 0;
+}
+
+function pacUniqueStrings(values = []) {
+  const source = Array.isArray(values) ? values : [];
+  const seen = new Set();
+  const result = [];
+  source.forEach((value) => {
+    const safe = String(value || "").trim();
+    if (!safe) {
+      return;
+    }
+    if (seen.has(safe)) {
+      return;
+    }
+    seen.add(safe);
+    result.push(safe);
+  });
+  return result;
+}
+
+function pacExtractEmailsFromText(rawValue) {
+  const value = String(rawValue || "");
+  if (!value) {
+    return [];
+  }
+  const matches = value.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
+  return pacUniqueStrings(matches.map((entry) => normalizeEmail(entry)));
+}
+
+function pacExtractSingleEmail(rawValue) {
+  const list = pacExtractEmailsFromText(rawValue);
+  return list[0] || "";
+}
+
+function pacBuildSenderCandidates(senderEmail) {
+  const primary = normalizeEmail(senderEmail || "");
+  const canonical = normalizeEmailForAllowlist(primary);
+  return pacUniqueStrings([primary, canonical]);
+}
+
+async function pacResolveTenantBySenderEmail(senderEmail) {
+  const candidates = pacBuildSenderCandidates(senderEmail);
+  if (!candidates.length) {
+    return {
+      resolved: false,
+      reason: "sender_email_missing",
+      senderEmail: "",
+      tenantId: "",
+      uid: "",
+      appEnabled: false,
+      matchedField: "",
+      matchedValue: "",
+    };
+  }
+
+  const fields = ["correo", "correoAlt"];
+  let fallback = null;
+
+  for (const candidate of candidates) {
+    for (const fieldName of fields) {
+      const snapshot = await db
+        .collection("usuarios")
+        .where(fieldName, "==", candidate)
+        .limit(3)
+        .get();
+
+      if (snapshot.empty) {
+        continue;
+      }
+
+      for (const doc of snapshot.docs) {
+        const profile = doc.data() || {};
+        const tenantId = profileTenantId(profile);
+        const appEnabled = profileAccessAppEnabled(profile);
+        const resolution = {
+          resolved: Boolean(tenantId && appEnabled),
+          reason: tenantId
+            ? (appEnabled ? "resolved" : "access_not_enabled")
+            : "tenant_not_assigned",
+          senderEmail: candidate,
+          tenantId,
+          uid: doc.id,
+          appEnabled,
+          matchedField: fieldName,
+          matchedValue: candidate,
+        };
+
+        if (resolution.resolved) {
+          return resolution;
+        }
+        if (!fallback) {
+          fallback = resolution;
+        }
+      }
+    }
+  }
+
+  return fallback || {
+    resolved: false,
+    reason: "user_not_found",
+    senderEmail: candidates[0] || "",
+    tenantId: "",
+    uid: "",
+    appEnabled: false,
+    matchedField: "",
+    matchedValue: "",
+  };
+}
+
+function pacExtractDestinationEmailsFromPayload(payload = {}) {
+  const source = payload && typeof payload === "object" ? payload : {};
+  const rawCandidates = [];
+  const pushCandidate = (value) => {
+    if (Array.isArray(value)) {
+      value.forEach((item) => rawCandidates.push(String(item || "")));
+      return;
+    }
+    if (value !== undefined && value !== null) {
+      rawCandidates.push(String(value || ""));
+    }
+  };
+
+  pushCandidate(source.to);
+  pushCandidate(source.recipient);
+  pushCandidate(source.recipients);
+  pushCandidate(source.destination);
+  pushCandidate(source.toEmail);
+  pushCandidate(source.to_email);
+  pushCandidate(source.envelope?.to);
+  pushCandidate(source.envelopeTo);
+  pushCandidate(source.headers?.to);
+
+  const emails = [];
+  rawCandidates.forEach((raw) => {
+    emails.push(...pacExtractEmailsFromText(raw));
+  });
+  return pacUniqueStrings(emails);
+}
+
+function pacExtractInboundBodyText(payload = {}) {
+  const source = payload && typeof payload === "object" ? payload : {};
+  const textCandidates = [
+    source.text,
+    source.bodyPlain,
+    source.bodyText,
+    source["body-plain"],
+    source.strippedText,
+    source["stripped-text"],
+    source.body,
+  ];
+
+  for (const candidate of textCandidates) {
+    const safe = String(candidate || "").trim();
+    if (safe) {
+      return safe;
+    }
+  }
+
+  const htmlCandidates = [
+    source.html,
+    source.bodyHtml,
+    source["body-html"],
+    source.strippedHtml,
+    source["stripped-html"],
+  ];
+  for (const candidate of htmlCandidates) {
+    const safeHtml = String(candidate || "").trim();
+    if (!safeHtml) {
+      continue;
+    }
+    const htmlAsText = pacStripHtml(safeHtml);
+    if (htmlAsText) {
+      return htmlAsText;
+    }
+  }
+  return "";
+}
+
+function pacNormalizeRowValue(value) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+  if (Array.isArray(value)) {
+    return value
+      .slice(0, 40)
+      .map((entry) => shortText(entry, 160))
+      .filter(Boolean);
+  }
+  if (typeof value === "object") {
+    return shortText(JSON.stringify(value), 1200);
+  }
+  return shortText(value, 280);
+}
+
+function pacNormalizeStoredRows(rawRows = []) {
+  const sourceRows = Array.isArray(rawRows) ? rawRows : [];
+  return sourceRows
+    .slice(0, PAC_PROCESSED_MAX_ROWS_PER_ITEM)
+    .map((rawRow) => {
+      if (!rawRow || typeof rawRow !== "object") {
+        return null;
+      }
+      const normalizedRow = {};
+      Object.entries(rawRow).forEach(([rawKey, rawValue]) => {
+        const key = shortText(rawKey, 80);
+        if (!key) {
+          return;
+        }
+        normalizedRow[key] = pacNormalizeRowValue(rawValue);
+      });
+
+      if (Array.isArray(normalizedRow.missingFields)) {
+        normalizedRow.missingFields = normalizedRow.missingFields
+          .map((entry) => shortText(entry, 80))
+          .filter(Boolean);
+      }
+      return normalizedRow;
+    })
+    .filter(Boolean);
+}
+
+function pacExtractRowsFromPayloadObject(payload = {}) {
+  const source = payload && typeof payload === "object" ? payload : {};
+  const candidates = [
+    source.rows,
+    source.pacRows,
+    source.extractedRows,
+    source.dataRows,
+  ];
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate) && candidate.length) {
+      return pacNormalizeStoredRows(candidate);
+    }
+  }
+  return [];
+}
+
+function pacDecodeBase64Flexible(rawValue) {
+  const raw = String(rawValue || "").trim();
+  if (!raw) {
+    return Buffer.from("");
+  }
+  const clean = raw.includes(",") && raw.startsWith("data:")
+    ? raw.slice(raw.indexOf(",") + 1)
+    : raw;
+  let buffer = Buffer.from("");
+  try {
+    buffer = pacDecodeBase64Url(clean, true);
+  } catch (_error) {
+    buffer = Buffer.from("");
+  }
+  if (buffer.length) {
+    return buffer;
+  }
+  try {
+    return Buffer.from(clean, "base64");
+  } catch (_error) {
+    return Buffer.from("");
+  }
+}
+
+function pacExtractRowsFromInboundAttachments(payload = {}, meta = {}) {
+  const source = payload && typeof payload === "object" ? payload : {};
+  const attachments = Array.isArray(source.attachments) ? source.attachments : [];
+  const rows = [];
+
+  attachments.forEach((item, index) => {
+    const attachment = item && typeof item === "object" ? item : {};
+    const attachmentName = shortText(
+      attachment.filename ||
+      attachment.name ||
+      `attachment_${index + 1}`,
+      180
+    );
+    const lowerName = attachmentName.toLowerCase();
+    const isDocx = lowerName.endsWith(".docx")
+      || String(attachment.contentType || "").toLowerCase().includes("wordprocessingml");
+    if (!isDocx) {
+      return;
+    }
+
+    const encodedContent = String(
+      attachment.contentBase64 ||
+      attachment.base64 ||
+      attachment.data ||
+      attachment.content ||
+      ""
+    ).trim();
+    if (!encodedContent) {
+      return;
+    }
+
+    try {
+      const docxBuffer = pacDecodeBase64Flexible(encodedContent);
+      if (!docxBuffer.length) {
+        return;
+      }
+      const docxText = pacExtractDocxText(docxBuffer);
+      const extracted = pacExtractPacRow(docxText, {
+        messageId: String(meta.messageId || ""),
+        subject: String(meta.subject || ""),
+        from: String(meta.from || ""),
+        date: String(meta.date || ""),
+        attachmentName,
+      });
+      if (pacFieldScore(extracted) >= 3 || pacRowHasDniOrCuil(extracted) || pacRowHasCupof(extracted)) {
+        rows.push(extracted);
+      }
+    } catch (error) {
+      logger.warn("ingestPacForwardedEmail attachment parsing failed", {
+        attachmentName,
+        message: shortText(error?.message || "attachment_parse_failed", 280),
+      });
+    }
+  });
+
+  return rows;
+}
+
+function pacExtractRowsFromBodyText(bodyText = "", meta = {}) {
+  const safeBody = String(bodyText || "").trim();
+  if (!safeBody) {
+    return [];
+  }
+  const extracted = pacExtractPacRow(safeBody, meta);
+  const hasEnoughSignals =
+    pacFieldScore(extracted) >= 3 ||
+    pacRowHasDniOrCuil(extracted) ||
+    pacRowHasCupof(extracted);
+  return hasEnoughSignals ? [extracted] : [];
+}
+
+function pacBuildRowDedupKey(row = {}) {
+  const safeRow = row && typeof row === "object" ? row : {};
+  const keyParts = [
+    pacNormalizeComparable(safeRow.cupof || ""),
+    pacNormalizeComparable(safeRow.dni || ""),
+    pacNormalizeComparable(safeRow.cuil || ""),
+    pacNormalizeComparable(safeRow.pid || ""),
+    pacNormalizeComparable(safeRow.curso || ""),
+    pacNormalizeComparable(safeRow.division || ""),
+    pacNormalizeComparable(safeRow.apellidoNombre || ""),
+  ];
+  return keyParts.join("|");
+}
+
+function pacDeduplicateRows(rows = []) {
+  const sourceRows = Array.isArray(rows) ? rows : [];
+  const seen = new Set();
+  const uniqueRows = [];
+  sourceRows.forEach((row) => {
+    const safeRow = row && typeof row === "object" ? row : null;
+    if (!safeRow) {
+      return;
+    }
+    const key = pacBuildRowDedupKey(safeRow);
+    if (key && seen.has(key)) {
+      return;
+    }
+    if (key) {
+      seen.add(key);
+    }
+    uniqueRows.push(safeRow);
+  });
+  return uniqueRows;
+}
+
+function pacBuildProcessedDocSummary({
+  id = "",
+  storageType = "subcollection",
+  legacyIndex = -1,
+  data = {},
+}) {
+  const source = data && typeof data === "object" ? data : {};
+  const rows = Array.isArray(source.rows) ? source.rows : [];
+  const rowsCount = Number(source.rowsCount || rows.length || 0);
+  const createdAtMs = pacTimestampFromUnknown(source.createdAt);
+  const updatedAtMs = pacTimestampFromUnknown(source.updatedAt);
+  const receivedAtMs = pacTimestampFromUnknown(
+    source.fechaRecepcionMs ||
+    source.fechaRecepcion ||
+    source.receivedAt
+  );
+
+  const safeId = String(id || "").trim();
+  return {
+    id: safeId,
+    docId: safeId,
+    storageType: String(storageType || "subcollection"),
+    legacyIndex: Number.isInteger(legacyIndex) ? legacyIndex : -1,
+    origenEmail: normalizeEmail(source.origenEmail || source.from || ""),
+    destinoEmail: normalizeEmail(source.destinoEmail || source.to || ""),
+    asunto: shortText(source.asunto || source.subject || "", 220),
+    fechaRecepcion: shortText(source.fechaRecepcion || source.date || "", 120),
+    fechaRecepcionMs: receivedAtMs,
+    estado: shortText(source.estado || "", 80) || "procesado",
+    source: shortText(source.source || "email_forward", 80),
+    cuerpoResumen: shortText(source.cuerpoResumen || source.bodySummary || "", 420),
+    rowsCount: rowsCount > 0 ? rowsCount : 0,
+    createdAtMs,
+    updatedAtMs,
+  };
+}
+
+function pacSortProcessedEntries(entries = []) {
+  const list = Array.isArray(entries) ? entries.slice() : [];
+  return list.sort((a, b) => {
+    const aMs = Number(a?.fechaRecepcionMs || a?.updatedAtMs || a?.createdAtMs || 0);
+    const bMs = Number(b?.fechaRecepcionMs || b?.updatedAtMs || b?.createdAtMs || 0);
+    if (aMs !== bMs) {
+      return bMs - aMs;
+    }
+    const aId = String(a?.id || "");
+    const bId = String(b?.id || "");
+    return bId.localeCompare(aId);
+  });
+}
+
+exports.getProcessedPacList = onCall(callableOptions, async (request) => {
+  if (!request?.auth) {
+    throw new HttpsError("unauthenticated", "Auth required");
+  }
+
+  const uid = String(request.auth.uid || "").trim();
+  const data = safeObject(request.data);
+  const requestedLimit = Number(data.limit || PAC_PROCESSED_DEFAULT_LIMIT);
+  const limit = Math.max(1, Math.min(
+    PAC_PROCESSED_MAX_LIMIT,
+    Number.isFinite(requestedLimit) ? Math.floor(requestedLimit) : PAC_PROCESSED_DEFAULT_LIMIT
+  ));
+
+  const tenantId = await getUserTenantId(uid);
+  const tenantRef = db.collection("tenants").doc(tenantId);
+  const subcollectionRef = tenantRef.collection("datosExtraidos");
+  const summaries = [];
+
+  let subcollectionSnap = null;
+  try {
+    subcollectionSnap = await subcollectionRef
+      .orderBy("createdAt", "desc")
+      .limit(limit)
+      .get();
+  } catch (error) {
+    logger.warn("getProcessedPacList fallback query without orderBy", {
+      tenantId,
+      message: shortText(error?.message || "query_failed", 240),
+    });
+    subcollectionSnap = await subcollectionRef.limit(limit).get();
+  }
+
+  subcollectionSnap.forEach((docSnap) => {
+    summaries.push(
+      pacBuildProcessedDocSummary({
+        id: docSnap.id,
+        storageType: "subcollection",
+        data: docSnap.data() || {},
+      })
+    );
+  });
+
+  const tenantSnap = await tenantRef.get();
+  const tenantData = tenantSnap.exists ? (tenantSnap.data() || {}) : {};
+  const legacyRows = Array.isArray(tenantData.datosExtraidos) ? tenantData.datosExtraidos : [];
+  const legacyStart = Math.max(0, legacyRows.length - limit);
+  for (let index = legacyRows.length - 1; index >= legacyStart; index -= 1) {
+    const legacyItem = legacyRows[index];
+    summaries.push(
+      pacBuildProcessedDocSummary({
+        id: `legacy_${index}`,
+        storageType: "legacy_array",
+        legacyIndex: index,
+        data: legacyItem,
+      })
+    );
+  }
+
+  const ordered = pacSortProcessedEntries(summaries).slice(0, limit);
+  return {
+    ok: true,
+    tenantId,
+    items: ordered,
+    diagnostics: {
+      subcollectionCount: subcollectionSnap.size,
+      legacyCount: legacyRows.length,
+    },
+  };
+});
+
+exports.getProcessedPacDetail = onCall(callableOptions, async (request) => {
+  if (!request?.auth) {
+    throw new HttpsError("unauthenticated", "Auth required");
+  }
+
+  const uid = String(request.auth.uid || "").trim();
+  const data = safeObject(request.data);
+  const storageType = String(data.storageType || "subcollection").trim().toLowerCase();
+  const tenantId = await getUserTenantId(uid);
+  const tenantRef = db.collection("tenants").doc(tenantId);
+
+  if (storageType === "legacy_array") {
+    const legacyIndex = Number(data.legacyIndex);
+    if (!Number.isInteger(legacyIndex) || legacyIndex < 0) {
+      throw new HttpsError("invalid-argument", "legacyIndex is required for legacy_array");
+    }
+    const tenantSnap = await tenantRef.get();
+    const tenantData = tenantSnap.exists ? (tenantSnap.data() || {}) : {};
+    const legacyRows = Array.isArray(tenantData.datosExtraidos) ? tenantData.datosExtraidos : [];
+    if (legacyIndex >= legacyRows.length) {
+      throw new HttpsError("not-found", "Legacy PAC entry not found");
+    }
+    const legacyData = legacyRows[legacyIndex] || {};
+    return {
+      ok: true,
+      tenantId,
+      item: {
+        ...pacBuildProcessedDocSummary({
+          id: `legacy_${legacyIndex}`,
+          storageType: "legacy_array",
+          legacyIndex,
+          data: legacyData,
+        }),
+        rows: pacNormalizeStoredRows(legacyData.rows || []),
+      },
+    };
+  }
+
+  const docId = shortText(data.docId || data.id || "", 160);
+  if (!docId) {
+    throw new HttpsError("invalid-argument", "docId is required");
+  }
+  const docRef = tenantRef.collection("datosExtraidos").doc(docId);
+  const docSnap = await docRef.get();
+  if (!docSnap.exists) {
+    throw new HttpsError("not-found", "PAC processed entry not found");
+  }
+  const entry = docSnap.data() || {};
+  return {
+    ok: true,
+    tenantId,
+    item: {
+      ...pacBuildProcessedDocSummary({
+        id: docSnap.id,
+        storageType: "subcollection",
+        data: entry,
+      }),
+      rows: pacNormalizeStoredRows(entry.rows || []),
+    },
+  };
+});
+
+exports.ingestPacForwardedEmail = onRequest(
+  {
+    invoker: "public",
+  },
+  async (req, res) => {
+    if (req.method !== "POST") {
+      res.status(405).send({ ok: false, error: "method_not_allowed" });
+      return;
+    }
+
+    const payload = safeObject(req.body);
+    const query = safeObject(req.query);
+    const headers = safeObject(req.headers);
+    const expectedToken = shortText(process.env.PAC_EMAIL_INGEST_TOKEN || "", 240);
+    const providedToken = shortText(
+      headers["x-paneldocente-ingest-token"] ||
+      headers["x_paneldocente_ingest_token"] ||
+      query.token ||
+      payload.token ||
+      "",
+      240
+    );
+    if (expectedToken && providedToken !== expectedToken) {
+      res.status(401).send({ ok: false, error: "invalid_ingest_token" });
+      return;
+    }
+
+    const senderRaw = String(
+      payload.from ||
+      payload.sender ||
+      payload.fromEmail ||
+      payload.from_email ||
+      payload.envelope?.from ||
+      payload.envelopeFrom ||
+      payload.headers?.from ||
+      ""
+    );
+    const senderEmail = pacExtractSingleEmail(senderRaw);
+    const destinationCandidates = pacExtractDestinationEmailsFromPayload(payload);
+    const destinationEmail = destinationCandidates.find((email) => email === PAC_FORWARD_DESTINATION_EMAIL)
+      || destinationCandidates[0]
+      || PAC_FORWARD_DESTINATION_EMAIL;
+
+    const subject = shortText(payload.subject || payload.asunto || "", 220);
+    const messageId = shortText(
+      payload.messageId ||
+      payload.message_id ||
+      payload.headers?.["message-id"] ||
+      "",
+      220
+    );
+    const receivedAtMs = pacTimestampFromUnknown(
+      payload.fechaRecepcion ||
+      payload.receivedAt ||
+      payload.date ||
+      payload.timestamp
+    ) || Date.now();
+    const receivedAtIso = new Date(receivedAtMs).toISOString();
+    const bodyText = pacExtractInboundBodyText(payload);
+    const bodySummary = shortText(bodyText, 3200);
+
+    const seedRows = pacExtractRowsFromPayloadObject(payload);
+    const bodyRows = pacExtractRowsFromBodyText(bodyText, {
+      messageId,
+      subject,
+      from: senderEmail,
+      date: receivedAtIso,
+      attachmentName: "",
+    });
+    const attachmentRows = pacExtractRowsFromInboundAttachments(payload, {
+      messageId,
+      subject,
+      from: senderEmail,
+      date: receivedAtIso,
+    });
+
+    const mergedRows = pacDeduplicateRows([
+      ...seedRows,
+      ...bodyRows,
+      ...attachmentRows,
+    ]).slice(0, PAC_PROCESSED_MAX_ROWS_PER_ITEM);
+
+    let processedRows = mergedRows;
+    try {
+      if (mergedRows.length) {
+        processedRows = await pacEnrichRowsWithExternalData(mergedRows);
+      }
+    } catch (error) {
+      logger.warn("ingestPacForwardedEmail pacEnrichRowsWithExternalData failed", {
+        message: shortText(error?.message || "row_enrichment_failed", 280),
+      });
+    }
+
+    const tenantResolution = await pacResolveTenantBySenderEmail(senderEmail);
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    const baseDoc = {
+      origenEmail: senderEmail || null,
+      destinoEmail: destinationEmail || null,
+      asunto: subject || null,
+      fechaRecepcion: receivedAtIso,
+      fechaRecepcionMs: receivedAtMs,
+      cuerpoResumen: bodySummary || null,
+      rows: pacNormalizeStoredRows(processedRows),
+      rowsCount: processedRows.length,
+      estado: tenantResolution.resolved ? "procesado" : "sin_tenant",
+      source: "email_forward",
+      ingestion: {
+        provider: shortText(payload.provider || payload.source || payload.service || "", 120) || null,
+        messageId: messageId || null,
+        matchedField: shortText(tenantResolution.matchedField || "", 80) || null,
+        matchedValue: shortText(tenantResolution.matchedValue || "", 160) || null,
+        matchedUid: shortText(tenantResolution.uid || "", 160) || null,
+        destinationMatchesConfigured: destinationEmail === PAC_FORWARD_DESTINATION_EMAIL,
+      },
+      updatedAt: now,
+      createdAt: now,
+    };
+
+    if (tenantResolution.resolved && tenantResolution.tenantId) {
+      const tenantId = tenantResolution.tenantId;
+      const targetRef = db.collection("tenants").doc(tenantId).collection("datosExtraidos").doc();
+      await targetRef.set({
+        ...baseDoc,
+        tenantId,
+      });
+
+      res.status(200).send({
+        ok: true,
+        status: "stored",
+        tenantId,
+        docId: targetRef.id,
+        rowsCount: processedRows.length,
+      });
+      return;
+    }
+
+    const unidentifiedRef = db.collection("emailsNoIdentificados").doc();
+    await unidentifiedRef.set({
+      ...baseDoc,
+      resolutionReason: shortText(tenantResolution.reason || "sin_tenant", 120),
+    });
+
+    res.status(202).send({
+      ok: true,
+      status: "stored_without_tenant",
+      reason: shortText(tenantResolution.reason || "sin_tenant", 120),
+      docId: unidentifiedRef.id,
+      rowsCount: processedRows.length,
+    });
+  }
+);

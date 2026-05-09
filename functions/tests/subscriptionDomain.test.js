@@ -31,13 +31,13 @@ test("routing: usuario sin perfil va a registro", () => {
   assert.equal(resolveNextRouteForProfile("bad_payload"), "/registro.html");
 });
 
-test("routing: usuario activo con tenant entra a index", () => {
+test("routing: usuario activo con tenant entra a selector PAC", () => {
   const route = resolveNextRouteForProfile({
     tenantId: "tenant_123",
     access: { appEnabled: true },
     billing: { status: "active" },
   });
-  assert.equal(route, "/index.html");
+  assert.equal(route, "/pac.html");
 });
 
 test("routing: usuario sin pago (status null) va a activar-plan", () => {
@@ -84,6 +84,6 @@ test("routing: perfil con claves literales con punto mantiene compatibilidad", (
     "access.appEnabled": false,
     "billing.status": "pending_confirmation",
   });
-  assert.equal(activeRoute, "/index.html");
+  assert.equal(activeRoute, "/pac.html");
   assert.equal(pendingRoute, "/estado-suscripcion.html");
 });

@@ -46,7 +46,7 @@ function resolveNextRouteForProfile(profile) {
   const tenantId = String(profile.tenantId || "").trim();
   const appEnabled = readProfileValue(profile, "access", "appEnabled") === true;
   if (appEnabled && tenantId) {
-    return "/index.html";
+    return "/pac.html";
   }
 
   const billingStatus = normalizeBillingStatus(

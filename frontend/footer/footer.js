@@ -39,7 +39,8 @@
             <ul class="shared-footer-links">
             
               <li><a href="/registro.html">Registro</a></li>
-              <li><a href="/index.html">Crear PAC</a></li>
+              <li><a href="/pac.html">Crear PAC</a></li>
+              <li><a href="/pac-procesados.html">PAC procesados</a></li>
             </ul>
           </section>
           <section class="shared-footer-block">

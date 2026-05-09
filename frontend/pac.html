@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" type="image/png" href="/icon/paneldocente.png?v=20260318-2" />
+  <link rel="stylesheet" href="./css/styles.css?v=20260508-pac-selector1" />
+</head>
+<body>
+  <header class="top-banner">
+    <div class="brand-block">
+      <img class="brand-icon" src="/icon/paneldocente.png?v=20260318-2" alt="Logo de PanelDocente" />
+      <span class="brand-name">PanelDocente</span>
+    </div>
+    <div class="user-block">
+      <div class="user-meta">
+        <span class="user-icon" aria-hidden="true">&#128100;</span>
+        <span id="pac-selector-user-name" class="user-name">Sin sesion</span>
+        <span id="pac-selector-user-email" class="user-email">-</span>
+      </div>
+      <button id="pac-selector-auth-btn" type="button" class="google-btn">Iniciar sesion con Google</button>
+    </div>
+  </header>
+
+  <main class="app">
+    <section id="pac-selector-guest-section" class="card pac-selector-guest-card">
+      <h1>Elige como trabajar con PAC</h1>
+      <p class="subtitle">
+        Puedes continuar con el flujo clasico de Gmail o usar el flujo de PAC procesados por reenvio.
+      </p>
+      <p class="subtitle">
+        Inicia sesion para habilitar las opciones de tu tenant.
+      </p>
+      <div class="review-actions">
+        <button id="pac-selector-guest-login-btn" type="button">Iniciar sesion con Google</button>
+      </div>
+    </section>
+
+    <section id="pac-selector-auth-content" class="card is-hidden" hidden>
+      <h1>Seleccion de metodo PAC</h1>
+      <p class="subtitle">
+        Ambos caminos conviven. Puedes cambiar de metodo en cualquier momento.
+      </p>
+      <div class="pac-method-grid">
+        <article class="pac-method-card">
+          <h2>Gestionar PAC procesados</h2>
+          <p>
+            Consulta y gestiona datos extraidos automaticamente desde correos reenviados a
+            <strong>procesarpac@paneldocente.com.ar</strong>, sin permisos de Gmail.
+          </p>
+          <a class="link-btn" href="/pac-procesados.html">Ver PAC procesados</a>
+        </article>
+
+        <article class="pac-method-card">
+          <h2>Leer desde mi Gmail (requiere permisos)</h2>
+          <p>
+            Conecta tu cuenta de Gmail para leer correos directamente desde tu casilla y extraer
+            informacion de PAC de forma asistida.
+          </p>
+          <a class="link-btn" href="/index.html">Leer desde mi Gmail</a>
+        </article>
+      </div>
+      <p id="pac-selector-msg" class="msg"></p>
+    </section>
+  </main>
+
+  <div id="shared-footer-root"></div>
+  <script src="./footer/footer.js" defer></script>
+  <script type="module" src="./js/pacSelector.js"></script>
+</body>
+</html>

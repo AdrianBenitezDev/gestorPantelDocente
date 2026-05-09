@@ -1,0 +1,152 @@
+PROYECTO: Nueva alternativa PAC sin permisos Gmail (coexistiendo con flujo actual)
+
+CONTEXTO
+- Proyecto: PanelDocente.
+- Ya existe un flujo PAC actual que lee desde Gmail del usuario con permisos OAuth.
+- Se debe agregar una nueva alternativa basada en correos reenviados a una casilla central.
+
+OBJETIVO GENERAL
+Implementar una nueva experiencia PAC con dos caminos, sin romper lo existente:
+1) Gestionar PAC procesados (sin permisos Gmail del usuario)
+2) Leer desde mi Gmail (requiere permisos) [flujo actual]
+
+REGLA CRITICA (NO NEGOCIABLE)
+- NO reemplazar ni eliminar la funcionalidad actual de lectura desde Gmail.
+- Deben convivir ambos flujos y poder elegirse desde una pantalla nueva.
+
+ALCANCE FUNCIONAL
+
+1. Nueva pantalla de seleccion de metodo PAC
+- Crear: /pac.html (o ruta equivalente segun estructura real del proyecto).
+- Reutilizar hero/header y footer existentes.
+- Mostrar 2 cards clickeables, modernas y responsive:
+
+Card A
+- Titulo: Gestionar PAC procesados
+- Texto: Consulta y gestion de datos extraidos automaticamente desde correos reenviados a procesarpac@paneldocente.com.ar, sin permisos de Gmail.
+- Accion: navegar a /pac-procesados.html (o ruta final definida en el proyecto).
+
+Card B
+- Titulo: Leer desde mi Gmail (requiere permisos)
+- Texto: Conexion a Gmail para leer correos de la casilla del usuario y extraer PAC de forma asistida.
+- Accion: navegar al HTML actual del flujo PAC con Gmail.
+
+2. Nueva pantalla: Gestionar PAC procesados
+- Crear: /pac-procesados.html (o ruta equivalente).
+- Mantener linea visual y UX del flujo PAC actual, pero:
+  - NO pedir permisos Gmail.
+  - NO usar gmail.readonly.
+  - NO leer inbox del usuario.
+  - SI consultar Firebase/Firestore.
+
+COMPORTAMIENTO DE LA PANTALLA /pac-procesados.html
+- Obtener tenantId del usuario autenticado (respetando el patron actual del proyecto).
+- Consultar datos extraidos del tenant.
+- Mostrar:
+  - Estado de carga.
+  - Estado vacio: "Aun no hay PAC procesados".
+  - Listado de correos procesados (origen, asunto, fecha, estado).
+  - Accion "Ver detalle" por item.
+  - Vista detalle con tabla de rows extraidas.
+  - Boton "Actualizar datos" para refrescar consulta.
+- Mantener flujo guiado tipo onboarding adaptado a esta modalidad.
+
+COPY ONBOARDING (VISIBLE EN PANTALLA)
+1) Reenvia el correo PAC a procesarpac@paneldocente.com.ar.
+2) El sistema procesa automaticamente el contenido.
+3) Los datos extraidos apareceran en esta pantalla.
+4) Revisa las filas detectadas antes de continuar.
+
+DATOS EN FIRESTORE (RESPETAR ESTRUCTURA REAL)
+
+Prioridad 1 (si es viable): subcoleccion escalable
+/tenants/{tenantId}/datosExtraidos/{docId}
+
+Documento sugerido:
+{
+  origenEmail: "usuario@gmail.com",
+  destinoEmail: "procesarpac@paneldocente.com.ar",
+  asunto: "...",
+  fechaRecepcion: "...",
+  cuerpoResumen: "...",
+  rows: [ {...}, {...} ],
+  estado: "procesado",
+  createdAt: serverTimestamp(),
+  source: "email_forward"
+}
+
+Compatibilidad temporal:
+- Si hoy existe datosExtraidos como array dentro de /tenants/{tenantId}, mantener compatibilidad sin romper datos actuales.
+- Si se migra, dejar estrategia clara para convivir/migrar.
+
+BACKEND (NUEVA CAPACIDAD)
+Preparar/implementar recepcion y procesamiento de mails entrantes enviados a:
+procesarpac@paneldocente.com.ar
+
+Requerimientos backend:
+- Detectar emails entrantes a esa casilla.
+- Extraer: remitente, destinatario, asunto, fecha, cuerpo visible/texto, datos PAC detectados, rows.
+- Resolver tenant por email de origen.
+- Guardar resultado en Firestore del tenant correspondiente.
+
+RESOLUCION DE TENANT
+Referencia sugerida:
+/usuarios/{uid}
+  email: "usuario@gmail.com"
+  tenantId: "..."
+
+Logica:
+- Si llega mail de usuario@gmail.com -> buscar usuario por email -> obtener tenantId.
+- Si no hay tenant:
+  - guardar en /emailsNoIdentificados/{docId}
+  - estado: "sin_tenant"
+  - no descartar contenido.
+
+SEGURIDAD
+- Aislamiento estricto por tenant.
+- Frontend solo lee datosExtraidos del tenant autenticado.
+- Validar auth y tenantId en cada acceso.
+- Respetar reglas Firestore actuales.
+- Esta nueva opcion NO debe solicitar scopes Gmail.
+- Mantener intacta la opcion actual con Gmail.
+
+REQUISITOS VISUALES
+- Reutilizar estilos existentes.
+- Responsive mobile + desktop.
+- Cards con hover.
+- Mensajeria clara para usuarios no tecnicos.
+- Botones visibles:
+  - Ver PAC procesados
+  - Leer desde mi Gmail
+  - Actualizar datos
+  - Ver detalle
+  - Volver
+
+IMPLEMENTACION TECNICA (OBLIGATORIO ANTES DE CODIFICAR)
+- Revisar estructura real del repo: rutas, nombres de archivos, modulos JS, imports, funciones utilitarias, auth y tenant.
+- Adaptar la implementacion a lo existente, sin inventar rutas si ya hay convenciones.
+- No introducir breaking changes en el flujo PAC actual.
+
+ENTREGABLES ESPERADOS
+1) Nuevo HTML de seleccion de metodo PAC.
+2) Nuevo HTML de gestion de PAC procesados.
+3) JS modular para consulta de datosExtraidos por tenant autenticado.
+4) Preparacion/implementacion backend para recepcion y procesamiento de emails entrantes.
+5) Flujo PAC actual por Gmail funcionando sin regresiones.
+6) Compatibilidad con Firebase Auth, tenantId y modelo actual.
+
+CRITERIOS DE ACEPTACION
+- Desde /pac.html se puede entrar a ambos flujos.
+- Flujo actual Gmail sigue operativo.
+- /pac-procesados.html funciona sin pedir permisos Gmail.
+- Datos procesados visibles por tenant correcto.
+- Sin fuga de informacion entre tenants.
+- Estado vacio, carga, error y detalle implementados.
+- Deploy sin romper rutas ni autenticacion.
+
+FORMATO DE RESPUESTA ESPERADO DEL DESARROLLADOR
+- Resumen de arquitectura elegida.
+- Lista de archivos creados/modificados.
+- Explicacion de como se resolvio tenant por email.
+- Reglas de seguridad ajustadas (si aplica).
+- Checklist de pruebas manuales realizadas.

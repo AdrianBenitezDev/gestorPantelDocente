@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" type="image/png" href="/icon/paneldocente.png?v=20260318-2" />
+  <link rel="stylesheet" href="./css/styles.css?v=20260508-pac-proc1" />
+</head>
+<body>
+  <header class="top-banner">
+    <div class="brand-block">
+      <img class="brand-icon" src="/icon/paneldocente.png?v=20260318-2" alt="Logo de PanelDocente" />
+      <span class="brand-name">PanelDocente</span>
+    </div>
+    <div class="user-block">
+      <div class="user-meta">
+        <span class="user-icon" aria-hidden="true">&#128100;</span>
+        <span id="pac-proc-user-name" class="user-name">Sin sesion</span>
+        <span id="pac-proc-user-email" class="user-email">-</span>
+      </div>
+      <button id="pac-proc-auth-btn" type="button" class="google-btn">Iniciar sesion con Google</button>
+    </div>
+  </header>
+
+  <main class="app">
+    <section id="pac-proc-guest-section" class="card pac-selector-guest-card">
+      <h1>Gestionar PAC procesados</h1>
+      <p class="subtitle">
+        Esta modalidad no pide permisos de Gmail. Inicia sesion para ver los correos ya procesados de tu tenant.
+      </p>
+      <div class="review-actions">
+        <button id="pac-proc-guest-login-btn" type="button">Iniciar sesion con Google</button>
+        <a class="link-btn google-btn" href="/pac.html">Volver</a>
+      </div>
+    </section>
+
+    <div id="pac-proc-auth-content" hidden class="is-hidden">
+      <section class="card pac-proc-onboarding-card">
+        <h1>Flujo sin permisos Gmail</h1>
+        <p class="subtitle">
+          Reenvia tus correos PAC a <strong>procesarpac@paneldocente.com.ar</strong>. El backend procesa y publica
+          los resultados automaticamente.
+        </p>
+        <ol class="pac-forward-steps">
+          <li>Reenvia el correo PAC a procesarpac@paneldocente.com.ar.</li>
+          <li>El sistema procesa automaticamente el contenido.</li>
+          <li>Los datos extraidos aparecen en esta pantalla.</li>
+          <li>Revisa las filas detectadas antes de continuar.</li>
+        </ol>
+        <div class="review-actions">
+          <button id="pac-proc-refresh-btn" type="button">Actualizar datos</button>
+          <a class="link-btn google-btn" href="/pac.html">Volver</a>
+          <a class="link-btn" href="/index.html">Leer desde mi Gmail</a>
+        </div>
+        <p id="pac-proc-msg" class="msg"></p>
+      </section>
+
+      <section class="card">
+        <h2>Correos PAC procesados</h2>
+        <p id="pac-proc-list-msg" class="msg"></p>
+        <p id="pac-proc-empty-state" class="msg is-hidden" hidden>
+          Aun no hay PAC procesados para este tenant.
+        </p>
+        <div class="pac-proc-list-wrap">
+          <table class="pac-table pac-proc-list-table">
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Origen</th>
+                <th>Asunto</th>
+                <th>Estado</th>
+                <th>Rows</th>
+                <th>Accion</th>
+              </tr>
+            </thead>
+            <tbody id="pac-proc-list-body">
+              <tr>
+                <td colspan="6">Sin datos</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="pac-proc-detail-card" class="card is-hidden" hidden>
+        <h2 id="pac-proc-detail-title">Detalle de procesamiento</h2>
+        <div class="pac-proc-detail-grid">
+          <p><strong>Origen:</strong> <span id="pac-proc-detail-from">-</span></p>
+          <p><strong>Destino:</strong> <span id="pac-proc-detail-to">-</span></p>
+          <p><strong>Asunto:</strong> <span id="pac-proc-detail-subject">-</span></p>
+          <p><strong>Fecha:</strong> <span id="pac-proc-detail-date">-</span></p>
+          <p><strong>Estado:</strong> <span id="pac-proc-detail-state">-</span></p>
+          <p><strong>Rows detectadas:</strong> <span id="pac-proc-detail-rows-count">0</span></p>
+        </div>
+        <div class="pac-proc-list-wrap">
+          <table class="pac-table">
+            <thead id="pac-proc-rows-head"></thead>
+            <tbody id="pac-proc-rows-body">
+              <tr>
+                <td>Sin detalle cargado</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div id="shared-footer-root"></div>
+  <script src="./footer/footer.js" defer></script>
+  <script type="module" src="./js/pacProcesados.js"></script>
+</body>
+</html>
