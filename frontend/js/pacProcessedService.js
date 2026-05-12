@@ -9,10 +9,20 @@ function normalizeLimit(value, fallback = 40) {
   return Math.max(1, Math.min(120, Math.floor(parsed)));
 }
 
+function normalizeRowsPerItemLimit(value, fallback = 300) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.max(1, Math.min(1200, Math.floor(parsed)));
+}
+
 export async function fetchProcessedPacList(options = {}) {
   const callable = httpsCallable(functions, "getProcessedPacList");
   const response = await callable({
     limit: normalizeLimit(options.limit, 40),
+    includeRows: options.includeRows === true,
+    rowsPerItemLimit: normalizeRowsPerItemLimit(options.rowsPerItemLimit, 300),
   });
   return response.data || {};
 }

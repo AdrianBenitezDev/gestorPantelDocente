@@ -1,0 +1,223 @@
+PLAN DE CAMBIOS - PAC PROCESADOS A EXCEL
+Fecha: 2026-05-12
+
+Objetivo funcional pedido (ajustado)
+1) En pac-procesados.html, mostrar rows sin depender de "Ver detalle".
+2) Cada row debe tener checkbox para seleccion.
+3) Con boton "Crear PAC", enviar rows seleccionadas y terminar en Excel.
+4) Ambos caminos (Gmail y PAC procesados) deben terminar en:
+   - tabla renderizada de datos útiles para Excel,
+   - seleccion de rows,
+   - creacion/descarga de Excel.
+5) Revisar paneldocente-email-worker para guardar los datos ya en formato de uso frontend,
+   evitando normalizaciones en panelDocente.
+
+Resumen tecnico del estado actual
+- Worker (paneldocente-email-worker/src/index.js):
+  - Extrae row con: cupof, cuil, dni, fechaNacimiento, apellidoNombre, situacionRevista,
+    pid, cargoModulosHoras, curso, division, + metadata.
+  - Envia payload rows al webhook Firebase (ingestPacForwardedEmail).
+- Frontend Gmail (frontend/js/pac.js):
+  - Para render/clipboard divide CUIL en partes y deriva modCarr (splitCuilParts, deriveModCarr).
+- Backend panelDocente (functions/src/index.js):
+  - Para Excel vuelve a dividir CUIL y derivar modCarr en pacBuildSheetValues.
+  - getProcessedPacList hoy devuelve resumen (sin rows completas).
+
+Problema raiz
+- El contrato de datos no es "frontend-ready":
+  - Se guarda cuil unificado y luego se recalcula cuilPrefix/cuilSuffix.
+  - Se guarda curso y luego se recalcula modCarr.
+- Resultado: normalizacion/derivacion repetida entre worker, frontend y backend.
+
+Contrato canónico propuesto (guardar asi desde origen)
+Row canónica para UI + Excel:
+- cupof
+- cuilPrefix
+- dni
+- cuilSuffix
+- fechaNacimiento
+- apellidoNombre
+- situacionRevista
+- modCarr
+- pid
+- cargoModulosHoras
+- curso
+- division
+
+Metadata opcional separada (no usada para la planilla):
+- messageId, subject, from, date, attachmentName, source
+
+Nota de compatibilidad:
+- Durante migracion mantener tambien cuil completo para backward compatibility.
+- Frontend debe priorizar cuilPrefix/cuilSuffix/modCarr si existen.
+
+Cambios propuestos (por proyecto/archivo)
+
+[CAMBIO A] Worker: emitir row canónica lista para frontend
+Proyecto:
+- paneldocente-email-worker
+Archivo:
+- src/index.js
+
+Implementacion:
+- En extractPacRow construir y devolver, ademas de campos actuales:
+  - cuilPrefix, cuilSuffix (a partir de cuil normalizado)
+  - modCarr (a partir de curso, misma regla CB/CS)
+- Mantener dni normalizado y fechaNacimiento normalizada.
+- Mantener cuil completo por compatibilidad.
+- Agregar obligatoriamente:
+  rowFormatVersion: "v2"
+
+Cumple flujo pedido: SI
+Motivo:
+- Los datos se guardan en formato de uso directo para frontend/tabla/Excel.
+
+
+[CAMBIO B] Ingesta backend: persistir row canónica sin perder forma
+Proyecto:
+- panelDocente
+Archivo:
+- functions/src/index.js
+
+Implementacion:
+- Ajustar normalizacion de ingreso para preservar campos del contrato canónico:
+  - cuilPrefix, cuilSuffix, modCarr
+- En getProcessedPacList includeRows=true devolver esas mismas keys.
+- Evitar transformaciones que rompan el contrato de la row canónica.
+
+Cumple flujo pedido: SI
+Motivo:
+- Lo que envia el worker llega al frontend con la misma forma.
+
+
+[CAMBIO C] Frontend pac-procesados: render directo + seleccion + Excel
+Proyecto:
+- panelDocente
+Archivos:
+- frontend/pac-procesados.html
+- frontend/js/pacProcesados.js
+
+Implementacion:
+- Quitar dependencia de "Ver detalle" para ver rows.
+- Cargar rows desde lista con includeRows=true.
+- Tabla con checkbox por row + seleccionar todo/deseleccionar todo.
+- Botones:
+  - Crear PAC en Drive
+  - Descargar Excel
+- Envio via savePacRowsToDrive con rows seleccionadas.
+- Si existe row canónica, renderizar directo sin split/derive.
+
+Cumple flujo pedido: SI
+Motivo:
+- Se cumple exactamente: tabla + seleccion + excel en este camino.
+
+
+[CAMBIO D] Frontend Gmail: usar mismo contrato canónico
+Proyecto:
+- panelDocente
+Archivo:
+- frontend/js/pac.js
+
+Implementacion:
+- Si vienen cuilPrefix/cuilSuffix/modCarr, usarlos directamente.
+- Dejar splitCuilParts/deriveModCarr solo como fallback para rows legacy.
+- Mantener seleccion y guardado actuales.
+
+Cumple flujo pedido: SI
+Motivo:
+- Ambos caminos terminan con la misma representacion de datos antes de Excel.
+
+
+[CAMBIO E] Backend Excel writer: preferir campos del contrato canónico
+Proyecto:
+- panelDocente
+Archivo:
+- functions/src/index.js (pacBuildSheetValues / pacNormalizeRowsForWrite)
+
+Implementacion:
+- Al construir celdas de planilla:
+  - usar cuilPrefix/cuilSuffix/modCarr si existen,
+  - fallback a derivacion para rows legacy (desde cuil/curso) si no existen.
+- Mantener compatibilidad con filas antiguas.
+
+Cumple flujo pedido: SI
+Motivo:
+- El excel se genera directo con datos del contrato canónico y sin recalculo innecesario.
+
+
+Checklist QA (obligatorio)
+1) Flujo PAC procesados:
+   - se ven rows sin "Ver detalle",
+   - se pueden seleccionar rows,
+   - crear PAC en Drive funciona,
+   - descargar Excel funciona.
+2) Flujo Gmail:
+   - sigue mostrando tabla seleccionable,
+   - sigue creando/descargando Excel.
+3) Consistencia de contrato:
+   - misma row canónica en ambos caminos antes de enviar a Excel.
+4) Legacy:
+   - rows legacy sin cuilPrefix/modCarr siguen funcionando por fallback.
+5) Scopes:
+   - PAC procesados no pide gmail.readonly.
+   - Guardado Excel pide Sheets + Drive File.
+
+
+Resultado esperado final
+- Ambos caminos terminan en tabla con datos útiles para Excel.
+- Ambos caminos permiten seleccionar rows.
+- Ambos caminos generan Excel con esas rows.
+- Se minimiza normalizacion en frontend porque los datos ya se guardan en formato canónico desde el worker.
+
+AJUSTES FINALES RECOMENDADOS
+
+1) Agregar rowFormatVersion obligatorio
+- En las rows generadas desde paneldocente-email-worker, agregar:
+  rowFormatVersion: "v2"
+- Este campo debe permitir diferenciar filas nuevas con contrato canónico de rows legacy.
+- El frontend y el backend deben usar este campo solo como referencia de compatibilidad, sin romper filas antiguas.
+
+2) Agregar rowId estable para seleccion
+- En pac-procesados, cada row renderizada debe tener un identificador estable para checkbox y seleccion.
+- Si el backend no envia un ID propio, generar uno en frontend con:
+  __rowId: `${docId}_${index}`
+- Usar ese ID para selectedRowIds, seleccion individual, seleccionar todo y deseleccionar todo.
+
+3) Separar metadata de datos útiles para Excel
+- No mezclar metadata del correo con los campos que se usan para completar la planilla.
+- Mantener una estructura conceptual similar a:
+  {
+    row: { ...datosCanonicosExcel },
+    metadata: { subject, from, date, attachmentName, source }
+  }
+- La tabla principal debe mostrar solamente datos útiles para Excel.
+- La metadata puede mostrarse en un bloque secundario de metadata de auditoría/contexto.
+
+4) Mantener compatibilidad con rows legacy
+- Si una fila antigua no tiene cuilPrefix, cuilSuffix o modCarr, mantener fallback:
+  - dividir CUIL desde cuil completo
+  - derivar modCarr desde curso
+- No romper PAC ya procesados previamente.
+
+Objetivo de estos ajustes:
+- Consolidar el contrato canónico de rows.
+- Evitar normalizaciones repetidas.
+- Mejorar seleccion de filas.
+- Mantener compatibilidad con datos antiguos.
+- Separar claramente datos de Excel y metadata de auditoría.
+
+LIMITE DEFENSIVO DE ROWS
+
+- Cuando getProcessedPacList se invoque con includeRows=true, debe existir un limite defensivo de rows por item.
+- Definir rowsPerItemLimit con valor default recomendado: 300.
+- Definir un maximo duro permitido recomendado: 1200.
+- Si el frontend solicita un valor mayor al maximo duro, el backend debe limitarlo automaticamente.
+- Este limite evita payloads excesivos, problemas de memoria, lentitud en frontend y respuestas demasiado grandes desde Firestore/Firebase Functions.
+- Mantener compatibilidad con el flujo actual: includeRows=false debe seguir devolviendo solo resumen.
+- Si en el futuro se necesitan PAC muy grandes, evaluar paginado de rows o carga progresiva por documento.
+
+Objetivo de esta seccion:
+- Proteger performance.
+- Evitar sobrecarga de frontend/backend.
+- Mantener escalabilidad para muchos PAC procesados.
+- Dejar preparado el camino para paginado o virtualizacion futura.

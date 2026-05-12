@@ -6,7 +6,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-functions.js";
 import { auth, functions } from "./firebaseClient.js";
-import { fetchProcessedPacDetail, fetchProcessedPacList } from "./pacProcessedService.js";
+import { fetchProcessedPacList } from "./pacProcessedService.js";
 import { formatUserError } from "./userFacingText.js";
 
 const userNameEl = document.getElementById("pac-proc-user-name");
@@ -15,40 +15,54 @@ const authBtn = document.getElementById("pac-proc-auth-btn");
 const guestLoginBtn = document.getElementById("pac-proc-guest-login-btn");
 const globalMsgEl = document.getElementById("pac-proc-msg");
 const listMsgEl = document.getElementById("pac-proc-list-msg");
+const rowsMsgEl = document.getElementById("pac-proc-rows-msg");
 const guestSection = document.getElementById("pac-proc-guest-section");
 const authenticatedContent = document.getElementById("pac-proc-auth-content");
 const refreshBtn = document.getElementById("pac-proc-refresh-btn");
 const emptyStateEl = document.getElementById("pac-proc-empty-state");
 const listBodyEl = document.getElementById("pac-proc-list-body");
-const detailCardEl = document.getElementById("pac-proc-detail-card");
-const detailTitleEl = document.getElementById("pac-proc-detail-title");
-const detailFromEl = document.getElementById("pac-proc-detail-from");
-const detailToEl = document.getElementById("pac-proc-detail-to");
-const detailSubjectEl = document.getElementById("pac-proc-detail-subject");
-const detailDateEl = document.getElementById("pac-proc-detail-date");
-const detailStateEl = document.getElementById("pac-proc-detail-state");
 const detailRowsCountEl = document.getElementById("pac-proc-detail-rows-count");
+const selectedCountEl = document.getElementById("pac-proc-selected-count");
 const rowsHeadEl = document.getElementById("pac-proc-rows-head");
 const rowsBodyEl = document.getElementById("pac-proc-rows-body");
+const modeSelectEl = document.getElementById("pac-proc-mode");
+const sheetUrlEl = document.getElementById("pac-proc-sheet-url");
+const selectAllBtn = document.getElementById("pac-proc-select-all-btn");
+const clearSelectionBtn = document.getElementById("pac-proc-clear-selection-btn");
+const createDriveBtn = document.getElementById("pac-proc-create-drive-btn");
+const downloadBtn = document.getElementById("pac-proc-download-btn");
 
-const PREFERRED_ROW_COLUMNS = [
-  "cupof",
-  "cuil",
-  "dni",
-  "fechaNacimiento",
-  "apellidoNombre",
-  "situacionRevista",
-  "pid",
-  "cargoModulosHoras",
-  "curso",
-  "division",
+const PAC_DEFAULT_SHEET_URL =
+  "https://docs.google.com/spreadsheets/d/1UP0FlTWQdHciMe1dbpj2i1dhsQAk4EsxCtq2Bvxlv2U/edit?usp=sharing";
+const PAC_DEFAULT_START_ROW = 14;
+const PAC_ROWS_PER_ITEM_LIMIT = 300;
+const GOOGLE_SCOPE_SHEETS = "https://www.googleapis.com/auth/spreadsheets";
+const GOOGLE_SCOPE_DRIVE_FILE = "https://www.googleapis.com/auth/drive.file";
+
+const ROW_COLUMNS = [
+  { key: "cupof", label: "CUPOF" },
+  { key: "cuilPrefix", label: "CUIL pref" },
+  { key: "dni", label: "DNI" },
+  { key: "cuilSuffix", label: "CUIL suf" },
+  { key: "fechaNacimiento", label: "Fecha nac" },
+  { key: "apellidoNombre", label: "Apellido y nombre" },
+  { key: "situacionRevista", label: "Sit revista" },
+  { key: "modCarr", label: "Mod/Carr" },
+  { key: "pid", label: "PID" },
+  { key: "cargoModulosHoras", label: "Cargo/Mod/Hs" },
+  { key: "curso", label: "Curso" },
+  { key: "division", label: "Division" },
 ];
 
 const state = {
   entries: [],
+  flatRows: [],
+  selectedRowIds: new Set(),
   hasTenantAccess: false,
   loading: false,
-  selectedEntryId: "",
+  busySaving: false,
+  accessToken: "",
+  grantedScopes: new Set(),
 };
 
 function setMsg(el, text, isError = false) {
@@ -64,7 +78,7 @@ function setBusy(button, busy) {
   if (!button) {
     return;
   }
-  button.disabled = busy;
+  button.disabled = Boolean(busy);
 }
 
 function normalizeRoute(value) {
@@ -138,43 +152,150 @@ function formatDateTime(valueMs, fallbackText = "-") {
 }
 
 function sanitizeCellText(value) {
-  return String(value || "").trim() || "-";
+  return String(value || "").trim();
 }
 
-function pickRowColumns(rows = []) {
-  const list = Array.isArray(rows) ? rows : [];
-  const dynamicColumns = [];
-  list.forEach((row) => {
-    if (!row || typeof row !== "object") {
-      return;
-    }
-    Object.keys(row).forEach((key) => {
-      const safeKey = String(key || "").trim();
-      if (!safeKey || safeKey === "missingFields") {
-        return;
-      }
-      if (!dynamicColumns.includes(safeKey)) {
-        dynamicColumns.push(safeKey);
-      }
+function onlyDigits(value) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function splitCuilParts(cuilValue, dniValue = "") {
+  const cuilDigits = onlyDigits(cuilValue);
+  const dniDigits = onlyDigits(dniValue);
+  if (cuilDigits.length >= 11) {
+    return {
+      prefix: cuilDigits.slice(0, 2),
+      dni: cuilDigits.slice(2, 10),
+      suffix: cuilDigits.slice(10, 11),
+    };
+  }
+  return {
+    prefix: "",
+    dni: dniDigits,
+    suffix: "",
+  };
+}
+
+function deriveModCarr(cursoValue) {
+  const match = String(cursoValue || "").match(/\d{1,2}/);
+  if (!match) {
+    return "";
+  }
+  const year = Number(match[0]);
+  if (!Number.isFinite(year) || year <= 0) {
+    return "";
+  }
+  return year < 4 ? "CB" : "CS";
+}
+
+function buildFullCuil(prefix, dni, suffix) {
+  const p = onlyDigits(prefix);
+  const d = onlyDigits(dni);
+  const s = onlyDigits(suffix);
+  if (p.length !== 2 || s.length !== 1 || d.length < 7 || d.length > 8) {
+    return "";
+  }
+  return `${p}-${d}-${s}`;
+}
+
+function normalizeModCarr(value, cursoFallback = "") {
+  const raw = sanitizeCellText(value).toUpperCase();
+  if (raw === "CB" || raw === "CS") {
+    return raw;
+  }
+  return deriveModCarr(cursoFallback);
+}
+
+function normalizeRowForExcel(rawRow = {}, entry = {}, index = 0) {
+  const docId = sanitizeCellText(entry.docId || entry.id || "entry");
+  const cuil = sanitizeCellText(rawRow.cuil || "");
+  const rawDni = sanitizeCellText(rawRow.dni || "");
+  const legacyParts = splitCuilParts(cuil, rawDni);
+  const cuilPrefix = onlyDigits(rawRow.cuilPrefix || "") || legacyParts.prefix;
+  const dni = onlyDigits(rawDni) || legacyParts.dni;
+  const cuilSuffix = onlyDigits(rawRow.cuilSuffix || "") || legacyParts.suffix;
+  const fullCuil = cuil || buildFullCuil(cuilPrefix, dni, cuilSuffix);
+  const curso = sanitizeCellText(rawRow.curso || "");
+  const modCarr = normalizeModCarr(rawRow.modCarr || "", curso);
+  const messageId = sanitizeCellText(rawRow.messageId || "");
+  return {
+    __rowId: `${docId}_${index}`,
+    docId,
+    cupof: sanitizeCellText(rawRow.cupof || ""),
+    cuil: fullCuil,
+    cuilPrefix,
+    dni,
+    cuilSuffix,
+    fechaNacimiento: sanitizeCellText(rawRow.fechaNacimiento || ""),
+    apellidoNombre: sanitizeCellText(rawRow.apellidoNombre || ""),
+    situacionRevista: sanitizeCellText(rawRow.situacionRevista || ""),
+    modCarr,
+    pid: sanitizeCellText(rawRow.pid || ""),
+    cargoModulosHoras: sanitizeCellText(rawRow.cargoModulosHoras || ""),
+    curso,
+    division: sanitizeCellText(rawRow.division || ""),
+    rowFormatVersion: sanitizeCellText(rawRow.rowFormatVersion || "legacy") || "legacy",
+    missingFields: Array.isArray(rawRow.missingFields) ? rawRow.missingFields : [],
+    metadata: {
+      source: sanitizeCellText(rawRow.source || entry.source || "email_forward"),
+      subject: sanitizeCellText(rawRow.subject || entry.asunto || ""),
+      from: sanitizeCellText(rawRow.from || entry.origenEmail || ""),
+      date: sanitizeCellText(rawRow.date || entry.fechaRecepcion || ""),
+      attachmentName: sanitizeCellText(rawRow.attachmentName || ""),
+      messageId,
+      entryState: sanitizeCellText(entry.estado || ""),
+    },
+  };
+}
+
+function buildFlatRows(entries = []) {
+  const list = Array.isArray(entries) ? entries : [];
+  const flatRows = [];
+  list.forEach((entry) => {
+    const rows = Array.isArray(entry?.rows) ? entry.rows : [];
+    rows.forEach((row, index) => {
+      flatRows.push(normalizeRowForExcel(row, entry, index));
     });
   });
+  return flatRows;
+}
 
-  const preferred = PREFERRED_ROW_COLUMNS.filter((column) => dynamicColumns.includes(column));
-  const rest = dynamicColumns.filter((column) => !preferred.includes(column));
-  const merged = [...preferred, ...rest];
-  return merged.length ? merged : ["detalle"];
+function getSelectedRows() {
+  return state.flatRows.filter((row) => state.selectedRowIds.has(row.__rowId));
+}
+
+function updateSelectionUi() {
+  const total = state.flatRows.length;
+  const selected = getSelectedRows().length;
+  if (selectedCountEl) {
+    selectedCountEl.textContent = `${selected}/${total}`;
+  }
+  if (createDriveBtn) {
+    createDriveBtn.disabled = state.busySaving || selected === 0;
+  }
+  if (downloadBtn) {
+    downloadBtn.disabled = state.busySaving || selected === 0;
+  }
+  if (selectAllBtn) {
+    selectAllBtn.disabled = total === 0 || state.busySaving;
+  }
+  if (clearSelectionBtn) {
+    clearSelectionBtn.disabled = selected === 0 || state.busySaving;
+  }
 }
 
 function renderRowsTable(rows = []) {
   const list = Array.isArray(rows) ? rows : [];
-  const columns = pickRowColumns(list);
   rowsHeadEl.textContent = "";
   rowsBodyEl.textContent = "";
 
   const headRow = document.createElement("tr");
-  columns.forEach((column) => {
+  const selectTh = document.createElement("th");
+  selectTh.textContent = "Sel";
+  headRow.appendChild(selectTh);
+  ROW_COLUMNS.forEach((column) => {
     const th = document.createElement("th");
-    th.textContent = column;
+    th.textContent = column.label;
     headRow.appendChild(th);
   });
   rowsHeadEl.appendChild(headRow);
@@ -182,48 +303,33 @@ function renderRowsTable(rows = []) {
   if (!list.length) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
-    td.colSpan = columns.length;
-    td.textContent = "No hay filas extraidas para este procesamiento.";
+    td.colSpan = ROW_COLUMNS.length + 1;
+    td.textContent = "No hay rows cargadas para este tenant.";
     tr.appendChild(td);
     rowsBodyEl.appendChild(tr);
+    updateSelectionUi();
     return;
   }
 
   list.forEach((row) => {
     const tr = document.createElement("tr");
-    columns.forEach((column) => {
+    const tdCheck = document.createElement("td");
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.className = "pac-proc-row-checkbox";
+    checkbox.dataset.rowId = row.__rowId;
+    checkbox.checked = state.selectedRowIds.has(row.__rowId);
+    tdCheck.appendChild(checkbox);
+    tr.appendChild(tdCheck);
+
+    ROW_COLUMNS.forEach((column) => {
       const td = document.createElement("td");
-      const value = row && typeof row === "object" ? row[column] : "";
-      if (Array.isArray(value)) {
-        td.textContent = value.join(", ");
-      } else if (value && typeof value === "object") {
-        td.textContent = JSON.stringify(value);
-      } else {
-        td.textContent = sanitizeCellText(value);
-      }
+      td.textContent = sanitizeCellText(row[column.key]) || "-";
       tr.appendChild(td);
     });
     rowsBodyEl.appendChild(tr);
   });
-}
-
-function renderDetail(entry = null) {
-  if (!entry) {
-    detailCardEl.hidden = true;
-    detailCardEl.classList.add("is-hidden");
-    return;
-  }
-
-  detailCardEl.hidden = false;
-  detailCardEl.classList.remove("is-hidden");
-  detailTitleEl.textContent = `Detalle: ${sanitizeCellText(entry.asunto || "PAC procesado")}`;
-  detailFromEl.textContent = sanitizeCellText(entry.origenEmail);
-  detailToEl.textContent = sanitizeCellText(entry.destinoEmail);
-  detailSubjectEl.textContent = sanitizeCellText(entry.asunto);
-  detailDateEl.textContent = formatDateTime(entry.fechaRecepcionMs, sanitizeCellText(entry.fechaRecepcion));
-  detailStateEl.textContent = sanitizeCellText(entry.estado || "procesado");
-  detailRowsCountEl.textContent = String(Number(entry.rowsCount || 0));
-  renderRowsTable(entry.rows || []);
+  updateSelectionUi();
 }
 
 function renderEntries(entries = []) {
@@ -234,47 +340,73 @@ function renderEntries(entries = []) {
       emptyStateEl.hidden = false;
       emptyStateEl.classList.remove("is-hidden");
     }
-    renderDetail(null);
     return;
   }
-
   if (emptyStateEl) {
     emptyStateEl.hidden = true;
     emptyStateEl.classList.add("is-hidden");
   }
 
-  list.forEach((entry, index) => {
+  list.forEach((entry) => {
     const tr = document.createElement("tr");
     const tdDate = document.createElement("td");
-    tdDate.textContent = formatDateTime(entry.fechaRecepcionMs, sanitizeCellText(entry.fechaRecepcion));
+    tdDate.textContent = formatDateTime(entry.fechaRecepcionMs, sanitizeCellText(entry.fechaRecepcion) || "-");
     tr.appendChild(tdDate);
 
     const tdFrom = document.createElement("td");
-    tdFrom.textContent = sanitizeCellText(entry.origenEmail);
+    tdFrom.textContent = sanitizeCellText(entry.origenEmail) || "-";
     tr.appendChild(tdFrom);
 
     const tdSubject = document.createElement("td");
-    tdSubject.textContent = sanitizeCellText(entry.asunto);
+    tdSubject.textContent = sanitizeCellText(entry.asunto) || "-";
     tr.appendChild(tdSubject);
 
     const tdState = document.createElement("td");
-    tdState.textContent = sanitizeCellText(entry.estado);
+    tdState.textContent = sanitizeCellText(entry.estado) || "-";
     tr.appendChild(tdState);
 
     const tdRows = document.createElement("td");
     tdRows.textContent = String(Number(entry.rowsCount || 0));
     tr.appendChild(tdRows);
-
-    const tdAction = document.createElement("td");
-    const detailBtn = document.createElement("button");
-    detailBtn.type = "button";
-    detailBtn.className = "google-btn";
-    detailBtn.dataset.entryIndex = String(index);
-    detailBtn.textContent = "Ver detalle";
-    tdAction.appendChild(detailBtn);
-    tr.appendChild(tdAction);
     listBodyEl.appendChild(tr);
   });
+}
+
+function setSavingBusy(busy) {
+  state.busySaving = Boolean(busy);
+  setBusy(createDriveBtn, busy);
+  setBusy(downloadBtn, busy);
+  setBusy(refreshBtn, busy);
+  updateSelectionUi();
+}
+
+function uniqueScopes(scopes = []) {
+  const list = Array.isArray(scopes) ? scopes : [];
+  return Array.from(new Set(list.map((scope) => String(scope || "").trim()).filter(Boolean)));
+}
+
+function rememberGrantedScopes(scopes = []) {
+  uniqueScopes(scopes).forEach((scope) => {
+    state.grantedScopes.add(scope);
+  });
+}
+
+function hasAllGrantedScopes(scopes = []) {
+  const required = uniqueScopes(scopes);
+  if (!required.length) {
+    return true;
+  }
+  return required.every((scope) => state.grantedScopes.has(scope));
+}
+
+function getMissingScopesFromError(error) {
+  const details = error?.details && typeof error.details === "object" ? error.details : null;
+  const missingScopes = Array.isArray(details?.missingScopes) ? details.missingScopes : [];
+  const grantedScopes = Array.isArray(details?.grantedScopes) ? details.grantedScopes : [];
+  if (grantedScopes.length) {
+    rememberGrantedScopes(grantedScopes);
+  }
+  return uniqueScopes(missingScopes);
 }
 
 async function signInWithGoogleAccount() {
@@ -283,6 +415,163 @@ async function signInWithGoogleAccount() {
     prompt: "select_account",
   });
   await signInWithPopup(auth, provider);
+}
+
+async function signInAndAuthorizeGoogleScopes(scopes, successMessage, errorMessage) {
+  const requiredScopes = uniqueScopes(scopes);
+  try {
+    const provider = new GoogleAuthProvider();
+    requiredScopes.forEach((scope) => provider.addScope(scope));
+    provider.setCustomParameters({
+      include_granted_scopes: "true",
+      login_hint: String(auth.currentUser?.email || "").trim(),
+    });
+    const result = await signInWithPopup(auth, provider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    const accessToken = credential?.accessToken || "";
+    if (!accessToken) {
+      throw new Error("No se obtuvo accessToken de Google.");
+    }
+    const grantedScopes = uniqueScopes(
+      String(result?._tokenResponse?.oauthScope || result?._tokenResponse?.scope || "").split(/\s+/)
+    );
+    state.accessToken = accessToken;
+    rememberGrantedScopes(grantedScopes.length ? grantedScopes : requiredScopes);
+    setMsg(globalMsgEl, successMessage || "Permisos de Google autorizados.");
+    return true;
+  } catch (error) {
+    console.error(error);
+    setMsg(globalMsgEl, formatUserError(error, errorMessage || "No se pudieron autorizar permisos."), true);
+    return false;
+  }
+}
+
+function buildSaveRowPayload(row = {}) {
+  return {
+    cupof: row.cupof,
+    cuil: row.cuil,
+    cuilPrefix: row.cuilPrefix,
+    dni: row.dni,
+    cuilSuffix: row.cuilSuffix,
+    fechaNacimiento: row.fechaNacimiento,
+    apellidoNombre: row.apellidoNombre,
+    situacionRevista: row.situacionRevista,
+    modCarr: row.modCarr,
+    pid: row.pid,
+    cargoModulosHoras: row.cargoModulosHoras,
+    curso: row.curso,
+    division: row.division,
+    rowFormatVersion: row.rowFormatVersion,
+    messageId: row.metadata?.messageId || "",
+    subject: row.metadata?.subject || "",
+    from: row.metadata?.from || "",
+    date: row.metadata?.date || "",
+    attachmentName: row.metadata?.attachmentName || "",
+    source: row.metadata?.source || "email_forward",
+  };
+}
+
+function decodeBase64ToBlob(base64Value, mimeType) {
+  const binary = atob(String(base64Value || ""));
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return new Blob([bytes], { type: String(mimeType || "application/octet-stream") });
+}
+
+function downloadBlobFile(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = String(fileName || "PAC.xlsx");
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function processSelectedRows(delivery = "drive") {
+  if (state.busySaving) {
+    return;
+  }
+  const selectedRows = getSelectedRows();
+  if (!selectedRows.length) {
+    setMsg(rowsMsgEl, "Selecciona al menos una fila.", true);
+    return;
+  }
+  const saveRequiredScopes = [GOOGLE_SCOPE_SHEETS, GOOGLE_SCOPE_DRIVE_FILE];
+  if (!hasAllGrantedScopes(saveRequiredScopes) || !state.accessToken) {
+    const authorized = await signInAndAuthorizeGoogleScopes(
+      saveRequiredScopes,
+      "Permisos de Sheets/Drive autorizados.",
+      "No se pudieron autorizar permisos de Sheets/Drive."
+    );
+    if (!authorized) {
+      return;
+    }
+  }
+
+  setSavingBusy(true);
+  setMsg(rowsMsgEl, delivery === "download" ? "Generando archivo..." : "Creando PAC en Drive...");
+  try {
+    const callable = httpsCallable(functions, "savePacRowsToDrive");
+    const mode = String(modeSelectEl?.value || "interinos_docx").trim() || "interinos_docx";
+    const payload = {
+      mode,
+      sheetUrl: PAC_DEFAULT_SHEET_URL,
+      sheetName: "",
+      startRow: PAC_DEFAULT_START_ROW,
+      accessToken: state.accessToken,
+      outputTitle: "",
+      rows: selectedRows.map(buildSaveRowPayload),
+      delivery: String(delivery || "drive"),
+    };
+
+    let response;
+    try {
+      response = await callable(payload);
+    } catch (error) {
+      const missingScopes = getMissingScopesFromError(error);
+      if (!missingScopes.length) {
+        throw error;
+      }
+      const reauthorized = await signInAndAuthorizeGoogleScopes(
+        missingScopes,
+        "Permisos adicionales autorizados. Reintentando...",
+        "No se pudieron autorizar permisos adicionales."
+      );
+      if (!reauthorized) {
+        throw error;
+      }
+      response = await callable(payload);
+    }
+
+    const result = response.data || {};
+    if (delivery === "download") {
+      const fileBase64 = String(result.fileBase64 || "");
+      if (!fileBase64) {
+        throw new Error("No se recibio archivo para descarga.");
+      }
+      const blob = decodeBase64ToBlob(result.fileBase64, result.fileMimeType);
+      const fileName = String(result.fileName || "PAC.xlsx");
+      downloadBlobFile(blob, fileName);
+      setMsg(rowsMsgEl, `Archivo descargado: ${fileName}`);
+      return;
+    }
+    const rowsWritten = Number(result.rowsWritten || result.writeSummary?.rowsWritten || 0);
+    const sheetUrl = String(result.sheetUrl || "");
+    if (sheetUrl) {
+      setMsg(rowsMsgEl, `PAC creado en Drive. Filas escritas: ${rowsWritten}. ${sheetUrl}`);
+    } else {
+      setMsg(rowsMsgEl, `PAC creado en Drive. Filas escritas: ${rowsWritten}.`);
+    }
+  } catch (error) {
+    console.error("processSelectedRows failed", error);
+    setMsg(rowsMsgEl, formatUserError(error, "No se pudo generar el Excel."), true);
+  } finally {
+    setSavingBusy(false);
+  }
 }
 
 async function validateTenantAccessForUser(user) {
@@ -316,80 +605,84 @@ async function validateTenantAccessForUser(user) {
 }
 
 async function loadProcessedEntries() {
-  if (!auth.currentUser || !state.hasTenantAccess || state.loading) {
+  if (!auth.currentUser || !state.hasTenantAccess || state.loading || state.busySaving) {
     return;
   }
   state.loading = true;
   setBusy(refreshBtn, true);
   setMsg(listMsgEl, "Cargando PAC procesados...");
+  setMsg(rowsMsgEl, "");
   try {
-    const result = await fetchProcessedPacList({ limit: 60 });
+    const result = await fetchProcessedPacList({
+      limit: 60,
+      includeRows: true,
+      rowsPerItemLimit: PAC_ROWS_PER_ITEM_LIMIT,
+    });
     const items = Array.isArray(result.items) ? result.items : [];
-    state.entries = items.map((entry) => ({
-      ...entry,
-      rowsLoaded: false,
-      rows: [],
-    }));
-    renderEntries(state.entries);
+    state.entries = items;
+    renderEntries(items);
+    state.flatRows = buildFlatRows(items);
+    state.selectedRowIds = new Set(state.flatRows.map((row) => row.__rowId));
+    renderRowsTable(state.flatRows);
+    if (detailRowsCountEl) {
+      detailRowsCountEl.textContent = String(state.flatRows.length);
+    }
     setMsg(
       listMsgEl,
       items.length
         ? `Se encontraron ${items.length} procesamientos para este tenant.`
         : "Aun no hay PAC procesados."
     );
+    setMsg(
+      rowsMsgEl,
+      state.flatRows.length
+        ? `Rows listas para Excel: ${state.flatRows.length}.`
+        : "No hay rows para renderizar."
+    );
   } catch (error) {
     console.error("loadProcessedEntries failed", error);
     setMsg(listMsgEl, formatUserError(error, "No se pudieron cargar los PAC procesados."), true);
+    setMsg(rowsMsgEl, "");
   } finally {
     state.loading = false;
     setBusy(refreshBtn, false);
+    updateSelectionUi();
   }
 }
 
-async function openEntryDetail(entryIndex) {
-  const index = Number(entryIndex);
-  if (!Number.isInteger(index) || index < 0 || index >= state.entries.length) {
-    return;
-  }
-  const entry = state.entries[index];
-  if (!entry) {
-    return;
-  }
-  setMsg(globalMsgEl, "Cargando detalle...");
-  try {
-    if (!entry.rowsLoaded) {
-      const result = await fetchProcessedPacDetail(entry);
-      const detailed = result?.item && typeof result.item === "object" ? result.item : null;
-      if (!detailed) {
-        throw new Error("No se encontro el detalle del PAC procesado.");
-      }
-      state.entries[index] = {
-        ...entry,
-        ...detailed,
-        rowsLoaded: true,
-        rows: Array.isArray(detailed.rows) ? detailed.rows : [],
-      };
-    }
-    const selected = state.entries[index];
-    state.selectedEntryId = String(selected.id || "");
-    renderDetail(selected);
-    setMsg(globalMsgEl, "Detalle actualizado.");
-  } catch (error) {
-    console.error("openEntryDetail failed", error);
-    setMsg(globalMsgEl, formatUserError(error, "No se pudo cargar el detalle."), true);
-  }
-}
-
-listBodyEl?.addEventListener("click", (event) => {
+rowsBodyEl?.addEventListener("change", (event) => {
   const target = event.target;
-  if (!(target instanceof HTMLElement)) {
+  if (!(target instanceof HTMLInputElement) || !target.classList.contains("pac-proc-row-checkbox")) {
     return;
   }
-  const trigger = target.closest("button[data-entry-index]");
-  if (!trigger) {
+  const rowId = String(target.dataset.rowId || "");
+  if (!rowId) {
     return;
   }
-  void openEntryDetail(trigger.dataset.entryIndex);
+  if (target.checked) {
+    state.selectedRowIds.add(rowId);
+  } else {
+    state.selectedRowIds.delete(rowId);
+  }
+  updateSelectionUi();
+});
+
+selectAllBtn?.addEventListener("click", () => {
+  state.selectedRowIds = new Set(state.flatRows.map((row) => row.__rowId));
+  renderRowsTable(state.flatRows);
+});
+
+clearSelectionBtn?.addEventListener("click", () => {
+  state.selectedRowIds.clear();
+  renderRowsTable(state.flatRows);
+});
+
+createDriveBtn?.addEventListener("click", async () => {
+  await processSelectedRows("drive");
+});
+
+downloadBtn?.addEventListener("click", async () => {
+  await processSelectedRows("download");
 });
 
 refreshBtn?.addEventListener("click", async () => {
@@ -443,13 +736,20 @@ onAuthStateChanged(auth, (user) => {
     userNameEl.textContent = "Sin sesion";
     userEmailEl.textContent = "-";
     state.entries = [];
-    state.selectedEntryId = "";
+    state.flatRows = [];
+    state.selectedRowIds.clear();
     state.hasTenantAccess = false;
+    state.accessToken = "";
+    state.grantedScopes.clear();
     renderEntries([]);
-    renderDetail(null);
+    renderRowsTable([]);
+    if (detailRowsCountEl) {
+      detailRowsCountEl.textContent = "0";
+    }
     updateViewBySession(null, false);
     setMsg(globalMsgEl, "Inicia sesion para ver tus PAC procesados.");
     setMsg(listMsgEl, "");
+    setMsg(rowsMsgEl, "");
     return;
   }
 
@@ -458,6 +758,7 @@ onAuthStateChanged(auth, (user) => {
   updateViewBySession(user, false);
   setMsg(globalMsgEl, "Validando acceso por suscripcion...");
   setMsg(listMsgEl, "");
+  setMsg(rowsMsgEl, "");
 
   void validateTenantAccessForUser(user).then(async (hasAccess) => {
     if (String(auth.currentUser?.uid || "") !== String(user?.uid || "")) {
@@ -467,7 +768,13 @@ onAuthStateChanged(auth, (user) => {
     if (!hasAccess) {
       return;
     }
-    setMsg(globalMsgEl, "Reenviando correos a procesarpac@paneldocente.com.ar podras verlos aqui.");
+    setMsg(globalMsgEl, "Rows PAC procesadas listas para revision y Excel.");
     await loadProcessedEntries();
   });
 });
+
+if (sheetUrlEl) {
+  sheetUrlEl.textContent = PAC_DEFAULT_SHEET_URL;
+}
+
+updateSelectionUi();

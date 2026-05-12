@@ -1481,6 +1481,29 @@ function deriveModCarr(cursoValue) {
   return year < 4 ? "CB" : "CS";
 }
 
+function normalizeModCarrValue(value, cursoFallback = "") {
+  const raw = String(value || "").trim().toUpperCase();
+  if (raw === "CB" || raw === "CS") {
+    return raw;
+  }
+  return deriveModCarr(cursoFallback);
+}
+
+function resolveRowCuilParts(row = {}) {
+  const prefix = onlyDigits(row?.cuilPrefix || "");
+  const suffix = onlyDigits(row?.cuilSuffix || "");
+  const fallback = splitCuilParts(row?.cuil || "", row?.dni || "");
+  return {
+    prefix: prefix || fallback.prefix,
+    dni: onlyDigits(row?.dni || "") || fallback.dni || String(row?.dni || ""),
+    suffix: suffix || fallback.suffix,
+  };
+}
+
+function resolveRowModCarr(row = {}) {
+  return normalizeModCarrValue(row?.modCarr || "", row?.curso || "");
+}
+
 function decodeBase64ToBlob(base64Value, mimeType) {
   const binary = atob(String(base64Value || ""));
   const bytes = new Uint8Array(binary.length);
@@ -1588,8 +1611,8 @@ function renderRows(rows = []) {
         ? ` (faltan: ${row.missingFields.join(", ")})`
         : "";
       const checked = state.selectedRowIds.has(row.__rowId) ? "checked" : "";
-      const cuilParts = splitCuilParts(row.cuil, row.dni);
-      const modCarr = deriveModCarr(row.curso);
+      const cuilParts = resolveRowCuilParts(row);
+      const modCarr = resolveRowModCarr(row);
       const rowTitle = [row.subject, row.messageId, missing].filter(Boolean).join(" | ");
       return `<tr>
         <td title="${sanitize(rowTitle)}"><input class="pac-row-checkbox" type="checkbox" data-row-id="${sanitize(row.__rowId)}" ${checked} /></td>
@@ -1640,8 +1663,8 @@ function buildClipboardTextFromRows(rows = []) {
   const safeRows = Array.isArray(rows) ? rows : [];
   return safeRows
     .map((row) => {
-      const cuilParts = splitCuilParts(row.cuil, row.dni);
-      const modCarr = deriveModCarr(row.curso);
+      const cuilParts = resolveRowCuilParts(row);
+      const modCarr = resolveRowModCarr(row);
       const columns = [
         row.cupof,
         cuilParts.prefix,

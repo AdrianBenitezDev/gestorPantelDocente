@@ -44,6 +44,8 @@ const PAC_FORWARD_DESTINATION_EMAIL = "procesarpac@paneldocente.com.ar";
 const PAC_PROCESSED_DEFAULT_LIMIT = 40;
 const PAC_PROCESSED_MAX_LIMIT = 120;
 const PAC_PROCESSED_MAX_ROWS_PER_ITEM = 1200;
+const PAC_PROCESSED_LIST_ROWS_DEFAULT_LIMIT = 300;
+const PAC_PROCESSED_LIST_ROWS_MAX_LIMIT = 1200;
 
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
@@ -3873,18 +3875,24 @@ function pacExtractPacRow(text, meta = {}) {
       parsedDivisionLabel.division ||
       parsedCursoLabel.division
   );
+  const cuilParts = pacSplitCuilForSheet(cuil, dni);
+  const modCarr = pacDeriveModCarrValue(curso);
 
   const row = {
     cupof,
     dni,
+    cuilPrefix: cuilParts.prefix,
+    cuilSuffix: cuilParts.suffix,
     fechaNacimiento,
     apellidoNombre,
     pid,
     cargoModulosHoras,
     situacionRevista,
+    modCarr,
     curso,
     division,
     cuil,
+    rowFormatVersion: "v2",
     messageId: String(meta.messageId || ""),
     subject: String(meta.subject || ""),
     from: String(meta.from || ""),
@@ -4151,6 +4159,24 @@ function pacSplitCuilForSheet(cuilValue, fallbackDniValue) {
   };
 }
 
+function pacBuildCuilFromParts(prefix, dni, suffix) {
+  const cleanPrefix = String(prefix || "").replace(/\D/g, "");
+  const cleanDni = String(dni || "").replace(/\D/g, "");
+  const cleanSuffix = String(suffix || "").replace(/\D/g, "");
+  if (cleanPrefix.length !== 2 || cleanDni.length < 7 || cleanDni.length > 8 || cleanSuffix.length !== 1) {
+    return "";
+  }
+  return `${cleanPrefix}-${cleanDni}-${cleanSuffix}`;
+}
+
+function pacNormalizeModCarrValue(value, cursoFallback = "") {
+  const raw = pacNormalizeText(value || "").toUpperCase();
+  if (raw === "CB" || raw === "CS") {
+    return raw;
+  }
+  return pacDeriveModCarrValue(cursoFallback);
+}
+
 function pacColumnIndexToLetter(index) {
   let num = Number(index);
   if (!Number.isFinite(num) || num < 0) {
@@ -4250,15 +4276,21 @@ function pacBuildSheetValues(rows, fieldMap) {
   return rows.map((row) => {
     const line = new Array(width).fill("");
     const curso = String(row?.curso || "");
-    const cuilParts = pacSplitCuilForSheet(String(row?.cuil || ""), String(row?.dni || ""));
+    const legacyCuilParts = pacSplitCuilForSheet(String(row?.cuil || ""), String(row?.dni || ""));
+    const rowPrefix = String(row?.cuilPrefix || "").replace(/\D/g, "");
+    const rowSuffix = String(row?.cuilSuffix || "").replace(/\D/g, "");
+    const rowDni = String(row?.dni || "").replace(/\D/g, "");
+    const cuilPrefix = rowPrefix || legacyCuilParts.prefix;
+    const cuilSuffix = rowSuffix || legacyCuilParts.suffix;
+    const dni = rowDni || legacyCuilParts.dni || String(row?.dni || "");
     line[map.cupof] = String(row?.cupof || "");
-    line[map.cuilPrefix] = cuilParts.prefix;
-    line[map.dni] = cuilParts.dni || String(row?.dni || "");
-    line[map.cuilSuffix] = cuilParts.suffix;
+    line[map.cuilPrefix] = cuilPrefix;
+    line[map.dni] = dni;
+    line[map.cuilSuffix] = cuilSuffix;
     line[map.fechaNacimiento] = String(row?.fechaNacimiento || "");
     line[map.apellidoNombre] = String(row?.apellidoNombre || "");
     line[map.situacionRevista] = pacNormalizeSituacionRevista(row?.situacionRevista || "");
-    line[map.modCarr] = pacDeriveModCarrValue(curso);
+    line[map.modCarr] = pacNormalizeModCarrValue(row?.modCarr || "", curso);
     line[map.pid] = String(row?.pid || "");
     line[map.cargoModulosHoras] = String(row?.cargoModulosHoras || "");
     line[map.curso] = curso;
@@ -4355,26 +4387,50 @@ function pacNormalizeRowsForWrite(rawRows) {
   const list = Array.isArray(rawRows) ? rawRows : [];
   return list
     .slice(0, 500)
-    .map((item) => ({
-      cupof: pacNormalizeText(item?.cupof || ""),
-      dni: pacNormalizeText(item?.dni || ""),
-      fechaNacimiento: pacNormalizeText(item?.fechaNacimiento || ""),
-      apellidoNombre: pacNormalizeText(item?.apellidoNombre || ""),
-      situacionRevista: pacNormalizeSituacionRevista(item?.situacionRevista || ""),
-      pid: pacNormalizeText(item?.pid || ""),
-      cargoModulosHoras: pacNormalizeText(item?.cargoModulosHoras || ""),
-      curso: pacNormalizeText(item?.curso || ""),
-      division: pacNormalizeText(item?.division || ""),
-      cuil: pacNormalizeText(item?.cuil || ""),
-      messageId: pacNormalizeText(item?.messageId || ""),
-      subject: pacNormalizeText(item?.subject || ""),
-      from: pacNormalizeText(item?.from || ""),
-      date: pacNormalizeText(item?.date || ""),
-      attachmentName: pacNormalizeText(item?.attachmentName || ""),
-      missingFields: Array.isArray(item?.missingFields)
-        ? item.missingFields.map((field) => pacNormalizeText(field)).filter(Boolean)
-        : [],
-    }))
+    .map((item) => {
+      const cupof = pacNormalizeText(item?.cupof || "");
+      const dni = pacNormalizeText(item?.dni || "");
+      const fechaNacimiento = pacNormalizeText(item?.fechaNacimiento || "");
+      const apellidoNombre = pacNormalizeText(item?.apellidoNombre || "");
+      const situacionRevista = pacNormalizeSituacionRevista(item?.situacionRevista || "");
+      const pid = pacNormalizeText(item?.pid || "");
+      const cargoModulosHoras = pacNormalizeText(item?.cargoModulosHoras || "");
+      const curso = pacNormalizeText(item?.curso || "");
+      const division = pacNormalizeText(item?.division || "");
+
+      const rawCuil = pacNormalizeText(item?.cuil || "");
+      const rawPrefix = pacNormalizeText(item?.cuilPrefix || "");
+      const rawSuffix = pacNormalizeText(item?.cuilSuffix || "");
+      const legacyParts = pacSplitCuilForSheet(rawCuil, dni);
+      const cuilPrefix = rawPrefix || legacyParts.prefix;
+      const cuilSuffix = rawSuffix || legacyParts.suffix;
+      const cuil = rawCuil || pacBuildCuilFromParts(cuilPrefix, dni || legacyParts.dni, cuilSuffix);
+
+      return {
+        cupof,
+        dni,
+        cuilPrefix,
+        cuilSuffix,
+        fechaNacimiento,
+        apellidoNombre,
+        situacionRevista,
+        modCarr: pacNormalizeModCarrValue(item?.modCarr || "", curso),
+        pid,
+        cargoModulosHoras,
+        curso,
+        division,
+        cuil,
+        rowFormatVersion: pacNormalizeText(item?.rowFormatVersion || ""),
+        messageId: pacNormalizeText(item?.messageId || ""),
+        subject: pacNormalizeText(item?.subject || ""),
+        from: pacNormalizeText(item?.from || ""),
+        date: pacNormalizeText(item?.date || ""),
+        attachmentName: pacNormalizeText(item?.attachmentName || ""),
+        missingFields: Array.isArray(item?.missingFields)
+          ? item.missingFields.map((field) => pacNormalizeText(field)).filter(Boolean)
+          : [],
+      };
+    })
     .filter((row) =>
       Boolean(
         row.cupof ||
@@ -4960,14 +5016,18 @@ exports.runPacProcess = onCall(callableOptions, async (request) => {
   const safeRows = enrichedRows.map((row) => ({
     cupof: String(row.cupof || ""),
     cuil: String(row.cuil || ""),
+    cuilPrefix: String(row.cuilPrefix || ""),
     dni: String(row.dni || ""),
+    cuilSuffix: String(row.cuilSuffix || ""),
     fechaNacimiento: String(row.fechaNacimiento || ""),
     apellidoNombre: String(row.apellidoNombre || ""),
     situacionRevista: String(row.situacionRevista || ""),
+    modCarr: String(row.modCarr || ""),
     pid: String(row.pid || ""),
     cargoModulosHoras: String(row.cargoModulosHoras || ""),
     curso: String(row.curso || ""),
     division: String(row.division || ""),
+    rowFormatVersion: String(row.rowFormatVersion || ""),
     messageId: String(row.messageId || ""),
     subject: String(row.subject || ""),
     from: String(row.from || ""),
@@ -5678,6 +5738,8 @@ function pacBuildProcessedDocSummary({
   storageType = "subcollection",
   legacyIndex = -1,
   data = {},
+  includeRows = false,
+  rowsPerItemLimit = PAC_PROCESSED_LIST_ROWS_DEFAULT_LIMIT,
 }) {
   const source = data && typeof data === "object" ? data : {};
   const rows = Array.isArray(source.rows) ? source.rows : [];
@@ -5691,7 +5753,7 @@ function pacBuildProcessedDocSummary({
   );
 
   const safeId = String(id || "").trim();
-  return {
+  const summary = {
     id: safeId,
     docId: safeId,
     storageType: String(storageType || "subcollection"),
@@ -5707,6 +5769,23 @@ function pacBuildProcessedDocSummary({
     rowsCount: rowsCount > 0 ? rowsCount : 0,
     createdAtMs,
     updatedAtMs,
+  };
+  if (!includeRows) {
+    return summary;
+  }
+  const safeRowsLimit = Math.max(
+    1,
+    Math.min(
+      PAC_PROCESSED_LIST_ROWS_MAX_LIMIT,
+      Number.isFinite(Number(rowsPerItemLimit))
+        ? Math.floor(Number(rowsPerItemLimit))
+        : PAC_PROCESSED_LIST_ROWS_DEFAULT_LIMIT
+    )
+  );
+  return {
+    ...summary,
+    rowsLoaded: true,
+    rows: pacNormalizeStoredRows(rows).slice(0, safeRowsLimit),
   };
 }
 
@@ -5732,6 +5811,17 @@ exports.getProcessedPacList = onCall(callableOptions, async (request) => {
   const uid = String(request.auth.uid || "").trim();
   const data = safeObject(request.data);
   const requestedLimit = Number(data.limit || PAC_PROCESSED_DEFAULT_LIMIT);
+  const includeRows = data.includeRows === true;
+  const requestedRowsPerItemLimit = Number(data.rowsPerItemLimit || PAC_PROCESSED_LIST_ROWS_DEFAULT_LIMIT);
+  const rowsPerItemLimit = Math.max(
+    1,
+    Math.min(
+      PAC_PROCESSED_LIST_ROWS_MAX_LIMIT,
+      Number.isFinite(requestedRowsPerItemLimit)
+        ? Math.floor(requestedRowsPerItemLimit)
+        : PAC_PROCESSED_LIST_ROWS_DEFAULT_LIMIT
+    )
+  );
   const limit = Math.max(1, Math.min(
     PAC_PROCESSED_MAX_LIMIT,
     Number.isFinite(requestedLimit) ? Math.floor(requestedLimit) : PAC_PROCESSED_DEFAULT_LIMIT
@@ -5762,6 +5852,8 @@ exports.getProcessedPacList = onCall(callableOptions, async (request) => {
         id: docSnap.id,
         storageType: "subcollection",
         data: docSnap.data() || {},
+        includeRows,
+        rowsPerItemLimit,
       })
     );
   });
@@ -5778,6 +5870,8 @@ exports.getProcessedPacList = onCall(callableOptions, async (request) => {
         storageType: "legacy_array",
         legacyIndex: index,
         data: legacyItem,
+        includeRows,
+        rowsPerItemLimit,
       })
     );
   }
@@ -5790,6 +5884,8 @@ exports.getProcessedPacList = onCall(callableOptions, async (request) => {
     diagnostics: {
       subcollectionCount: subcollectionSnap.size,
       legacyCount: legacyRows.length,
+      includeRows,
+      rowsPerItemLimit,
     },
   };
 });

@@ -70,34 +70,47 @@
                 <th>Asunto</th>
                 <th>Estado</th>
                 <th>Rows</th>
-                <th>Accion</th>
               </tr>
             </thead>
             <tbody id="pac-proc-list-body">
               <tr>
-                <td colspan="6">Sin datos</td>
+                <td colspan="5">Sin datos</td>
               </tr>
             </tbody>
           </table>
         </div>
       </section>
 
-      <section id="pac-proc-detail-card" class="card is-hidden" hidden>
-        <h2 id="pac-proc-detail-title">Detalle de procesamiento</h2>
+      <section id="pac-proc-detail-card" class="card">
+        <h2 id="pac-proc-detail-title">Rows para completar Excel</h2>
         <div class="pac-proc-detail-grid">
-          <p><strong>Origen:</strong> <span id="pac-proc-detail-from">-</span></p>
-          <p><strong>Destino:</strong> <span id="pac-proc-detail-to">-</span></p>
-          <p><strong>Asunto:</strong> <span id="pac-proc-detail-subject">-</span></p>
-          <p><strong>Fecha:</strong> <span id="pac-proc-detail-date">-</span></p>
-          <p><strong>Estado:</strong> <span id="pac-proc-detail-state">-</span></p>
-          <p><strong>Rows detectadas:</strong> <span id="pac-proc-detail-rows-count">0</span></p>
+          <p><strong>Total rows cargadas:</strong> <span id="pac-proc-detail-rows-count">0</span></p>
+          <p><strong>Filas seleccionadas:</strong> <span id="pac-proc-selected-count">0/0</span></p>
+          <p>
+            <strong>Modalidad:</strong>
+            <select id="pac-proc-mode">
+              <option value="interinos_docx">Destino definitivo/interinos</option>
+              <option value="designacion_body">Designacion</option>
+            </select>
+          </p>
+          <p>
+            <strong>Plantilla:</strong>
+            <span id="pac-proc-sheet-url">Predeterminada</span>
+          </p>
         </div>
+        <div class="review-actions">
+          <button id="pac-proc-select-all-btn" type="button">Seleccionar todo</button>
+          <button id="pac-proc-clear-selection-btn" type="button">Deseleccionar todo</button>
+          <button id="pac-proc-create-drive-btn" type="button" class="google-btn">Crear PAC en Drive</button>
+          <button id="pac-proc-download-btn" type="button" class="google-btn">Descargar Excel</button>
+        </div>
+        <p id="pac-proc-rows-msg" class="msg"></p>
         <div class="pac-proc-list-wrap">
           <table class="pac-table">
             <thead id="pac-proc-rows-head"></thead>
             <tbody id="pac-proc-rows-body">
               <tr>
-                <td>Sin detalle cargado</td>
+                <td>Sin rows cargadas</td>
               </tr>
             </tbody>
           </table>
