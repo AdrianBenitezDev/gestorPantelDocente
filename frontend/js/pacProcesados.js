@@ -21,23 +21,32 @@ const authenticatedContent = document.getElementById("pac-proc-auth-content");
 const refreshBtn = document.getElementById("pac-proc-refresh-btn");
 const emptyStateEl = document.getElementById("pac-proc-empty-state");
 const listBodyEl = document.getElementById("pac-proc-list-body");
+const copyEmailBtn = document.getElementById("pac-proc-copy-email-btn");
+const copyToastEl = document.getElementById("pac-proc-copy-toast");
+const listPaginationEl = document.getElementById("pac-proc-list-pagination");
+const pagePrevBtn = document.getElementById("pac-proc-page-prev-btn");
+const pageNextBtn = document.getElementById("pac-proc-page-next-btn");
+const pageStatusEl = document.getElementById("pac-proc-page-status");
 const detailRowsCountEl = document.getElementById("pac-proc-detail-rows-count");
 const selectedCountEl = document.getElementById("pac-proc-selected-count");
 const rowsHeadEl = document.getElementById("pac-proc-rows-head");
 const rowsBodyEl = document.getElementById("pac-proc-rows-body");
+const openGeneratedFileBtn = document.getElementById("pac-proc-open-drive-btn");
 const modeSelectEl = document.getElementById("pac-proc-mode");
-const sheetUrlEl = document.getElementById("pac-proc-sheet-url");
 const selectAllBtn = document.getElementById("pac-proc-select-all-btn");
 const clearSelectionBtn = document.getElementById("pac-proc-clear-selection-btn");
+const previewBtn = document.getElementById("pac-proc-preview-btn");
 const createDriveBtn = document.getElementById("pac-proc-create-drive-btn");
 const downloadBtn = document.getElementById("pac-proc-download-btn");
 
-const PAC_DEFAULT_SHEET_URL =
-  "https://docs.google.com/spreadsheets/d/1UP0FlTWQdHciMe1dbpj2i1dhsQAk4EsxCtq2Bvxlv2U/edit?usp=sharing";
+const PAC_PREVIEW_STORAGE_KEY = "pacPreviewPayload";
+const PAC_FORWARD_EMAIL = "procesarpac@paneldocente.com.ar";
 const PAC_DEFAULT_START_ROW = 14;
 const PAC_ROWS_PER_ITEM_LIMIT = 300;
+const PAC_PROCESSED_PAGE_SIZE = 10;
 const GOOGLE_SCOPE_SHEETS = "https://www.googleapis.com/auth/spreadsheets";
 const GOOGLE_SCOPE_DRIVE_FILE = "https://www.googleapis.com/auth/drive.file";
+const COPY_TOAST_TIMEOUT_MS = 2200;
 
 const ROW_COLUMNS = [
   { key: "cupof", label: "CUPOF" },
@@ -63,7 +72,10 @@ const state = {
   busySaving: false,
   accessToken: "",
   grantedScopes: new Set(),
+  entriesPage: 1,
 };
+
+let copyToastTimer = null;
 
 function setMsg(el, text, isError = false) {
   if (!el) {
@@ -79,6 +91,121 @@ function setBusy(button, busy) {
     return;
   }
   button.disabled = Boolean(busy);
+}
+
+function setGeneratedFileButton(sheetUrl = "") {
+  if (!openGeneratedFileBtn) {
+    return;
+  }
+  const safeUrl = String(sheetUrl || "").trim();
+  if (!safeUrl) {
+    openGeneratedFileBtn.hidden = true;
+    openGeneratedFileBtn.classList.add("is-hidden");
+    openGeneratedFileBtn.removeAttribute("href");
+    return;
+  }
+  openGeneratedFileBtn.href = safeUrl;
+  openGeneratedFileBtn.hidden = false;
+  openGeneratedFileBtn.classList.remove("is-hidden");
+}
+
+function totalEntriesPages() {
+  const totalEntries = Array.isArray(state.entries) ? state.entries.length : 0;
+  const pageCount = Math.ceil(totalEntries / PAC_PROCESSED_PAGE_SIZE);
+  return Math.max(1, Number.isFinite(pageCount) ? pageCount : 1);
+}
+
+function clampEntriesPage(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return 1;
+  }
+  const maxPage = totalEntriesPages();
+  return Math.max(1, Math.min(maxPage, Math.floor(parsed)));
+}
+
+function currentPageEntries(entries = []) {
+  const list = Array.isArray(entries) ? entries : [];
+  const page = clampEntriesPage(state.entriesPage);
+  const start = (page - 1) * PAC_PROCESSED_PAGE_SIZE;
+  return list.slice(start, start + PAC_PROCESSED_PAGE_SIZE);
+}
+
+function renderEntriesPagination(entries = []) {
+  const list = Array.isArray(entries) ? entries : [];
+  const hasEntries = list.length > 0;
+  const maxPage = totalEntriesPages();
+  state.entriesPage = clampEntriesPage(state.entriesPage);
+
+  if (!listPaginationEl) {
+    return;
+  }
+  listPaginationEl.hidden = !hasEntries;
+  listPaginationEl.classList.toggle("is-hidden", !hasEntries);
+
+  if (pageStatusEl) {
+    pageStatusEl.textContent = `Pagina ${state.entriesPage} de ${maxPage}`;
+  }
+  if (pagePrevBtn) {
+    pagePrevBtn.disabled = !hasEntries || state.entriesPage <= 1;
+  }
+  if (pageNextBtn) {
+    pageNextBtn.disabled = !hasEntries || state.entriesPage >= maxPage;
+  }
+}
+
+function showCopyToast(text, isError = false) {
+  if (!copyToastEl) {
+    return;
+  }
+  copyToastEl.textContent = String(text || "");
+  copyToastEl.classList.toggle("is-error", Boolean(isError));
+  copyToastEl.hidden = false;
+  copyToastEl.classList.remove("is-hidden");
+  if (copyToastTimer) {
+    clearTimeout(copyToastTimer);
+  }
+  copyToastTimer = window.setTimeout(() => {
+    copyToastEl.classList.add("is-hidden");
+    copyToastEl.hidden = true;
+  }, COPY_TOAST_TIMEOUT_MS);
+}
+
+async function writeTextToClipboard(rawText) {
+  const text = String(rawText || "").trim();
+  if (!text) {
+    throw new Error("No hay texto para copiar.");
+  }
+
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const helper = document.createElement("textarea");
+  helper.value = text;
+  helper.setAttribute("readonly", "");
+  helper.style.position = "fixed";
+  helper.style.top = "-1000px";
+  helper.style.opacity = "0";
+  document.body.appendChild(helper);
+  helper.focus();
+  helper.select();
+  const copied = document.execCommand("copy");
+  document.body.removeChild(helper);
+  if (!copied) {
+    throw new Error("No se pudo copiar al portapapeles.");
+  }
+}
+
+async function copyForwardEmailToClipboard() {
+  try {
+    await writeTextToClipboard(PAC_FORWARD_EMAIL);
+    showCopyToast("Email copiado al portapapeles.");
+  } catch (error) {
+    console.error("copyForwardEmailToClipboard failed", error);
+    showCopyToast("No se pudo copiar el email.", true);
+  }
 }
 
 function normalizeRoute(value) {
@@ -276,6 +403,9 @@ function updateSelectionUi() {
   if (downloadBtn) {
     downloadBtn.disabled = state.busySaving || selected === 0;
   }
+  if (previewBtn) {
+    previewBtn.disabled = state.busySaving || selected === 0;
+  }
   if (selectAllBtn) {
     selectAllBtn.disabled = total === 0 || state.busySaving;
   }
@@ -340,6 +470,7 @@ function renderEntries(entries = []) {
       emptyStateEl.hidden = false;
       emptyStateEl.classList.remove("is-hidden");
     }
+    renderEntriesPagination([]);
     return;
   }
   if (emptyStateEl) {
@@ -347,7 +478,8 @@ function renderEntries(entries = []) {
     emptyStateEl.classList.add("is-hidden");
   }
 
-  list.forEach((entry) => {
+  const visibleItems = currentPageEntries(list);
+  visibleItems.forEach((entry) => {
     const tr = document.createElement("tr");
     const tdDate = document.createElement("td");
     tdDate.textContent = formatDateTime(entry.fechaRecepcionMs, sanitizeCellText(entry.fechaRecepcion) || "-");
@@ -370,6 +502,7 @@ function renderEntries(entries = []) {
     tr.appendChild(tdRows);
     listBodyEl.appendChild(tr);
   });
+  renderEntriesPagination(list);
 }
 
 function setSavingBusy(busy) {
@@ -498,6 +631,7 @@ async function processSelectedRows(delivery = "drive") {
   const selectedRows = getSelectedRows();
   if (!selectedRows.length) {
     setMsg(rowsMsgEl, "Selecciona al menos una fila.", true);
+    setGeneratedFileButton("");
     return;
   }
   const saveRequiredScopes = [GOOGLE_SCOPE_SHEETS, GOOGLE_SCOPE_DRIVE_FILE];
@@ -514,12 +648,13 @@ async function processSelectedRows(delivery = "drive") {
 
   setSavingBusy(true);
   setMsg(rowsMsgEl, delivery === "download" ? "Generando archivo..." : "Creando PAC en Drive...");
+  setGeneratedFileButton("");
   try {
     const callable = httpsCallable(functions, "savePacRowsToDrive");
     const mode = String(modeSelectEl?.value || "interinos_docx").trim() || "interinos_docx";
     const payload = {
       mode,
-      sheetUrl: PAC_DEFAULT_SHEET_URL,
+      sheetUrl: "",
       sheetName: "",
       startRow: PAC_DEFAULT_START_ROW,
       accessToken: state.accessToken,
@@ -557,20 +692,48 @@ async function processSelectedRows(delivery = "drive") {
       const fileName = String(result.fileName || "PAC.xlsx");
       downloadBlobFile(blob, fileName);
       setMsg(rowsMsgEl, `Archivo descargado: ${fileName}`);
+      setGeneratedFileButton("");
       return;
     }
     const rowsWritten = Number(result.rowsWritten || result.writeSummary?.rowsWritten || 0);
     const sheetUrl = String(result.sheetUrl || "");
-    if (sheetUrl) {
-      setMsg(rowsMsgEl, `PAC creado en Drive. Filas escritas: ${rowsWritten}. ${sheetUrl}`);
-    } else {
-      setMsg(rowsMsgEl, `PAC creado en Drive. Filas escritas: ${rowsWritten}.`);
-    }
+    setMsg(rowsMsgEl, `PAC creado en Drive. Filas escritas: ${rowsWritten}.`);
+    setGeneratedFileButton(sheetUrl);
   } catch (error) {
     console.error("processSelectedRows failed", error);
     setMsg(rowsMsgEl, formatUserError(error, "No se pudo generar el Excel."), true);
+    setGeneratedFileButton("");
   } finally {
     setSavingBusy(false);
+  }
+}
+
+function openPreviewTab() {
+  const selectedRows = getSelectedRows();
+  if (!selectedRows.length) {
+    setMsg(rowsMsgEl, "Selecciona al menos una fila para abrir la vista previa.", true);
+    setGeneratedFileButton("");
+    return;
+  }
+
+  const payload = {
+    rows: selectedRows.map(buildSaveRowPayload),
+    mode: String(modeSelectEl?.value || "interinos_docx").trim() || "interinos_docx",
+    sheetUrl: "",
+    sheetName: "",
+    startRow: PAC_DEFAULT_START_ROW,
+    accessToken: state.accessToken,
+    grantedScopes: Array.from(state.grantedScopes),
+    savedFile: null,
+  };
+
+  try {
+    localStorage.setItem(PAC_PREVIEW_STORAGE_KEY, JSON.stringify(payload));
+    window.open("/pac-preview.html", "_blank", "noopener");
+  } catch (error) {
+    console.error("openPreviewTab storage error", error);
+    setMsg(rowsMsgEl, "No se pudo abrir la vista previa en este navegador.", true);
+    setGeneratedFileButton("");
   }
 }
 
@@ -612,14 +775,16 @@ async function loadProcessedEntries() {
   setBusy(refreshBtn, true);
   setMsg(listMsgEl, "Cargando PAC procesados...");
   setMsg(rowsMsgEl, "");
+  setGeneratedFileButton("");
   try {
     const result = await fetchProcessedPacList({
-      limit: 60,
+      limit: 120,
       includeRows: true,
       rowsPerItemLimit: PAC_ROWS_PER_ITEM_LIMIT,
     });
     const items = Array.isArray(result.items) ? result.items : [];
     state.entries = items;
+    state.entriesPage = 1;
     renderEntries(items);
     state.flatRows = buildFlatRows(items);
     state.selectedRowIds = new Set(state.flatRows.map((row) => row.__rowId));
@@ -643,6 +808,7 @@ async function loadProcessedEntries() {
     console.error("loadProcessedEntries failed", error);
     setMsg(listMsgEl, formatUserError(error, "No se pudieron cargar los PAC procesados."), true);
     setMsg(rowsMsgEl, "");
+    setGeneratedFileButton("");
   } finally {
     state.loading = false;
     setBusy(refreshBtn, false);
@@ -667,6 +833,16 @@ rowsBodyEl?.addEventListener("change", (event) => {
   updateSelectionUi();
 });
 
+pagePrevBtn?.addEventListener("click", () => {
+  state.entriesPage = clampEntriesPage(state.entriesPage - 1);
+  renderEntries(state.entries);
+});
+
+pageNextBtn?.addEventListener("click", () => {
+  state.entriesPage = clampEntriesPage(state.entriesPage + 1);
+  renderEntries(state.entries);
+});
+
 selectAllBtn?.addEventListener("click", () => {
   state.selectedRowIds = new Set(state.flatRows.map((row) => row.__rowId));
   renderRowsTable(state.flatRows);
@@ -683,6 +859,10 @@ createDriveBtn?.addEventListener("click", async () => {
 
 downloadBtn?.addEventListener("click", async () => {
   await processSelectedRows("download");
+});
+
+previewBtn?.addEventListener("click", () => {
+  openPreviewTab();
 });
 
 refreshBtn?.addEventListener("click", async () => {
@@ -730,6 +910,10 @@ guestLoginBtn?.addEventListener("click", async () => {
   }
 });
 
+copyEmailBtn?.addEventListener("click", async () => {
+  await copyForwardEmailToClipboard();
+});
+
 onAuthStateChanged(auth, (user) => {
   updateHeaderAuthButton(user);
   if (!user) {
@@ -739,6 +923,7 @@ onAuthStateChanged(auth, (user) => {
     state.flatRows = [];
     state.selectedRowIds.clear();
     state.hasTenantAccess = false;
+    state.entriesPage = 1;
     state.accessToken = "";
     state.grantedScopes.clear();
     renderEntries([]);
@@ -750,6 +935,7 @@ onAuthStateChanged(auth, (user) => {
     setMsg(globalMsgEl, "Inicia sesion para ver tus PAC procesados.");
     setMsg(listMsgEl, "");
     setMsg(rowsMsgEl, "");
+    setGeneratedFileButton("");
     return;
   }
 
@@ -759,6 +945,7 @@ onAuthStateChanged(auth, (user) => {
   setMsg(globalMsgEl, "Validando acceso por suscripcion...");
   setMsg(listMsgEl, "");
   setMsg(rowsMsgEl, "");
+  setGeneratedFileButton("");
 
   void validateTenantAccessForUser(user).then(async (hasAccess) => {
     if (String(auth.currentUser?.uid || "") !== String(user?.uid || "")) {
@@ -772,9 +959,5 @@ onAuthStateChanged(auth, (user) => {
     await loadProcessedEntries();
   });
 });
-
-if (sheetUrlEl) {
-  sheetUrlEl.textContent = PAC_DEFAULT_SHEET_URL;
-}
 
 updateSelectionUi();

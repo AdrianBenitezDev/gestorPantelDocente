@@ -38,11 +38,20 @@
       <section class="card pac-proc-onboarding-card">
         <h1>Flujo sin permisos Gmail</h1>
         <p class="subtitle">
-          Reenvia tus correos PAC a <strong>procesarpac@paneldocente.com.ar</strong>. El backend procesa y publica
+          Reenvia tus correos PAC a
+          <button
+            id="pac-proc-copy-email-btn"
+            type="button"
+            class="pac-forward-email-btn"
+            title="Copiar email al portapapeles"
+          >
+            procesarpac@paneldocente.com.ar
+          </button>.
+          El backend procesa y publica
           los resultados automaticamente.
         </p>
         <ol class="pac-forward-steps">
-          <li>Reenvia el correo PAC a procesarpac@paneldocente.com.ar.</li>
+          <li>Reenvia el correo PAC al email indicado arriba.</li>
           <li>El sistema procesa automaticamente el contenido.</li>
           <li>Los datos extraidos aparecen en esta pantalla.</li>
           <li>Revisa las filas detectadas antes de continuar.</li>
@@ -79,6 +88,11 @@
             </tbody>
           </table>
         </div>
+        <div id="pac-proc-list-pagination" class="pac-proc-pagination is-hidden" hidden>
+          <button id="pac-proc-page-prev-btn" type="button">Anterior</button>
+          <span id="pac-proc-page-status" class="pac-proc-page-status">Pagina 1 de 1</span>
+          <button id="pac-proc-page-next-btn" type="button">Siguiente</button>
+        </div>
       </section>
 
       <section id="pac-proc-detail-card" class="card">
@@ -93,18 +107,34 @@
               <option value="designacion_body">Designacion</option>
             </select>
           </p>
-          <p>
-            <strong>Plantilla:</strong>
-            <span id="pac-proc-sheet-url">Predeterminada</span>
-          </p>
         </div>
         <div class="review-actions">
           <button id="pac-proc-select-all-btn" type="button">Seleccionar todo</button>
           <button id="pac-proc-clear-selection-btn" type="button">Deseleccionar todo</button>
+          <button id="pac-proc-preview-btn" type="button">Vista previa</button>
           <button id="pac-proc-create-drive-btn" type="button" class="google-btn">Crear PAC en Drive</button>
           <button id="pac-proc-download-btn" type="button" class="google-btn">Descargar Excel</button>
         </div>
         <p id="pac-proc-rows-msg" class="msg"></p>
+        <a
+          id="pac-proc-open-drive-btn"
+          class="link-btn pac-drive-link-btn is-hidden"
+          href="#"
+          target="_blank"
+          rel="noopener noreferrer"
+          hidden
+        >
+          <span class="pac-drive-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="16" height="16" xmlns="http://www.w3.org/2000/svg">
+              <path fill="#0F9D58" d="M4 2h12l4 4v16H4z" />
+              <path fill="#fff" d="M16 2v4h4z" />
+              <rect x="7" y="10" width="10" height="1.6" fill="#fff" opacity="0.92" />
+              <rect x="7" y="13.4" width="10" height="1.6" fill="#fff" opacity="0.92" />
+              <rect x="7" y="16.8" width="7.2" height="1.6" fill="#fff" opacity="0.92" />
+            </svg>
+          </span>
+          <span>Ir al archivo generado</span>
+        </a>
         <div class="pac-proc-list-wrap">
           <table class="pac-table">
             <thead id="pac-proc-rows-head"></thead>
@@ -118,6 +148,7 @@
       </section>
     </div>
   </main>
+  <div id="pac-proc-copy-toast" class="pac-copy-toast is-hidden" hidden></div>
 
   <div id="shared-footer-root"></div>
   <script src="./footer/footer.js" defer></script>

@@ -289,6 +289,10 @@ function buildSavePayload() {
     rows: Array.isArray(payload.rows) ? payload.rows : [],
     outputTitle: "",
     delivery: "drive",
+    encabezadoPac:
+      payload.encabezadoPac && typeof payload.encabezadoPac === "object"
+        ? payload.encabezadoPac
+        : undefined,
   };
 }
 
@@ -302,7 +306,7 @@ async function saveToDrive() {
   }
 
   let payload = buildSavePayload();
-  if (!payload.sheetUrl || !Array.isArray(payload.rows) || !payload.rows.length) {
+  if (!Array.isArray(payload.rows) || !payload.rows.length) {
     setMsg("No hay datos suficientes para guardar en Drive", true);
     return;
   }
@@ -377,7 +381,7 @@ async function downloadWorkbook() {
 
   let payload = buildSavePayload();
   payload.delivery = "download";
-  if (!payload.sheetUrl || !Array.isArray(payload.rows) || !payload.rows.length) {
+  if (!Array.isArray(payload.rows) || !payload.rows.length) {
     setMsg("No hay datos suficientes para descargar", true);
     return;
   }

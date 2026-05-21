@@ -1,0 +1,150 @@
+INFORME TECNICO - REGISTRO/PAGO Y FLUJO PAC
+Fecha: 2026-05-20
+Proyecto: panelDocente (Firebase project: horario-escuelas)
+
+RESUMEN EJECUTIVO
+1) El error al crear/descargar PAC desde "PAC procesados" esta confirmado: la funcion savePacRowsToDrive falla al copiar la plantilla de Google Sheet por "File not found" (404) sobre el templateSheetId hardcodeado.
+2) En el problema de registro/pago, no aparecen errores de Mercado Pago en logs de startSubscriptionCheckout; si aparecen errores repetidos de registerUser por "auth/email-already-exists", que bloquean el flujo antes del pago.
+3) El flujo de PAC procesados no tiene boton/flujo de "vista previa", mientras que el flujo de Gmail si lo tiene.
+
+------------------------------------------------------------
+DETALLE DE HALLAZGOS
+------------------------------------------------------------
+
+[H1 - CRITICO] Falla en PAC procesados al crear Drive/descargar Excel por plantilla no accesible
+Evidencia:
+- Logs (Cloud Logging, service: savepacrowstodrive) con error repetido:
+  - apiContext: drive.copyTemplate
+  - status: 404
+  - googleReason: notFound
+  - googleErrorMessage: "File not found: 1UP0FlTWQdHciMe1dbpj2i1dhsQAk4EsxCtq2Bvxlv2U."
+  - delivery: drive y download (ambos)
+- Referencia de codigo:
+  - functions/src/index.js:4477 (pacCopySpreadsheetTemplate)
+  - functions/src/index.js:5108 (savePacRowsToDrive)
+  - frontend/js/pacProcesados.js:35, 522 (usa URL fija de plantilla)
+
+Impacto:
+- El usuario ve rows en tabla (datos existen en Firestore), pero falla al guardar en Drive y al descargar Excel.
+- Afecta ambos botones del flujo PAC procesados.
+
+Causa raiz probable:
+- El template ID hardcodeado no es accesible por la cuenta Google del usuario que autoriza scopes.
+- El backend usa token del usuario para drive.copy; si ese usuario no tiene acceso al archivo, falla con 404.
+
+Mitigaciones recomendadas:
+A. Operativa inmediata (urgente):
+   - Compartir la plantilla 1UP0FlTWQdHciMe1dbpj2i1dhsQAk4EsxCtq2Bvxlv2U con las cuentas usuarias (al menos lectura) o reemplazarla por una plantilla accesible.
+B. Producto/UX:
+   - Exponer selector/configuracion de plantilla en pac-procesados (igual que en flujo Gmail o con URL por tenant).
+C. Backend:
+   - En savePacRowsToDrive, detectar notFound en drive.copyTemplate y devolver codigo funcional explicito (ej: template_not_accessible) con mensaje accionable.
+D. Observabilidad:
+   - Registrar uid/tenantId y correo del token en ese error para soporte rapido.
+
+------------------------------------------------------------
+
+[H2 - ALTO] Fallas de registro que impiden llegar al pago (email ya existente)
+Evidencia:
+- Logs historicos (service: registeruser) con error recurrente:
+  - createUser failed FirebaseAuthError
+  - code: auth/email-already-exists
+- Referencia de codigo:
+  - functions/src/index.js:2140 (logger.error createUser failed)
+  - frontend/js/registro.js:278-280 (precheck y bloqueo solo si hasProfile=true)
+
+Impacto:
+- Usuarios con email existente en Auth pueden no avanzar de registro y no llegar al checkout.
+- Se percibe como "falla al momento del pago", pero el bloqueo ocurre antes.
+
+Causa raiz:
+- El alta intenta crear usuario en Auth y falla si ese correo ya existe.
+- El precheck del frontend ayuda, pero no cubre todos los estados de cuenta heredada/parcial de forma robusta para usuario final.
+
+Mitigaciones recomendadas:
+A. Flujo de acceso:
+   - En registro, si existe email, redirigir siempre a login + activar-plan en lugar de insistir en crear cuenta.
+B. Mensajeria:
+   - Mensaje explicito: "Este correo ya existe, inicia sesion para continuar el pago".
+C. Soporte:
+   - Job/admin action para reconciliar cuentas Auth existentes sin perfil.
+
+------------------------------------------------------------
+
+[H3 - ALTO] Riesgo de borrado indebido de usuario Auth en rollback de registerUser
+Evidencia (codigo):
+- functions/src/index.js:2131 declara reusedExistingAuthUser
+- functions/src/index.js:2240 ejecuta deleteUser(uid) en catch de transaccion, sin excluir reusedExistingAuthUser
+
+Impacto:
+- Si el flujo reutiliza un Auth user existente y luego falla la transaccion de perfil, el rollback puede eliminar una cuenta Auth preexistente.
+- Riesgo de regresion severa en onboarding.
+
+Mitigacion recomendada:
+- Cambiar rollback para borrar Auth user solo si fue creado en la llamada actual.
+  Ejemplo: if (!reusedExistingAuthUser) await deleteUser(uid)
+
+------------------------------------------------------------
+
+[H4 - MEDIO] Ausencia de "Vista previa PAC" en flujo PAC procesados
+Evidencia:
+- frontend/pac-procesados.html: solo botones "Crear PAC en Drive" y "Descargar Excel"
+- El flujo Gmail si tiene vista previa:
+  - frontend/js/pac.js (usa pac-preview payload y abre /pac-preview.html)
+  - frontend/js/pacPreview.js
+
+Impacto:
+- Falta de paridad funcional entre flujos.
+- El usuario no puede validar antes de guardar/descargar desde PAC procesados.
+
+Mitigacion recomendada:
+- Agregar boton "Vista previa" en pac-procesados y reutilizar el mismo contrato de pac-preview:
+  - Construir payload con selectedRows + sheet config.
+  - Guardar en localStorage (pacPreviewPayload).
+  - Abrir /pac-preview.html.
+
+------------------------------------------------------------
+
+[H5 - MEDIO] Ruido de errores por accesos GET directos a URLs de funciones callable
+Evidencia:
+- Logs de startsubscriptioncheckout/registeruser con:
+  - "Request has invalid method. GET"
+  - "Error: Invalid request, unable to process."
+- Corresponde a abrir la URL Cloud Run/callable en navegador.
+
+Impacto:
+- Contamina monitoreo con falsos errores.
+
+Mitigacion recomendada:
+- Crear filtro/alerta separando errores de metodo invalido de errores funcionales.
+- Evitar exponer links directos a endpoints callable en documentacion operativa.
+
+------------------------------------------------------------
+CONCLUSION
+------------------------------------------------------------
+
+El problema principal de PAC procesados esta identificado y confirmado por logs: la plantilla de Google Sheet no es accesible para el token del usuario, por eso fallan ambos botones.
+
+En registro/pago, el bloqueo dominante observado es "email ya existente" en registerUser (previo a Mercado Pago). No se encontraron errores funcionales de Mercado Pago en startSubscriptionCheckout en los logs inspeccionados.
+
+Acciones prioritarias sugeridas (orden):
+1) Corregir acceso a plantilla (H1) y mejorar mensaje de error.
+2) Ajustar flujo de registro para email existente (H2).
+3) Corregir rollback de registerUser para no borrar Auth user reutilizado (H3).
+4) Agregar vista previa en PAC procesados (H4).
+
+------------------------------------------------------------
+ACTUALIZACION DE IMPLEMENTACION (2026-05-21)
+------------------------------------------------------------
+Estado aplicado en codigo y deployado a produccion:
+1) H1 - Plantilla PAC:
+   - savePacRowsToDrive ya no depende de una planilla fija de Google como requisito.
+   - Se agrego plantilla local en `functions/assets/plantilla.xlsx`.
+   - Si llega una URL de plantilla y falla drive.copyTemplate con 404/notFound, ahora hace fallback automatico a plantilla local.
+2) H4 - Vista previa en PAC procesados:
+   - Se agrego boton "Vista previa" en `frontend/pac-procesados.html`.
+   - Se implemento flujo hacia `/pac-preview.html` desde `frontend/js/pacProcesados.js` reutilizando `pacPreviewPayload`.
+3) PAC preview:
+   - `frontend/js/pacPreview.js` fue ajustado para permitir guardar/descargar aunque `sheetUrl` venga vacio (usa backend con plantilla local).
+4) Deploy:
+   - Ejecutado `firebase deploy --only functions,hosting` con resultado exitoso.

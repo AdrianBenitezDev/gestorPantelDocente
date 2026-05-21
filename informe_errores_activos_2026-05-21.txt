@@ -1,0 +1,117 @@
+INFORME DE ERRORES ACTIVOS (HOY)
+Fecha de corte: 2026-05-21
+Proyecto: horario-escuelas (PanelDocente)
+
+Alcance de verificacion:
+- Cloud Logging (ultimos 30 dias y foco ultimas 12 horas)
+- Servicios revisados:
+  - registeruser
+  - startsubscriptioncheckout
+  - savepacrowstodrive
+- Revision de codigo:
+  - functions/src/index.js
+  - frontend/js/registro.js
+
+============================================================
+RESUMEN EJECUTIVO
+============================================================
+1) PAC (planilla/Drive):
+   - El error critico de plantilla no accesible (drive.copyTemplate 404/notFound) se observa en logs historicos del 2026-05-20.
+   - No se observan nuevos errores de ese tipo en las ultimas 12 horas (post deploy de 2026-05-21).
+   - Estado actual: MITIGADO en codigo, pendiente de validacion con trafico real.
+
+2) Registro + pago (Mercado Pago):
+   - No se observan errores funcionales de Mercado Pago en startsubscriptioncheckout (no se detectan fallas de preapproval en logs revisados).
+   - Si hay errores de ruido por accesos GET a callable (Invalid request, unable to process), que no representan falla del flujo normal frontend.
+   - Estado actual: no hay evidencia de falla activa de MP en backend en la ventana revisada.
+
+3) Registro (email existente):
+   - Se observan eventos historicos createUser failed auth/email-already-exists (ej. 2026-05-05, 2026-05-02, 2026-05-01).
+   - El backend tiene recuperacion parcial (getUserByEmail), pero mantiene riesgos de borde.
+   - Estado actual: riesgo operativo aun vigente (no necesariamente falla en cada intento).
+
+============================================================
+DETALLE DE ERRORES ACTIVOS / RIESGOS VIGENTES
+============================================================
+
+[A1] RUIDO DE ERRORES POR INVOCACION INCORRECTA (GET A CALLABLE)
+Evidencia:
+- registeruser y startsubscriptioncheckout registran:
+  - WARNING: Request has invalid method. GET
+  - ERROR: Invalid request, unable to process.
+Impacto:
+- Ensucia monitoreo y puede confundir diagnostico.
+Estado:
+- ACTIVO (operativo/observabilidad), no bloquea el flujo normal de frontend.
+Mitigaciones:
+1) Filtrar estas entradas en alertas (por texto y requestMethod=GET).
+2) Evitar exponer URLs directas de callable en docs o UI.
+3) Mantener monitoreo solo de errores de negocio (failed-precondition, internal con codigo funcional).
+
+[A2] REGISTRO CON EMAIL YA EXISTENTE (RIESGO DE FRICCION)
+Evidencia:
+- Logs historicos con:
+  - createUser failed FirebaseAuthError
+  - code: auth/email-already-exists
+- Fechas observadas: 2026-05-01, 2026-05-02, 2026-05-05.
+Impacto:
+- Puede generar friccion en onboarding dependiendo del estado del usuario.
+Estado:
+- ACTIVO COMO RIESGO (no hay errores nuevos en ultimas 12h, pero la condicion existe).
+Mitigaciones:
+1) En backend, cuando email ya existe y hay perfil:
+   - responder codigo funcional claro para redirigir a login/activar-plan sin stack de error.
+2) En frontend, reforzar mensaje guiado:
+   - "Este correo ya existe, inicia sesion y continua desde activar-plan".
+3) Reducir severidad de log cuando el caso es recuperable (no error tecnico real).
+
+[A3] RIESGO TECNICO EN ROLLBACK DE REGISTERUSER
+Evidencia en codigo:
+- functions/src/index.js:
+  - se detecta `reusedExistingAuthUser`
+  - en catch de transaccion se ejecuta deleteUser(uid) sin condicionar por reusedExistingAuthUser.
+Impacto:
+- Si se reutilizo un Auth existente y falla la transaccion de perfil, podria borrarse una cuenta previa.
+Estado:
+- ACTIVO (riesgo de regresion, aunque no se vio incidente nuevo en esta revision).
+Mitigacion:
+1) Cambiar rollback a:
+   - borrar usuario Auth solo si fue creado en esta llamada.
+
+[A4] PAC TEMPLATE NOTFOUND (HISTORICO RECIENTE, MITIGADO)
+Evidencia:
+- savepacrowstodrive con:
+  - apiContext: drive.copyTemplate
+  - googleReason: notFound
+  - status: 404
+  - templateSheetId: 1UP0FlTWQdHciMe1dbpj2i1dhsQAk4EsxCtq2Bvxlv2U
+  - fecha: 2026-05-20 (revision savepacrowstodrive-00037-gib)
+Estado:
+- MITIGADO EN CODIGO (fallback a plantilla local aplicado y deployado 2026-05-21).
+- Sin nuevos errores en ultimas 12 horas.
+Mitigaciones complementarias:
+1) Mantener fallback local como default.
+2) Registrar metrica `templateSource` (google_sheet_copy vs local_template_fallback).
+3) Alertar si vuelve a aparecer drive.copyTemplate notFound en revision nueva.
+
+============================================================
+RESPUESTA DIRECTA: REGISTRO AL PAGAR CON MERCADO PAGO
+============================================================
+Con la evidencia de logs revisada HOY:
+- No se ven errores funcionales activos de Mercado Pago en `startsubscriptioncheckout`.
+- Lo que si aparece es ruido por llamadas GET invalidas a callable.
+
+Conclusion:
+- No hay evidencia actual de que el backend de Mercado Pago siga fallando.
+- El problema de registro no puede marcarse como "100% resuelto" sin validar trafico real de usuarios,
+  porque siguen existiendo riesgos en el flujo de registro (email existente y rollback).
+
+Recomendacion de cierre:
+1) Ejecutar 3 pruebas reales controladas:
+   - usuario nuevo
+   - usuario con email ya existente sin perfil
+   - usuario con email ya existente con perfil
+2) Confirmar en logs que:
+   - startsubscriptioncheckout devuelve initPoint
+   - no aparecen errores de negocio
+3) Cerrar incidente solo tras esas 3 validaciones.

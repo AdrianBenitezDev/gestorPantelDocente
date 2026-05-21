@@ -5,6 +5,8 @@ const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 const { getFunctions } = require("firebase-admin/functions");
 const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
 const zlib = require("zlib");
 const { fetchFechaNacimientoByDni, UNKNOWN_BIRTHDATE } = require("./pacNacimientoLookup");
 const {
@@ -29,11 +31,19 @@ const savePacRowsCallableOptions = { ...callableOptions, timeoutSeconds: 300 };
 const GOOGLE_TEST_BYPASS_EMAILS = new Set([
   "ellariatyrell.341412@gmail.com",
   "eurontyrell.571112@gmail.com",
+  "cens452altebrown@abc.gob.ar",
+]);
+const PAC_DEMO_REVIEWER_EMAILS = new Set([
+  "ellariatyrell.341412@gmail.com",
+  "eurontyrell.571112@gmail.com",
 ]);
 const ADMIN_ALLOWED_EMAIL = "artbenitezdev@gmail.com";
 const GOOGLE_TEST_BYPASS_TAG = "google_test_allowlist";
 const GOOGLE_TEST_BYPASS_EMAILS_CANONICAL = new Set(
   Array.from(GOOGLE_TEST_BYPASS_EMAILS).map((email) => normalizeEmailForAllowlist(email))
+);
+const PAC_DEMO_REVIEWER_EMAILS_CANONICAL = new Set(
+  Array.from(PAC_DEMO_REVIEWER_EMAILS).map((email) => normalizeEmailForAllowlist(email))
 );
 
 const MP_ACCESS_TOKEN = defineSecret("MP_ACCESS_TOKEN");
@@ -46,6 +56,10 @@ const PAC_PROCESSED_MAX_LIMIT = 120;
 const PAC_PROCESSED_MAX_ROWS_PER_ITEM = 1200;
 const PAC_PROCESSED_LIST_ROWS_DEFAULT_LIMIT = 300;
 const PAC_PROCESSED_LIST_ROWS_MAX_LIMIT = 1200;
+const PAC_LOCAL_TEMPLATE_RELATIVE_PATH = path.join("..", "assets", "plantilla.xlsx");
+const PAC_LOCAL_TEMPLATE_CONTENT_TYPE =
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+let pacLocalTemplateBufferCache = null;
 
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
@@ -288,6 +302,14 @@ function isGoogleTestBypassEmail(value) {
     return false;
   }
   return GOOGLE_TEST_BYPASS_EMAILS_CANONICAL.has(normalized);
+}
+
+function isPacDemoReviewerEmail(value) {
+  const normalized = normalizeEmailForAllowlist(value);
+  if (!normalized) {
+    return false;
+  }
+  return PAC_DEMO_REVIEWER_EMAILS_CANONICAL.has(normalized);
 }
 
 function hasOwn(source, key) {
@@ -3076,7 +3098,7 @@ async function pacListMessages(accessToken, queryText, maxResults) {
 }
 
 function isPacDemoReviewer(userEmail) {
-  return isGoogleTestBypassEmail(userEmail);
+  return isPacDemoReviewerEmail(userEmail);
 }
 
 function buildPacDemoEmails() {
@@ -4481,6 +4503,95 @@ async function pacCopySpreadsheetTemplate(accessToken, templateSheetId, outputTi
   };
 }
 
+function pacReadLocalTemplateBuffer() {
+  if (Buffer.isBuffer(pacLocalTemplateBufferCache) && pacLocalTemplateBufferCache.length) {
+    return pacLocalTemplateBufferCache;
+  }
+
+  const templatePath = path.resolve(__dirname, PAC_LOCAL_TEMPLATE_RELATIVE_PATH);
+  let buffer = null;
+  try {
+    buffer = fs.readFileSync(templatePath);
+  } catch (error) {
+    const wrapped = new Error(`No se pudo leer la plantilla PAC local en ${templatePath}`);
+    wrapped.name = "PacLocalTemplateError";
+    wrapped.code = "template_local_not_found";
+    wrapped.cause = error;
+    throw wrapped;
+  }
+
+  if (!Buffer.isBuffer(buffer) || !buffer.length) {
+    const wrapped = new Error("La plantilla PAC local esta vacia o no se pudo cargar");
+    wrapped.name = "PacLocalTemplateError";
+    wrapped.code = "template_local_empty";
+    throw wrapped;
+  }
+
+  pacLocalTemplateBufferCache = buffer;
+  return pacLocalTemplateBufferCache;
+}
+
+function pacBuildDriveMultipartBody(metadata, mediaBuffer, mediaContentType) {
+  const boundary = `pac_boundary_${crypto.randomBytes(12).toString("hex")}`;
+  const delimiter = `--${boundary}\r\n`;
+  const separator = `\r\n--${boundary}\r\n`;
+  const closeDelimiter = `\r\n--${boundary}--\r\n`;
+
+  const metadataPart = Buffer.from(
+    `${delimiter}Content-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata || {})}`,
+    "utf8"
+  );
+  const mediaHeader = Buffer.from(
+    `${separator}Content-Type: ${mediaContentType || PAC_LOCAL_TEMPLATE_CONTENT_TYPE}\r\n\r\n`,
+    "utf8"
+  );
+  const closingPart = Buffer.from(closeDelimiter, "utf8");
+
+  return {
+    boundary,
+    body: Buffer.concat([metadataPart, mediaHeader, mediaBuffer || Buffer.alloc(0), closingPart]),
+  };
+}
+
+async function pacCreateSpreadsheetFromLocalTemplate(accessToken, outputTitle) {
+  const templateBuffer = pacReadLocalTemplateBuffer();
+  const safeOutputTitle =
+    pacNormalizeText(outputTitle || "") || pacBuildOutputSheetTitle("interinos_docx");
+  const metadata = {
+    name: safeOutputTitle,
+    mimeType: "application/vnd.google-apps.spreadsheet",
+  };
+  const multipart = pacBuildDriveMultipartBody(
+    metadata,
+    templateBuffer,
+    PAC_LOCAL_TEMPLATE_CONTENT_TYPE
+  );
+  const endpoint =
+    "https://www.googleapis.com/upload/drive/v3/files" +
+    "?uploadType=multipart&fields=id,name,webViewLink,mimeType";
+
+  const payload = await pacFetchJson(endpoint, accessToken, {
+    method: "POST",
+    headers: {
+      "Content-Type": `multipart/related; boundary=${multipart.boundary}`,
+    },
+    body: multipart.body,
+  }, "drive.uploadLocalTemplate");
+
+  const copiedId = pacNormalizeText(payload?.id || "");
+  if (!copiedId) {
+    throw new Error("No se pudo crear la planilla desde la plantilla local");
+  }
+
+  return {
+    id: copiedId,
+    name: pacNormalizeText(payload?.name || safeOutputTitle),
+    webViewLink: pacNormalizeText(payload?.webViewLink || ""),
+    source: "local_template_upload",
+    mimeType: pacNormalizeText(payload?.mimeType || ""),
+  };
+}
+
 async function pacExportSpreadsheetAsXlsx(accessToken, sheetId) {
   const endpoint =
     `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(sheetId)}` +
@@ -5101,9 +5212,6 @@ exports.savePacRowsToDrive = onCall(savePacRowsCallableOptions, async (request) 
   const accessToken = assertString(data.accessToken, "accessToken", 20, 10000);
   const sheetUrl = String(data.sheetUrl || "").trim();
   const templateSheetId = pacParseSheetId(sheetUrl);
-  if (!templateSheetId) {
-    throw new HttpsError("invalid-argument", "Invalid Google Sheet URL/ID");
-  }
 
   const rawRows = pacNormalizeRowsForWrite(data.rows || []);
   if (!rawRows.length) {
@@ -5187,7 +5295,32 @@ exports.savePacRowsToDrive = onCall(savePacRowsCallableOptions, async (request) 
   }
 
   try {
-    const copied = await pacCopySpreadsheetTemplate(accessToken, templateSheetId, outputTitle);
+    let copied = null;
+    let templateSource = "local_template";
+
+    if (templateSheetId) {
+      try {
+        copied = await pacCopySpreadsheetTemplate(accessToken, templateSheetId, outputTitle);
+        templateSource = "google_sheet_copy";
+      } catch (copyError) {
+        const metadata = pacBuildErrorMetadata(copyError);
+        const shouldFallbackToLocalTemplate =
+          Number(metadata.status || 0) === 404 ||
+          String(metadata.googleReason || "").toLowerCase() === "notfound";
+        if (!shouldFallbackToLocalTemplate) {
+          throw copyError;
+        }
+        logger.warn("savePacRowsToDrive template copy failed, falling back to local template", {
+          templateSheetId,
+          ...metadata,
+        });
+        copied = await pacCreateSpreadsheetFromLocalTemplate(accessToken, outputTitle);
+        templateSource = "local_template_fallback_notfound";
+      }
+    } else {
+      copied = await pacCreateSpreadsheetFromLocalTemplate(accessToken, outputTitle);
+    }
+
     let targetSheetName = "";
     let writeSummary = null;
     let encabezadoWriteSummary = null;
@@ -5220,6 +5353,7 @@ exports.savePacRowsToDrive = onCall(savePacRowsCallableOptions, async (request) 
               rowsReceived: rows.length,
               rowsWritten,
               fileName,
+              templateSource,
             },
           });
         } catch (metricError) {
@@ -5240,6 +5374,7 @@ exports.savePacRowsToDrive = onCall(savePacRowsCallableOptions, async (request) 
           fileBase64: xlsxBuffer.toString("base64"),
           writeSummary,
           encabezadoWriteSummary,
+          templateSource,
           diagnostics: {
             requiredScopes,
             grantedScopes,
@@ -5264,6 +5399,7 @@ exports.savePacRowsToDrive = onCall(savePacRowsCallableOptions, async (request) 
             rowsWritten,
             sheetId: copied.id,
             sheetName: targetSheetName,
+            templateSource,
           },
         });
       } catch (metricError) {
@@ -5286,6 +5422,7 @@ exports.savePacRowsToDrive = onCall(savePacRowsCallableOptions, async (request) 
         downloadXlsxUrl: `https://docs.google.com/spreadsheets/d/${copied.id}/export?format=xlsx`,
         writeSummary,
         encabezadoWriteSummary,
+        templateSource,
         diagnostics: {
           requiredScopes,
           grantedScopes,
