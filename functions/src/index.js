@@ -33,17 +33,10 @@ const GOOGLE_TEST_BYPASS_EMAILS = new Set([
   "eurontyrell.571112@gmail.com",
   "cens452altebrown@abc.gob.ar",
 ]);
-const PAC_DEMO_REVIEWER_EMAILS = new Set([
-  "ellariatyrell.341412@gmail.com",
-  "eurontyrell.571112@gmail.com",
-]);
 const ADMIN_ALLOWED_EMAIL = "artbenitezdev@gmail.com";
 const GOOGLE_TEST_BYPASS_TAG = "google_test_allowlist";
 const GOOGLE_TEST_BYPASS_EMAILS_CANONICAL = new Set(
   Array.from(GOOGLE_TEST_BYPASS_EMAILS).map((email) => normalizeEmailForAllowlist(email))
-);
-const PAC_DEMO_REVIEWER_EMAILS_CANONICAL = new Set(
-  Array.from(PAC_DEMO_REVIEWER_EMAILS).map((email) => normalizeEmailForAllowlist(email))
 );
 
 const MP_ACCESS_TOKEN = defineSecret("MP_ACCESS_TOKEN");
@@ -316,14 +309,6 @@ function isGoogleTestBypassEmail(value) {
     return false;
   }
   return GOOGLE_TEST_BYPASS_EMAILS_CANONICAL.has(normalized);
-}
-
-function isPacDemoReviewerEmail(value) {
-  const normalized = normalizeEmailForAllowlist(value);
-  if (!normalized) {
-    return false;
-  }
-  return PAC_DEMO_REVIEWER_EMAILS_CANONICAL.has(normalized);
 }
 
 function hasOwn(source, key) {
@@ -3116,87 +3101,6 @@ async function pacListMessages(accessToken, queryText, maxResults) {
   return Array.isArray(data.messages) ? data.messages : [];
 }
 
-function isPacDemoReviewer(userEmail) {
-  return isPacDemoReviewerEmail(userEmail);
-}
-
-function buildPacDemoEmails() {
-  return [
-    {
-      cupof: "45218",
-      cuil: "20123456789",
-      dni: "12345678",
-      fechaNacimiento: "15/03/1987",
-      apellidoNombre: "Gomez, Laura Ines",
-      situacionRevista: "T",
-      pid: "PID-000145",
-      cargoModulosHoras: "12",
-      curso: "1",
-      division: "A",
-      messageId: "demo-msg-001",
-      subject: "[DEMO] Designacion Lengua y Literatura 1A",
-      from: "direccion001@abc.gob.ar",
-      date: "Fri, 20 Mar 2026 09:18:00 -0300",
-      attachmentName: "designacion_laura_gomez.docx",
-      missingFields: [],
-    },
-    {
-      cupof: "45219",
-      cuil: "27234567890",
-      dni: "23456789",
-      fechaNacimiento: "02/11/1990",
-      apellidoNombre: "Perez, Mariana Sol",
-      situacionRevista: "TI",
-      pid: "PID-000322",
-      cargoModulosHoras: "8",
-      curso: "2",
-      division: "B",
-      messageId: "demo-msg-002",
-      subject: "[DEMO] Designacion Matematica 2B",
-      from: "direccion017@abc.gob.ar",
-      date: "Fri, 20 Mar 2026 10:06:00 -0300",
-      attachmentName: "designacion_mariana_perez.docx",
-      missingFields: [],
-    },
-    {
-      cupof: "45220",
-      cuil: "20345678901",
-      dni: "34567890",
-      fechaNacimiento: "28/07/1985",
-      apellidoNombre: "Benitez, Carlos Andres",
-      situacionRevista: "P",
-      pid: "PID-000487",
-      cargoModulosHoras: "10",
-      curso: "3",
-      division: "C",
-      messageId: "demo-msg-003",
-      subject: "[DEMO] Designacion Historia 3C",
-      from: "direccion023@abc.gob.ar",
-      date: "Fri, 20 Mar 2026 11:24:00 -0300",
-      attachmentName: "designacion_carlos_benitez.docx",
-      missingFields: [],
-    },
-    {
-      cupof: "45221",
-      cuil: "27456789012",
-      dni: "45678901",
-      fechaNacimiento: "09/01/1993",
-      apellidoNombre: "Lopez, Ana Victoria",
-      situacionRevista: "S",
-      pid: "PID-000581",
-      cargoModulosHoras: "6",
-      curso: "4",
-      division: "A",
-      messageId: "demo-msg-004",
-      subject: "[DEMO] Designacion Ingles 4A",
-      from: "direccion041@abc.gob.ar",
-      date: "Fri, 20 Mar 2026 12:02:00 -0300",
-      attachmentName: "designacion_ana_lopez.docx",
-      missingFields: [],
-    },
-  ];
-}
-
 async function fetchGmailEmails(accessToken, queryText, maxResults) {
   return pacListMessages(accessToken, queryText, maxResults);
 }
@@ -3206,16 +3110,6 @@ async function getEmails(userEmail, {
   gmailQuery = "",
   maxResults = 30,
 } = {}) {
-  const safeEmail = normalizeEmail(userEmail);
-  if (isPacDemoReviewer(safeEmail)) {
-    console.log("MODO DEMO ACTIVADO", safeEmail);
-    return {
-      demoMode: true,
-      demoEmails: buildPacDemoEmails(),
-      messages: [],
-    };
-  }
-
   const messages = await fetchGmailEmails(accessToken, gmailQuery, maxResults);
   return {
     demoMode: false,
