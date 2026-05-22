@@ -1,0 +1,105 @@
+CONTEXTO TECNICO UNIFICADO (workspace carpetaPanelDocente)
+Ultima actualizacion: 2026-05-21
+
+OBJETIVO
+- Este workspace contiene 3 repos separados que forman un solo sistema funcional.
+- Este archivo documenta limites tecnicos, contratos y reglas de cambio para evitar romper funciones o pisar trabajo entre componentes.
+
+MAPA DE COMPONENTES (3 REPOS)
+1) panelDocente
+- Rol: producto principal (web publica + backend Firebase + reglas Firestore).
+- Stack:
+  - Frontend estatico: HTML/CSS/JS en `frontend/`
+  - Backend: Firebase Functions v2 en `functions/src/index.js`
+  - Firestore rules/indexes en raiz del repo
+- Deploy:
+  - Firebase project: `horario-escuelas`
+  - Hosting `public`: `frontend`
+  - Functions runtime: `nodejs22`
+- Interfaces publicas clave:
+  - Callable: `registerUser`, `checkRegisterEmailStatus`, `startSubscriptionCheckout`, `getSubscriptionStatus`, `syncSubscriptionStatus`
+  - Callable PAC: `runPacProcess`, `savePacRowsToDrive`, `getProcessedPacList`, `getProcessedPacDetail`
+  - Callable configuracion PAC: `obtenerEncabezadoPac`, `actualizarEncabezadoPac`, `actuaizarEncabezadoPac` (alias legacy con typo), `obtenerConfiguracionPacExtraccion`, `actualizarConfiguracionPacExtraccion`
+  - Callable admin/sesion: `getAdminUsers`, `registerSession`, `health`, `mercadoPagoSetupStatus`
+  - HTTP: `mercadoPagoWebhook`
+  - HTTP: `ingestPacForwardedEmail` (entrypoint desde Cloudflare email worker)
+  - Task queue: `processMercadoPagoWebhookTask`
+- Contratos internos importantes:
+  - `frontend/js/*.js` consume callables por nombre exacto (no renombrar sin migracion coordinada).
+  - `frontend/js/pac.js` usa `actuaizarEncabezadoPac` (typo historico). Mantener alias hasta migrar frontend.
+  - `getProcessedPacList` / `getProcessedPacDetail` leen de `tenants/{tenantId}/datosExtraidos` y fallback legacy `tenant.datosExtraidos` array.
+  - `ingestPacForwardedEmail` escribe en:
+    - `tenants/{tenantId}/datosExtraidos` si resuelve tenant
+    - `emailsNoIdentificados` si no resuelve tenant
+
+2) paneldocente-email-worker
+- Rol: ingestion de emails reenviados (Cloudflare Email Worker).
+- Stack:
+  - Cloudflare Worker (module worker) en `src/index.js`
+  - Wrangler config en `wrangler.toml`
+- Deploy/ejecucion:
+  - Runtime Cloudflare Workers
+  - `compatibility_date = 2026-05-09`
+  - direccion objetivo: `procesarpac@paneldocente.com.ar`
+- Funcion:
+  - parsea email y adjuntos DOCX (postal-mime)
+  - extrae filas PAC (`rows`)
+  - envia JSON a Firebase webhook (`FIREBASE_WEBHOOK_URL`)
+- Seguridad y entrega:
+  - header token: `x-paneldocente-ingest-token` con secret `PAC_INGEST_TOKEN`
+  - retries: status 408/425/429/5xx, max 4 intentos, backoff + jitter
+- Contrato con panelDocente:
+  - el webhook debe apuntar a `ingestPacForwardedEmail`
+  - payload minimo estable: `from`, `to`, `subject`, `messageId`, `date`, `provider`, `source`, `rows`, `rowsCount`
+
+3) adminPanelDocente
+- Rol: panel de administracion separado (usuarios/auth + lectura de datos Firestore por uid).
+- Stack:
+  - Express server local en `server.js`
+  - Firebase Functions (codebase `adminpanel`) en `functions/index.js`
+  - Hosting estatico en `public/` (sirve `admin.html`)
+- Deploy:
+  - Firebase project: `horario-escuelas`
+  - Functions runtime: node 20 (en este repo)
+- Endpoints:
+  - `GET /api/admin/users`
+  - `PATCH /api/admin/users/:uid/disabled`
+  - `GET /health`
+- Seguridad:
+  - opcional `ADMIN_PANEL_KEY` por header `x-admin-key`
+- Nota:
+  - Este repo tiene logica admin parecida a partes de `panelDocente`, pero es un componente separado con su propio deploy.
+
+TOPOLOGIA RESUMIDA
+- Usuario final -> `panelDocente/frontend` -> Firebase Callable Functions (`panelDocente/functions`)
+- Mercado Pago -> `panelDocente/functions: mercadoPagoWebhook` -> task `processMercadoPagoWebhookTask`
+- Email reenviado a `procesarpac@paneldocente.com.ar` -> `paneldocente-email-worker` -> HTTP `panelDocente/functions: ingestPacForwardedEmail` -> Firestore (`tenants/*/datosExtraidos` o `emailsNoIdentificados`)
+- Admin operativo -> `adminPanelDocente` (UI y API admin separadas)
+
+FRONTERAS DE CAMBIO (PARA NO PISAR NI BORRAR)
+- Regla 1: tratar cada carpeta como repo independiente (cada una tiene su `.git`).
+- Regla 2: si la tarea es web principal/PAC/suscripciones, tocar primero `panelDocente`, no `adminPanelDocente`.
+- Regla 3: si la tarea es recepcion de correo, tocar `paneldocente-email-worker` y validar contrato con `ingestPacForwardedEmail`.
+- Regla 4: no renombrar callables/export publicos sin actualizar frontend y consumidores externos en el mismo cambio.
+- Regla 5: no eliminar alias legacy `actuaizarEncabezadoPac` hasta confirmar migracion completa del frontend.
+- Regla 6: no cambiar nombres de secretos/tokens en un repo sin alinear el otro:
+  - Worker envia `x-paneldocente-ingest-token` (secret `PAC_INGEST_TOKEN`)
+  - Firebase valida contra `PAC_EMAIL_INGEST_TOKEN`
+- Regla 7: evitar mezclar deploys: cambios en un repo no implican deploy automatico de los otros dos.
+
+CHECKLIST RAPIDO ANTES DE CUALQUIER CAMBIO
+1. Identificar que repo es owner de la funcionalidad.
+2. Verificar interfaz publica afectada (callable, endpoint, payload, secret, coleccion Firestore).
+3. Si hay cambio de contrato, actualizar consumidor y productor en el mismo PR/cambio.
+4. Confirmar que no se removio compatibilidad legacy requerida.
+5. Probar flujo principal del modulo tocado.
+
+ARCHIVOS CLAVE DE REFERENCIA
+- `panelDocente/firebase.json`
+- `panelDocente/functions/src/index.js`
+- `panelDocente/frontend/js/pac.js`
+- `panelDocente/frontend/js/pacProcessedService.js`
+- `paneldocente-email-worker/src/index.js`
+- `paneldocente-email-worker/wrangler.toml`
+- `adminPanelDocente/server.js`
+- `adminPanelDocente/functions/index.js`
