@@ -35,6 +35,7 @@ const GOOGLE_TEST_BYPASS_EMAILS = new Set([
 ]);
 const ADMIN_ALLOWED_EMAIL = "artbenitezdev@gmail.com";
 const GOOGLE_TEST_BYPASS_TAG = "google_test_allowlist";
+const ADMIN_WHITELIST_TAG = "admin_whitelist";
 const GOOGLE_TEST_BYPASS_EMAILS_CANONICAL = new Set(
   Array.from(GOOGLE_TEST_BYPASS_EMAILS).map((email) => normalizeEmailForAllowlist(email))
 );
@@ -379,6 +380,23 @@ function profileOnboardingFlag(profile, key) {
 
 function profileOnboardingTenantProvisionedAt(profile) {
   return readProfileValue(profile, "onboarding", "tenantProvisionedAt") || null;
+}
+
+function profileAdminWhitelistEnabled(profile) {
+  if (!profile || typeof profile !== "object") {
+    return false;
+  }
+
+  const testingEnabled = readProfileValue(profile, "testing", "adminWhitelistEnabled") === true;
+  const testingTag = String(readProfileValue(profile, "testing", "adminWhitelistTag") || "").trim().toLowerCase();
+  const billingBypassEnabled = readProfileValue(profile, "billing", "bypassEnabled") === true;
+  const billingBypassTag = String(readProfileValue(profile, "billing", "bypassTag") || "").trim().toLowerCase();
+
+  if (testingEnabled && (!testingTag || testingTag === ADMIN_WHITELIST_TAG)) {
+    return true;
+  }
+
+  return billingBypassEnabled && billingBypassTag === ADMIN_WHITELIST_TAG;
 }
 
 function hasNestedProfileMap(profile, key) {
@@ -2369,6 +2387,16 @@ exports.startSubscriptionCheckout = onCall(
     }
 
     const userData = userSnap.data() || {};
+    if (profileAdminWhitelistEnabled(userData)) {
+      return {
+        ok: true,
+        bypassCheckout: true,
+        bypassTag: ADMIN_WHITELIST_TAG,
+        initPoint: `${primaryAppOrigin}/pac.html`,
+        nextRoute: "/pac.html",
+      };
+    }
+
     const payerEmail = normalizeEmail(authToken.email || userData.correo || "");
     if (!payerEmail || !payerEmail.includes("@")) {
       throw new HttpsError("failed-precondition", "User email is required to start checkout");
@@ -2616,6 +2644,21 @@ exports.syncSubscriptionStatus = onCall(
     }
 
     const userData = userSnap.data() || {};
+    if (profileAdminWhitelistEnabled(userData)) {
+      return {
+        ok: true,
+        bypassSync: true,
+        bypassTag: ADMIN_WHITELIST_TAG,
+        preapprovalId: profileBillingMpPreapprovalId(userData) || null,
+        billingStatus: profileBillingStatusRaw(userData),
+        appEnabled: profileAccessAppEnabled(userData),
+        reason: profileAccessReason(userData, "payment_required"),
+        planCode: profileBillingPlanCode(userData),
+        tenantId: profileTenantId(userData),
+        nextRoute: resolveNextRouteForProfile(userData),
+      };
+    }
+
     if (bypassResult.applied) {
       return {
         ok: true,
