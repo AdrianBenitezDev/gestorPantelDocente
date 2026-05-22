@@ -1,0 +1,77 @@
+﻿FLUJO DE PAGO MERCADO PAGO - PANELDOCENTE
+Fecha: 2026-05-22
+Proyecto Firebase: horario-escuelas
+
+============================================================
+1) FLUJO ESPERADO (END TO END)
+============================================================
+1. El frontend llama a startSubscriptionCheckout.
+2. El backend crea un documento en billingAttempts con estado pending_checkout.
+3. El backend crea la suscripcion en Mercado Pago (/preapproval).
+4. Mercado Pago devuelve mpPreapprovalId + initPoint y el frontend redirige al checkout.
+5. Cuando el usuario paga/autoriza, Mercado Pago envia webhook a mercadoPagoWebhook.
+6. mercadoPagoWebhook valida firma, registra billingEvents y encola processMercadoPagoWebhookTask.
+7. processMercadoPagoWebhookTask consulta /preapproval/{id} en Mercado Pago.
+8. Si el status de MP es authorized, el backend actualiza:
+   - usuarios/{uid}.billing.status = active
+   - usuarios/{uid}.access.appEnabled = true
+   - billingAttempts / billingPreapprovals con estado y trazabilidad
+
+============================================================
+2) ERROR DETECTADO (CAUSA RAIZ)
+============================================================
+Error principal en backend:
+- La creacion de preapproval NO enviaba notification_url.
+
+Consecuencia:
+- Mercado Pago no tenia una URL de callback por suscripcion para notificar cambios de estado.
+- Los billingAttempts quedaban en pending_checkout y nunca se actualizaban por webhook.
+
+Evidencia observada:
+- billingAttempts recientes en pending_checkout con lastWebhookAt = null.
+- billingEvents recientes solo con invalid_signature:signature_fields_missing,
+  pero provenientes de requests vacios (GET/favicon, no webhook real de MP).
+
+Nota tecnica importante:
+- El plan actual billingPlans/plan_pro tiene mpPreapprovalPlanId vacio,
+  por lo que se usa auto_recurring y la notification_url debe enviarse en el payload.
+
+============================================================
+3) CAMBIO APLICADO (SOLUCION)
+============================================================
+Archivo modificado:
+- functions/src/index.js
+
+Cambios realizados:
+1. Se agrego buildMercadoPagoWebhookNotificationUrl() para construir la URL del webhook:
+   https://{region}-{project}.cloudfunctions.net/mercadoPagoWebhook?source_news=webhooks
+
+2. Se agrego notification_url al payload de create preapproval:
+   payload.notification_url = <url webhook>
+
+3. Se guarda notificationUrl en billingAttempts para trazabilidad operativa.
+
+============================================================
+4) SI EL PROBLEMA QUEDO SOLUCIONADO
+============================================================
+Estado:
+- SOLUCIONADO A NIVEL CODIGO para nuevos checkouts creados despues del cambio.
+
+Aclaracion:
+- Los intentos viejos creados antes del fix pueden seguir en pending_checkout
+  si nunca recibieron webhook. En esos casos se puede:
+  a) usar syncSubscriptionStatus desde estado-suscripcion, o
+  b) iniciar un nuevo checkout (que ya incluye notification_url).
+
+============================================================
+5) COMO VALIDAR EN PRODUCCION
+============================================================
+1. Crear un checkout nuevo.
+2. Completar pago/autorizar en Mercado Pago.
+3. Verificar en Firestore:
+   - billingEvents con status enqueued/processed
+   - billingAttempts.lastWebhookAt con timestamp
+   - usuarios/{uid}.billing.status = active
+4. Verificar acceso habilitado a /pac.html.
+
+FIN

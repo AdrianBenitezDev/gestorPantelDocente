@@ -33,3 +33,4 @@ build/
 # Local temp and sensitive snippets
 firebase_config_temp.txt
 functions/.secret.local
+.gcloud-temp/

@@ -50,6 +50,8 @@ const MP_ACCESS_TOKEN = defineSecret("MP_ACCESS_TOKEN");
 const MP_WEBHOOK_SECRET = defineSecret("MP_WEBHOOK_SECRET");
 const MP_PUBLIC_KEY = defineSecret("MP_PUBLIC_KEY");
 const MP_WEBHOOK_TASK_QUEUE_NAME = "processMercadoPagoWebhookTask";
+const DEFAULT_FUNCTION_REGION = "us-central1";
+const DEFAULT_PROJECT_ID = "horario-escuelas";
 const PAC_FORWARD_DESTINATION_EMAIL = "procesarpac@paneldocente.com.ar";
 const PAC_PROCESSED_DEFAULT_LIMIT = 40;
 const PAC_PROCESSED_MAX_LIMIT = 120;
@@ -82,6 +84,18 @@ function normalizeEmailForAllowlist(value) {
 
 function normalizeUsername(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function buildMercadoPagoWebhookNotificationUrl() {
+  const projectId = String(process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || DEFAULT_PROJECT_ID).trim() ||
+    DEFAULT_PROJECT_ID;
+  const region = String(process.env.FUNCTION_REGION || DEFAULT_FUNCTION_REGION).trim() ||
+    DEFAULT_FUNCTION_REGION;
+  const baseUrl = `https://${region}-${projectId}.cloudfunctions.net/mercadoPagoWebhook`;
+  const url = new URL(baseUrl);
+  // Fuerza el canal Webhooks y evita depender del flujo IPN legacy.
+  url.searchParams.set("source_news", "webhooks");
+  return url.toString();
 }
 
 function normalizeCourse(value) {
@@ -587,6 +601,7 @@ async function createMercadoPagoPreapproval({
   const safePlanCode = normalizePlanCode(planCode || safePlan.code || "plan_pro");
   const safeExternalReference = shortText(externalReference, 120);
   const preapprovalPlanId = shortText(safePlan.mpPreapprovalPlanId, 120);
+  const notificationUrl = shortText(buildMercadoPagoWebhookNotificationUrl(), 500);
 
   const payload = {
     reason: shortText("suscripci\u00f3n a paneldocente.com.ar", 120),
@@ -594,6 +609,7 @@ async function createMercadoPagoPreapproval({
     external_reference: safeExternalReference,
     status: "pending",
     back_url: `${primaryAppOrigin}/estado-suscripcion.html`,
+    notification_url: notificationUrl,
   };
 
   if (preapprovalPlanId) {
@@ -656,6 +672,7 @@ async function createMercadoPagoPreapproval({
   return {
     mpPreapprovalId,
     initPoint,
+    notificationUrl,
     raw: parsedBody,
   };
 }
@@ -2447,6 +2464,7 @@ exports.startSubscriptionCheckout = onCall(
 
     const mpPreapprovalId = String(preapproval?.mpPreapprovalId || "").trim();
     const initPoint = String(preapproval?.initPoint || "").trim();
+    const notificationUrl = String(preapproval?.notificationUrl || "").trim() || null;
 
     const finalizeBatch = db.batch();
     finalizeBatch.set(
@@ -2455,6 +2473,7 @@ exports.startSubscriptionCheckout = onCall(
         status: "pending_checkout",
         mpPreapprovalId,
         initPoint,
+        notificationUrl,
         lastStatusDetail: "checkout_initialized",
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       },
