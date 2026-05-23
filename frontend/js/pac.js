@@ -2003,19 +2003,20 @@ async function processSelectedRows(delivery = "drive") {
 
   const selectedRows = getSelectedRows();
   if (!selectedRows.length) {
-    setMsg(runMsg, "Selecciona al menos una fila antes de guardar en Drive", true);
+    setMsg(runMsg, "Selecciona al menos una fila antes de guardar o descargar.", true);
     return null;
   }
+  const isDownload = delivery === "download";
 
   const sheetConfig = getSheetConfigFromUi();
   const sheetUrl = String(sheetConfig.sheetUrl || "").trim();
-  if (!sheetUrl) {
+  if (!isDownload && !sheetUrl) {
     setMsg(runMsg, "Debes completar la URL de plantilla", true);
     return null;
   }
 
   const saveRequiredScopes = getSaveRequiredScopes();
-  if (!hasAllGrantedScopes(saveRequiredScopes)) {
+  if (!isDownload && !hasAllGrantedScopes(saveRequiredScopes)) {
     const authorized = await signInAndAuthorizeGoogleScopes({
       scopes: saveRequiredScopes,
       authContext: "save-to-drive",
@@ -2036,10 +2037,9 @@ async function processSelectedRows(delivery = "drive") {
   if (floatDownloadBtn) {
     setBusy(floatDownloadBtn, true);
   }
-  const isDownload = delivery === "download";
   setMsg(runMsg, isDownload ? "Generando archivo para descarga..." : "Guardando archivo en Drive...");
 
-  if (!state.accessToken) {
+  if (!isDownload && !state.accessToken) {
     const authorized = await signInAndAuthorizeGoogleScopes({
       scopes: getSaveRequiredScopes(),
       authContext: "save-to-drive",
@@ -2071,7 +2071,7 @@ async function processSelectedRows(delivery = "drive") {
       response = await invokeCallable();
     } catch (error) {
       const missingScopes = getMissingScopesFromError(error);
-      if (!missingScopes.length) {
+      if (!missingScopes.length || isDownload) {
         throw error;
       }
       const reauthorized = await signInAndAuthorizeGoogleScopes({

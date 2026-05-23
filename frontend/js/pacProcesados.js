@@ -628,6 +628,7 @@ async function processSelectedRows(delivery = "drive") {
   if (state.busySaving) {
     return;
   }
+  const isDownload = delivery === "download";
   const selectedRows = getSelectedRows();
   if (!selectedRows.length) {
     setMsg(rowsMsgEl, "Selecciona al menos una fila.", true);
@@ -635,7 +636,7 @@ async function processSelectedRows(delivery = "drive") {
     return;
   }
   const saveRequiredScopes = [GOOGLE_SCOPE_SHEETS, GOOGLE_SCOPE_DRIVE_FILE];
-  if (!hasAllGrantedScopes(saveRequiredScopes) || !state.accessToken) {
+  if (!isDownload && (!hasAllGrantedScopes(saveRequiredScopes) || !state.accessToken)) {
     const authorized = await signInAndAuthorizeGoogleScopes(
       saveRequiredScopes,
       "Permisos de Sheets/Drive autorizados.",
@@ -647,7 +648,7 @@ async function processSelectedRows(delivery = "drive") {
   }
 
   setSavingBusy(true);
-  setMsg(rowsMsgEl, delivery === "download" ? "Generando archivo..." : "Creando PAC en Drive...");
+  setMsg(rowsMsgEl, isDownload ? "Generando archivo..." : "Creando PAC en Drive...");
   setGeneratedFileButton("");
   try {
     const callable = httpsCallable(functions, "savePacRowsToDrive");
@@ -657,7 +658,7 @@ async function processSelectedRows(delivery = "drive") {
       sheetUrl: "",
       sheetName: "",
       startRow: PAC_DEFAULT_START_ROW,
-      accessToken: state.accessToken,
+      accessToken: isDownload ? "" : state.accessToken,
       outputTitle: "",
       rows: selectedRows.map(buildSaveRowPayload),
       delivery: String(delivery || "drive"),
@@ -668,7 +669,7 @@ async function processSelectedRows(delivery = "drive") {
       response = await callable(payload);
     } catch (error) {
       const missingScopes = getMissingScopesFromError(error);
-      if (!missingScopes.length) {
+      if (!missingScopes.length || isDownload) {
         throw error;
       }
       const reauthorized = await signInAndAuthorizeGoogleScopes(

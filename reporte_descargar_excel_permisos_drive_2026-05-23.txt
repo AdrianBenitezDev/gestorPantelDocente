@@ -1,0 +1,81 @@
+﻿REPORTE TECNICO - MITIGACION 3 APLICADA
+Fecha: 2026-05-23
+Proyecto: panelDocente
+
+OBJETIVO
+Eliminar la solicitud de permisos de Google Drive en el boton "Descargar Excel"
+implementando una descarga local real desde plantilla base.
+
+CAUSA RAIZ (CONFIRMADA)
+El flujo anterior de descarga creaba una hoja temporal en Drive, escribia datos por
+Sheets API, exportaba XLSX por Drive API y luego eliminaba el archivo temporal.
+Por eso se solicitaban scopes de Drive/Sheets.
+
+MITIGACION APLICADA (UNICA)
+Mitigacion 3: descarga local real sin Drive para `delivery = "download"`.
+
+CAMBIOS IMPLEMENTADOS
+
+1) Backend (Cloud Functions)
+Archivo:
+- panelDocente/functions/src/index.js
+
+Cambios:
+- Se agrego generacion de XLSX local con `exceljs` sobre la plantilla base local:
+  - `pacGenerateDownloadWorkbookFromLocalTemplate(...)`
+  - lectura de plantilla: `functions/assets/plantilla.xlsx`
+  - escritura de encabezado PAC en celdas objetivo
+  - escritura de filas PAC en la hoja
+  - devolucion de `fileBase64` + `fileMimeType` para descarga directa
+- Se separo el flujo de `savePacRowsToDrive`:
+  - `delivery = "download"`: NO requiere `accessToken`, NO valida scopes,
+    NO usa Drive API, NO usa Sheets API.
+  - `delivery = "drive"`: conserva el flujo existente con permisos de Drive/Sheets.
+- Se retiro la dependencia de exportacion temporal por Drive para la descarga.
+
+2) Frontend PAC procesados
+Archivo:
+- panelDocente/frontend/js/pacProcesados.js
+
+Cambios:
+- `Descargar Excel` ya no solicita autorizacion de scopes Drive/Sheets.
+- Para `download`, el payload envia `accessToken` vacio.
+- Para `drive`, se mantiene autorizacion y flujo anterior.
+
+3) Frontend PAC preview
+Archivo:
+- panelDocente/frontend/js/pacPreview.js
+
+Cambios:
+- `downloadWorkbook()` ya no solicita scopes Drive/Sheets.
+- La descarga invoca directamente el callable y baja el archivo recibido.
+
+4) Frontend PAC principal
+Archivo:
+- panelDocente/frontend/js/pac.js
+
+Cambios:
+- En `processSelectedRows("download")`:
+  - no exige URL de plantilla,
+  - no solicita scopes de Drive/Sheets,
+  - no exige `accessToken` para descargar.
+- En `processSelectedRows("drive")` se mantiene el comportamiento actual.
+
+5) Dependencia agregada
+Archivo:
+- panelDocente/functions/package.json
+
+Cambio:
+- Se agrego `exceljs` para manipular la plantilla XLSX local.
+
+VALIDACION TECNICA REALIZADA
+- Verificacion de sintaxis backend: `node --check src/index.js` (ok).
+- Instalacion de dependencia en functions: `exceljs` (ok).
+
+RESULTADO ESPERADO EN UX
+- Boton "Descargar Excel": descarga directa al dispositivo sin popup de permisos de Drive.
+- Boton "Crear PAC en Drive": sigue solicitando permisos de Drive/Sheets como corresponde.
+
+NOTAS
+- La plantilla base usada por backend es `functions/assets/plantilla.xlsx`.
+- En el repositorio existe tambien `frontend/pac/plantilla.xlsx` y actualmente coincide en hash.

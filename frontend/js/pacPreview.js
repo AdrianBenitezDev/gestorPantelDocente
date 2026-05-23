@@ -385,56 +385,13 @@ async function downloadWorkbook() {
     setMsg("No hay datos suficientes para descargar", true);
     return;
   }
-  if (!hasAllGrantedScopes([GOOGLE_SCOPE_SHEETS, GOOGLE_SCOPE_DRIVE_FILE])) {
-    const authorizedSaveScopes = await signInAndAuthorizeGoogleScopes({
-      scopes: [GOOGLE_SCOPE_SHEETS, GOOGLE_SCOPE_DRIVE_FILE],
-      successMessage: "Permisos de Sheets/Drive autorizados. Continuando descarga...",
-      errorMessage: "No se pudieron autorizar permisos para descargar.",
-    });
-    if (!authorizedSaveScopes) {
-      return;
-    }
-    payload = buildSavePayload();
-    payload.delivery = "download";
-  }
-  if (!payload.accessToken) {
-    const authorized = await signInAndAuthorizeGoogleScopes({
-      scopes: [GOOGLE_SCOPE_SHEETS, GOOGLE_SCOPE_DRIVE_FILE],
-      successMessage: "Permisos de Sheets/Drive autorizados. Continuando descarga...",
-      errorMessage: "No se pudieron autorizar permisos para descargar.",
-    });
-    if (!authorized) {
-      return;
-    }
-    payload = buildSavePayload();
-    payload.delivery = "download";
-  }
 
   setBusy(true);
   setDriveResultButton("");
   setMsg("Generando archivo para descarga...");
   try {
     const callable = httpsCallable(functions, "savePacRowsToDrive");
-    let response;
-    try {
-      response = await callable(payload);
-    } catch (error) {
-      const missingScopes = getMissingScopesFromError(error);
-      if (!missingScopes.length) {
-        throw error;
-      }
-      const reauthorized = await signInAndAuthorizeGoogleScopes({
-        scopes: missingScopes,
-        successMessage: "Permisos adicionales autorizados. Reintentando descarga...",
-        errorMessage: "No se pudieron autorizar permisos adicionales para descargar.",
-      });
-      if (!reauthorized) {
-        throw error;
-      }
-      payload = buildSavePayload();
-      payload.delivery = "download";
-      response = await callable(payload);
-    }
+    const response = await callable(payload);
     const result = response.data || {};
     const fileBase64 = String(result.fileBase64 || "");
     if (!fileBase64) {

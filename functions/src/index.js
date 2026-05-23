@@ -4,6 +4,7 @@ const { defineSecret } = require("firebase-functions/params");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 const { getFunctions } = require("firebase-admin/functions");
+const ExcelJS = require("exceljs");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
@@ -4548,16 +4549,181 @@ async function pacCreateSpreadsheetFromLocalTemplate(accessToken, outputTitle) {
   };
 }
 
-async function pacExportSpreadsheetAsXlsx(accessToken, sheetId) {
-  const endpoint =
-    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(sheetId)}` +
-    "/export?mimeType=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-  return pacFetchBuffer(endpoint, accessToken, {}, "drive.exportXlsx");
+function pacExcelCellValueToText(value) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+  if (value instanceof Date) {
+    const millis = value.getTime();
+    return Number.isFinite(millis) ? value.toISOString() : "";
+  }
+  if (typeof value === "object") {
+    if (Array.isArray(value.richText)) {
+      return value.richText.map((part) => String(part?.text || "")).join("");
+    }
+    if (Object.prototype.hasOwnProperty.call(value, "text")) {
+      return String(value.text || "");
+    }
+    if (Object.prototype.hasOwnProperty.call(value, "result") && value.result !== undefined && value.result !== null) {
+      return String(value.result);
+    }
+    if (Object.prototype.hasOwnProperty.call(value, "formula")) {
+      return String(value.formula || "");
+    }
+    if (Object.prototype.hasOwnProperty.call(value, "hyperlink")) {
+      const textValue = String(value.text || "").trim();
+      return textValue || String(value.hyperlink || "");
+    }
+  }
+  return String(value);
 }
 
-async function pacDeleteDriveFile(accessToken, fileId) {
-  const endpoint = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}`;
-  await pacFetchBuffer(endpoint, accessToken, { method: "DELETE" }, "drive.deleteFile");
+function pacReadTemplateHeaderRowsFromWorksheet(worksheet) {
+  const safeColumnCount = Math.max(Number(worksheet?.columnCount || 0), 14, 45);
+  const rows = [];
+  for (let rowNumber = 11; rowNumber <= 13; rowNumber += 1) {
+    const row = worksheet.getRow(rowNumber);
+    const values = [];
+    for (let col = 1; col <= safeColumnCount; col += 1) {
+      values.push(pacExcelCellValueToText(row.getCell(col).value));
+    }
+    rows.push(values);
+  }
+  return rows;
+}
+
+function pacResolveLocalTemplateWorksheet(workbook, requestedSheetName) {
+  const sheets = Array.isArray(workbook?.worksheets) ? workbook.worksheets : [];
+  if (!sheets.length) {
+    throw new Error("La plantilla local no contiene hojas");
+  }
+
+  const explicitName = pacNormalizeText(requestedSheetName || "");
+  if (!explicitName) {
+    return sheets[0];
+  }
+
+  const exactSheet = workbook.getWorksheet(explicitName);
+  if (exactSheet) {
+    return exactSheet;
+  }
+
+  const comparableTarget = pacNormalizeComparable(explicitName);
+  const comparableMatch = sheets.find((sheet) =>
+    pacNormalizeComparable(String(sheet?.name || "")) === comparableTarget
+  );
+  if (comparableMatch) {
+    return comparableMatch;
+  }
+
+  // Fallback conservador: si el nombre no existe en plantilla local, se usa la primera hoja.
+  return sheets[0];
+}
+
+function pacFindFirstInsertRowInWorksheet(worksheet, startRow) {
+  const safeStartRow = Math.max(1, Number(startRow) || 14);
+  const safeMaxScanRow = Math.max(
+    safeStartRow + 2000,
+    Math.min(safeStartRow + 10000, Number(worksheet?.actualRowCount || 0) + 2000)
+  );
+
+  for (let rowNumber = safeStartRow; rowNumber <= safeMaxScanRow; rowNumber += 1) {
+    const firstCell = pacNormalizeText(pacExcelCellValueToText(worksheet.getCell(`A${rowNumber}`).value));
+    if (!firstCell) {
+      return rowNumber;
+    }
+  }
+  return safeMaxScanRow + 1;
+}
+
+function pacWriteEncabezadoToWorksheet(worksheet, encabezadoPac) {
+  const updates = pacBuildEncabezadoCellUpdates(worksheet.name, encabezadoPac);
+  if (!updates.length) {
+    return { cellsUpdated: 0 };
+  }
+
+  let applied = 0;
+  updates.forEach((update) => {
+    const rangeText = String(update?.range || "");
+    const match = rangeText.match(/!([A-Z]+[0-9]+)$/i);
+    if (!match) {
+      return;
+    }
+    const cellRef = String(match[1] || "").toUpperCase();
+    const value = update?.values?.[0]?.[0];
+    worksheet.getCell(cellRef).value = pacNormalizeText(value ?? "");
+    applied += 1;
+  });
+
+  return { cellsUpdated: applied };
+}
+
+function pacWriteRowsToWorksheet(worksheet, startRow, rows) {
+  const headerRows = pacReadTemplateHeaderRowsFromWorksheet(worksheet);
+  const fieldMap = pacBuildFieldMapFromHeaders(headerRows);
+  const values = pacBuildSheetValues(rows, fieldMap);
+
+  if (!values.length) {
+    const fallbackRow = Math.max(1, Number(startRow) || 14);
+    return {
+      rowsWritten: 0,
+      range: "",
+      startRow: fallbackRow,
+      endRow: fallbackRow,
+      fieldMap,
+    };
+  }
+
+  const insertRow = pacFindFirstInsertRowInWorksheet(worksheet, startRow);
+  values.forEach((line, index) => {
+    const rowNumber = insertRow + index;
+    const row = worksheet.getRow(rowNumber);
+    for (let colIndex = 0; colIndex < line.length; colIndex += 1) {
+      row.getCell(colIndex + 1).value = String(line[colIndex] ?? "");
+    }
+  });
+
+  const endRow = insertRow + values.length - 1;
+  const endCol = pacColumnIndexToLetter(values[0].length - 1);
+  const escapedSheet = pacEscapeSheetName(worksheet.name);
+  const range = `'${escapedSheet}'!A${insertRow}:${endCol}${endRow}`;
+
+  return {
+    rowsWritten: values.length,
+    range,
+    startRow: insertRow,
+    endRow,
+    fieldMap,
+  };
+}
+
+async function pacGenerateDownloadWorkbookFromLocalTemplate({
+  requestedSheetName = "",
+  startRow = 14,
+  rows = [],
+  encabezadoPac = {},
+} = {}) {
+  const templateBuffer = pacReadLocalTemplateBuffer();
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(Buffer.from(templateBuffer));
+
+  const targetSheet = pacResolveLocalTemplateWorksheet(workbook, requestedSheetName);
+  if (!targetSheet || !targetSheet.name) {
+    throw new Error("No se pudo resolver la hoja destino de la plantilla local");
+  }
+
+  const encabezadoWriteSummary = pacWriteEncabezadoToWorksheet(targetSheet, encabezadoPac);
+  const writeSummary = pacWriteRowsToWorksheet(targetSheet, startRow, rows);
+  const rawXlsxBuffer = await workbook.xlsx.writeBuffer();
+  const xlsxBuffer = Buffer.isBuffer(rawXlsxBuffer) ? rawXlsxBuffer : Buffer.from(rawXlsxBuffer);
+
+  return {
+    xlsxBuffer,
+    targetSheetName: String(targetSheet.name || ""),
+    writeSummary,
+    encabezadoWriteSummary,
+    templateSource: "local_template_direct",
+  };
 }
 
 const updatePacEncabezadoCallable = onCall(callableOptions, async (request) => {
@@ -5165,7 +5331,6 @@ exports.savePacRowsToDrive = onCall(savePacRowsCallableOptions, async (request) 
   const tenantId = await getUserTenantId(uid);
   const authEmail = normalizeEmail(request.auth.token?.email || "");
   const data = request.data || {};
-  const accessToken = assertString(data.accessToken, "accessToken", 20, 10000);
   const sheetUrl = String(data.sheetUrl || "").trim();
   const templateSheetId = pacParseSheetId(sheetUrl);
 
@@ -5217,6 +5382,87 @@ exports.savePacRowsToDrive = onCall(savePacRowsCallableOptions, async (request) 
   const outputTitle =
     pacNormalizeText(data.outputTitle || "") ||
     pacBuildOutputSheetTitle(mode === "designacion_body" ? "designacion_body" : "interinos_docx");
+
+  if (delivery === "download") {
+    try {
+      const localResult = await pacGenerateDownloadWorkbookFromLocalTemplate({
+        requestedSheetName,
+        startRow,
+        rows,
+        encabezadoPac,
+      });
+      const rowsWritten = Number(localResult?.writeSummary?.rowsWritten || 0);
+      const cleanTitle = pacNormalizeText(outputTitle || "PAC");
+      const fileName = `${cleanTitle || "PAC"}.xlsx`;
+      try {
+        await registerTenantMetricEvent({
+          tenantId,
+          uid,
+          email: authEmail,
+          eventType: "pac_descargado",
+          source: "pac",
+          metadata: {
+            delivery,
+            mode,
+            rowsReceived: rows.length,
+            rowsWritten,
+            fileName,
+            templateSource: localResult.templateSource,
+          },
+        });
+      } catch (metricError) {
+        logger.warn("savePacRowsToDrive metric event failed", {
+          tenantId,
+          uid,
+          eventType: "pac_descargado",
+          message: shortText(metricError?.message || "metric_write_failed", 280),
+        });
+      }
+      return {
+        ok: true,
+        delivery,
+        rowsReceived: rows.length,
+        rowsWritten,
+        fileName,
+        fileMimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        fileBase64: localResult.xlsxBuffer.toString("base64"),
+        sheetName: localResult.targetSheetName,
+        writeSummary: localResult.writeSummary,
+        encabezadoWriteSummary: localResult.encabezadoWriteSummary,
+        templateSource: localResult.templateSource,
+        diagnostics: {
+          requiredScopes: [],
+          grantedScopes: [],
+          missingScopes: [],
+          tokenAudience: "",
+          tokenEmail: "",
+        },
+      };
+    } catch (error) {
+      const errorMetadata = pacBuildErrorMetadata(error);
+      logger.error("savePacRowsToDrive local download error", {
+        requestedSheetName,
+        startRow,
+        rowsCount: rows.length,
+        delivery,
+        ...errorMetadata,
+      });
+      throw new HttpsError(
+        "failed-precondition",
+        `No se pudo generar el archivo PAC para descarga: ${error.message || "sin detalle"}`,
+        {
+          errorType: "save_pac_local_download_failed",
+          requestedSheetName,
+          startRow,
+          rowsCount: rows.length,
+          delivery,
+          ...errorMetadata,
+        }
+      );
+    }
+  }
+
+  const accessToken = assertString(data.accessToken, "accessToken", 20, 10000);
 
   const requiredScopes = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -5277,128 +5523,63 @@ exports.savePacRowsToDrive = onCall(savePacRowsCallableOptions, async (request) 
       copied = await pacCreateSpreadsheetFromLocalTemplate(accessToken, outputTitle);
     }
 
-    let targetSheetName = "";
-    let writeSummary = null;
-    let encabezadoWriteSummary = null;
-    try {
-      targetSheetName = await pacResolveSheetName(accessToken, copied.id, requestedSheetName);
-      encabezadoWriteSummary = await pacWriteEncabezadoToSheet(
-        accessToken,
-        copied.id,
-        targetSheetName,
-        encabezadoPac
-      );
-      writeSummary = await pacWriteRowsToSheet(accessToken, copied.id, targetSheetName, startRow, rows);
-      const outputSheetUrl = `https://docs.google.com/spreadsheets/d/${copied.id}/edit`;
-      const rowsWritten = Number(writeSummary?.rowsWritten || 0);
+    const targetSheetName = await pacResolveSheetName(accessToken, copied.id, requestedSheetName);
+    const encabezadoWriteSummary = await pacWriteEncabezadoToSheet(
+      accessToken,
+      copied.id,
+      targetSheetName,
+      encabezadoPac
+    );
+    const writeSummary = await pacWriteRowsToSheet(accessToken, copied.id, targetSheetName, startRow, rows);
+    const outputSheetUrl = `https://docs.google.com/spreadsheets/d/${copied.id}/edit`;
+    const rowsWritten = Number(writeSummary?.rowsWritten || 0);
 
-      if (delivery === "download") {
-        const xlsxBuffer = await pacExportSpreadsheetAsXlsx(accessToken, copied.id);
-        const cleanTitle = pacNormalizeText(copied.name || outputTitle || "PAC");
-        const fileName = `${cleanTitle || "PAC"}.xlsx`;
-        try {
-          await registerTenantMetricEvent({
-            tenantId,
-            uid,
-            email: authEmail,
-            eventType: "pac_descargado",
-            source: "pac",
-            metadata: {
-              delivery,
-              mode,
-              rowsReceived: rows.length,
-              rowsWritten,
-              fileName,
-              templateSource,
-            },
-          });
-        } catch (metricError) {
-          logger.warn("savePacRowsToDrive metric event failed", {
-            tenantId,
-            uid,
-            eventType: "pac_descargado",
-            message: shortText(metricError?.message || "metric_write_failed", 280),
-          });
-        }
-        return {
-          ok: true,
+    try {
+      await registerTenantMetricEvent({
+        tenantId,
+        uid,
+        email: authEmail,
+        eventType: "pac_guardado_drive",
+        source: "pac",
+        metadata: {
           delivery,
+          mode,
           rowsReceived: rows.length,
           rowsWritten,
-          fileName,
-          fileMimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-          fileBase64: xlsxBuffer.toString("base64"),
-          writeSummary,
-          encabezadoWriteSummary,
+          sheetId: copied.id,
+          sheetName: targetSheetName,
           templateSource,
-          diagnostics: {
-            requiredScopes,
-            grantedScopes,
-            missingScopes,
-            tokenAudience: tokenInfo?.audience || "",
-            tokenEmail: tokenInfo?.email || "",
-          },
-        };
-      }
-
-      try {
-        await registerTenantMetricEvent({
-          tenantId,
-          uid,
-          email: authEmail,
-          eventType: "pac_guardado_drive",
-          source: "pac",
-          metadata: {
-            delivery,
-            mode,
-            rowsReceived: rows.length,
-            rowsWritten,
-            sheetId: copied.id,
-            sheetName: targetSheetName,
-            templateSource,
-          },
-        });
-      } catch (metricError) {
-        logger.warn("savePacRowsToDrive metric event failed", {
-          tenantId,
-          uid,
-          eventType: "pac_guardado_drive",
-          message: shortText(metricError?.message || "metric_write_failed", 280),
-        });
-      }
-
-      return {
-        ok: true,
-        delivery,
-        rowsReceived: rows.length,
-        rowsWritten,
-        sheetId: copied.id,
-        sheetName: targetSheetName,
-        sheetUrl: outputSheetUrl,
-        downloadXlsxUrl: `https://docs.google.com/spreadsheets/d/${copied.id}/export?format=xlsx`,
-        writeSummary,
-        encabezadoWriteSummary,
-        templateSource,
-        diagnostics: {
-          requiredScopes,
-          grantedScopes,
-          missingScopes,
-          tokenAudience: tokenInfo?.audience || "",
-          tokenEmail: tokenInfo?.email || "",
         },
-      };
-    } finally {
-      if (delivery === "download") {
-        try {
-          await pacDeleteDriveFile(accessToken, copied.id);
-        } catch (deleteError) {
-          logger.warn("savePacRowsToDrive download cleanup failed", {
-            fileId: copied.id,
-            message: String(deleteError?.message || "delete failed"),
-          });
-        }
-      }
+      });
+    } catch (metricError) {
+      logger.warn("savePacRowsToDrive metric event failed", {
+        tenantId,
+        uid,
+        eventType: "pac_guardado_drive",
+        message: shortText(metricError?.message || "metric_write_failed", 280),
+      });
     }
+
+    return {
+      ok: true,
+      delivery,
+      rowsReceived: rows.length,
+      rowsWritten,
+      sheetId: copied.id,
+      sheetName: targetSheetName,
+      sheetUrl: outputSheetUrl,
+      downloadXlsxUrl: `https://docs.google.com/spreadsheets/d/${copied.id}/export?format=xlsx`,
+      writeSummary,
+      encabezadoWriteSummary,
+      templateSource,
+      diagnostics: {
+        requiredScopes,
+        grantedScopes,
+        missingScopes,
+        tokenAudience: tokenInfo?.audience || "",
+        tokenEmail: tokenInfo?.email || "",
+      },
+    };
   } catch (error) {
     const errorMetadata = pacBuildErrorMetadata(error);
     logger.error("savePacRowsToDrive error", {
