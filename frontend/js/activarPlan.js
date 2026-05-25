@@ -4,6 +4,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-functions.js";
 import { auth, functions } from "./firebaseClient.js";
+import { clearCachedSubscriptionStatus, getSubscriptionStatusCached } from "./subscriptionStatusCache.js";
 import { formatBillingStatusLabel, formatUserError } from "./userFacingText.js";
 
 const userName = document.getElementById("activar-user-name");
@@ -40,9 +41,7 @@ function redirectIfNeeded(route) {
 }
 
 async function loadSubscriptionStatus() {
-  const getSubscriptionStatus = httpsCallable(functions, "getSubscriptionStatus");
-  const response = await getSubscriptionStatus();
-  const status = response.data || {};
+  const status = await getSubscriptionStatusCached({ forceRefresh: true });
   const billingStatus = status.billingStatus ?? "null";
   const appEnabled = status.appEnabled === true;
   const tenantId = String(status.tenantId || "").trim();
@@ -79,6 +78,7 @@ subscribeBtn?.addEventListener("click", async () => {
 
 logoutBtn?.addEventListener("click", async () => {
   try {
+    clearCachedSubscriptionStatus(auth.currentUser?.uid || "");
     await signOut(auth);
     window.location.replace("/pac.html");
   } catch (error) {

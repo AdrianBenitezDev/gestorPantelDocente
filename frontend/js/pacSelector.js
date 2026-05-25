@@ -4,8 +4,8 @@ import {
   signInWithPopup,
   signOut,
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
-import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-functions.js";
-import { auth, functions } from "./firebaseClient.js";
+import { auth } from "./firebaseClient.js";
+import { clearCachedSubscriptionStatus, getSubscriptionStatusCached } from "./subscriptionStatusCache.js";
 import { formatUserError } from "./userFacingText.js";
 
 const userNameEl = document.getElementById("pac-selector-user-name");
@@ -107,9 +107,7 @@ async function validateTenantAccessForUser() {
   }
   state.checkingAccess = true;
   try {
-    const callable = httpsCallable(functions, "getSubscriptionStatus");
-    const response = await callable({});
-    const data = response.data || {};
+    const data = await getSubscriptionStatusCached();
     const appEnabled = data.appEnabled === true;
     const tenantId = String(data.tenantId || "").trim();
     state.hasTenantAccess = Boolean(appEnabled && tenantId);
@@ -138,6 +136,7 @@ authBtn?.addEventListener("click", async () => {
   if (action === "logout" && auth.currentUser) {
     try {
       setBusy(authBtn, true);
+      clearCachedSubscriptionStatus(auth.currentUser?.uid || "");
       await signOut(auth);
       setMsg("Sesion cerrada.");
     } catch (error) {

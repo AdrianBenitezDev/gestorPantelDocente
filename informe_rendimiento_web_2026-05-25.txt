@@ -1,0 +1,123 @@
+﻿INFORME DE RENDIMIENTO WEB - PANELDOCENTE
+Fecha: 2026-05-25
+Sitio principal evaluado: https://paneldocente.com.ar
+Sitio de referencia: https://www.laplatavirtual.com.ar/
+
+1) PROBLEMA DETECTADO
+- En PanelDocente, la carga inicial percibida es más lenta que en LaplataVirtual.
+- Aunque el carrusel publicitario fue optimizado (primera imagen visible sin esperar JS, preload y formato webp), la demora persiste.
+- El problema no parece estar únicamente en el carrusel, sino en el arranque general de la aplicación (bootstrap de sesión, ejecución de JavaScript inicial y consultas tempranas).
+
+2) HALLAZGOS TÉCNICOS
+
+2.1) Política de caché global restrictiva
+- Archivo: firebase.json (panelDocente)
+- Se aplica "no-cache, no-store, must-revalidate" de forma amplia, incluyendo JS y assets estáticos.
+- Resultado técnico: el navegador no reutiliza recursos estáticos en visitas posteriores y se incrementa el tiempo de carga repetida.
+
+2.2) Recuperación de sesión y arranque condicionado por Firebase Auth
+- Área: flujo de inicio con Firebase Auth / onAuthStateChanged.
+- La renderización útil puede quedar condicionada a la resolución de sesión y a lógica adicional posterior al login.
+- Resultado técnico: retraso en el tiempo hasta contenido útil cuando la sesión tarda en resolverse o dispara más trabajo de red.
+
+2.3) Cadena secuencial de llamadas callable en el arranque
+- Archivo: frontend/js/pac.js
+- Después del login se ejecutan llamadas de red en secuencia (suscripción, sesión, encabezado y configuración).
+- Resultado técnico: efecto "waterfall" y aumento del tiempo hasta que la UI queda completamente lista.
+
+2.4) Consultas redundantes y prematuras
+- Archivos: pac.js, pacSelector.js, pacProcesados.js, estadoSuscripcion.js, activarPlan.js
+- Se observan patrones de consulta repetida de estado de suscripción y recargas tempranas de datos no críticos.
+- Resultado técnico: sobrecarga inicial, mayor latencia acumulada y uso de red evitable.
+
+2.5) Posible sobrelectura en backend para estado de suscripción
+- Archivo: functions/src/index.js (getSubscriptionStatus)
+- Existe potencial de doble lectura del documento de usuario según ramas de validación/bypass.
+- Resultado técnico: latencia extra por request y mayor costo en Firestore.
+
+2.6) Payload inicial sobredimensionado en PAC Procesados
+- Archivo: frontend/js/pacProcesados.js
+- Request inicial con limit alto e includeRows=true.
+- Resultado técnico: respuesta más pesada, mayor tiempo de parseo/render y peor percepción de velocidad.
+
+2.7) Exceso de JavaScript inicial y carga de módulos no críticos
+- Archivo: frontend/js/firebaseClient.js (entre otros módulos de arranque)
+- Se inicializan/importan módulos que no son críticos para el primer render.
+- Resultado técnico: más bytes, más tiempo de descarga/parseo/ejecución y retraso del contenido principal.
+
+2.8) Compresión HTTP pendiente de validación fina
+- Área: entrega de estáticos por Hosting/CDN.
+- Es necesario verificar que Brotli/Gzip estén activos y correctamente aplicados a JS/CSS/JSON/SVG.
+- Resultado técnico esperado si no está optimizado: transferencia mayor a la necesaria.
+
+2.9) Carrusel optimizado, pero no suficiente por sí solo
+- Estado actual: mejoras aplicadas en la primera imagen (preload, prioridad alta y atributos de layout).
+- Conclusión técnica: el carrusel mejora el LCP visual del banner, pero no corrige por sí solo los cuellos de botella del arranque general.
+
+3) IMPACTO
+- Mayor tiempo de carga inicial percibida y menor velocidad de interacción temprana.
+- Riesgo de degradación en métricas de experiencia (LCP, INP) por bloqueo en arranque.
+- Incremento de consumo de red y backend por consultas redundantes/prematuras.
+- Diferencia de performance frente al sitio de referencia en escenarios reales de navegación.
+
+4) MITIGACIONES PROPUESTAS
+
+PRIORIDAD ALTA
+1. Ajustar estrategia de caché por tipo de recurso en Hosting:
+   - HTML: no-cache para mantener frescura.
+   - Estáticos versionados (JS/CSS/imágenes): cache-control largo (por ejemplo, public, max-age=31536000, immutable).
+2. Desacoplar el primer render de la lógica no crítica de sesión:
+   - Mantener shell/UI básica visible mientras se resuelve onAuthStateChanged.
+   - Ejecutar tareas secundarias después del contenido crítico.
+3. Eliminar waterfall en llamadas iniciales:
+   - Paralelizar requests independientes (Promise.all) y secuenciar solo lo estrictamente dependiente.
+4. Reducir payload inicial en PAC Procesados:
+   - Bajar limit inicial y evitar includeRows en primera carga.
+   - Cargar detalle bajo demanda.
+5. Confirmar compresión efectiva:
+   - Validar Brotli/Gzip para todos los tipos de archivo críticos.
+
+PRIORIDAD MEDIA
+1. Reducir consultas redundantes de suscripción:
+   - Implementar caché de cliente con TTL corto para navegación interna.
+2. Optimizar getSubscriptionStatus en backend:
+   - Evitar lecturas duplicadas del mismo documento de usuario.
+3. Reducir JS inicial:
+   - Aplicar import() dinámico para módulos no críticos.
+   - Diferir la carga de funcionalidades secundarias.
+4. Revisar activos externos y pesos:
+   - Reemplazar rutas externas pesadas por recursos locales optimizados cuando corresponda.
+
+PRIORIDAD BAJA
+1. Instrumentación y observabilidad continua:
+   - Medir LCP, TTFB, INP, CLS y tiempo hasta primer banner visible.
+   - Registrar tiempos de llamadas callable en cliente y backend.
+2. Auditoría periódica de performance:
+   - Comparar resultados entre PanelDocente y LaplataVirtual en condiciones equivalentes.
+
+5) PLAN DE EJECUCIÓN
+Fase 1 (rápida, alto impacto):
+- Ajuste de caché por tipo de recurso.
+- Validación de Brotli/Gzip.
+- Paralelización del arranque y reducción de payload inicial en PAC Procesados.
+
+Fase 2 (optimización de arquitectura de carga):
+- Reducir consultas redundantes/prematuras (TTL corto y deduplicación).
+- Optimizar getSubscriptionStatus para evitar sobrelecturas.
+- Aplicar import() dinámico y diferir módulos no críticos.
+
+Fase 3 (medición y ajuste fino):
+- Instrumentar métricas de Web Vitals y tiempos de banner.
+- Comparar antes/después contra el sitio de referencia y ajustar en base a datos.
+
+6) CRITERIO DE ÉXITO
+- La primera imagen del banner se muestra casi de inmediato.
+- Disminuye el tiempo de carga inicial percibida en PanelDocente.
+- Se reducen consultas redundantes y consultas prematuras en el arranque.
+- El carrusel y el resto de la página mantienen su comportamiento sin regresiones visuales/funcionales.
+- Mejora medible en LCP, TTFB, INP y CLS respecto del estado actual.
+
+7) RECOMENDACIÓN FINAL
+- Implementar primero la Fase 1: caché correcto por recurso, validación de compresión y eliminación del waterfall inicial.
+- En paralelo, reducir el payload de PAC Procesados y diferir funciones secundarias.
+- Medir inmediatamente después de esos cambios (LCP, TTFB, INP, CLS y tiempo al primer banner visible) para priorizar la Fase 2 con evidencia objetiva.

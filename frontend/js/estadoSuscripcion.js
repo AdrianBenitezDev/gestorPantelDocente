@@ -4,6 +4,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-functions.js";
 import { auth, functions } from "./firebaseClient.js";
+import { clearCachedSubscriptionStatus, getSubscriptionStatusCached } from "./subscriptionStatusCache.js";
 import {
   formatAccessReasonLabel,
   formatBillingStatusLabel,
@@ -46,10 +47,8 @@ function redirectIfNeeded(route) {
   window.location.replace(target);
 }
 
-async function fetchStatus() {
-  const getSubscriptionStatus = httpsCallable(functions, "getSubscriptionStatus");
-  const response = await getSubscriptionStatus();
-  const status = response.data || {};
+async function fetchStatus(forceRefresh = true) {
+  const status = await getSubscriptionStatusCached({ forceRefresh });
   const billingStatus = status.billingStatus ?? null;
   const appEnabled = status.appEnabled === true;
   const tenantId = String(status.tenantId || "").trim();
@@ -101,8 +100,9 @@ syncBtn?.addEventListener("click", async () => {
     const syncSubscriptionStatus = httpsCallable(functions, "syncSubscriptionStatus");
     const response = await syncSubscriptionStatus();
     const data = response.data || {};
+    clearCachedSubscriptionStatus(auth.currentUser?.uid || "");
     setMsg(feedbackMsg, `Estado sincronizado: ${formatBillingStatusLabel(data.billingStatus)}`);
-    await fetchStatus();
+    await fetchStatus(true);
   } catch (error) {
     console.error(error);
     setMsg(feedbackMsg, formatUserError(error, "No pudimos sincronizar el estado de tu pago."), true);
@@ -113,6 +113,7 @@ syncBtn?.addEventListener("click", async () => {
 
 logoutBtn?.addEventListener("click", async () => {
   try {
+    clearCachedSubscriptionStatus(auth.currentUser?.uid || "");
     await signOut(auth);
     window.location.replace("/pac.html");
   } catch (error) {

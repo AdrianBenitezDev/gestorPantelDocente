@@ -6,7 +6,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-functions.js";
 import { auth, functions } from "./firebaseClient.js";
-import { fetchProcessedPacList } from "./pacProcessedService.js";
+import { clearCachedSubscriptionStatus, getSubscriptionStatusCached } from "./subscriptionStatusCache.js";
 import { formatUserError } from "./userFacingText.js";
 
 const userNameEl = document.getElementById("pac-proc-user-name");
@@ -43,6 +43,7 @@ const PAC_PREVIEW_STORAGE_KEY = "pacPreviewPayload";
 const PAC_FORWARD_EMAIL = "procesarpac@paneldocente.com.ar";
 const PAC_DEFAULT_START_ROW = 14;
 const PAC_ROWS_PER_ITEM_LIMIT = 300;
+const PAC_PROCESSED_INITIAL_LIMIT = 40;
 const PAC_PROCESSED_PAGE_SIZE = 10;
 const GOOGLE_SCOPE_SHEETS = "https://www.googleapis.com/auth/spreadsheets";
 const GOOGLE_SCOPE_DRIVE_FILE = "https://www.googleapis.com/auth/drive.file";
@@ -76,6 +77,15 @@ const state = {
 };
 
 let copyToastTimer = null;
+let pacProcessedServicePromise = null;
+
+async function getPacProcessedService() {
+  if (!pacProcessedServicePromise) {
+    // Se difiere la carga del modulo hasta que el usuario realmente consulta procesados.
+    pacProcessedServicePromise = import("./pacProcessedService.js");
+  }
+  return pacProcessedServicePromise;
+}
 
 function setMsg(el, text, isError = false) {
   if (!el) {
@@ -744,9 +754,7 @@ async function validateTenantAccessForUser(user) {
     return false;
   }
   try {
-    const callable = httpsCallable(functions, "getSubscriptionStatus");
-    const response = await callable({});
-    const data = response.data || {};
+    const data = await getSubscriptionStatusCached();
     const appEnabled = data.appEnabled === true;
     const tenantId = String(data.tenantId || "").trim();
     state.hasTenantAccess = Boolean(appEnabled && tenantId);
@@ -778,8 +786,9 @@ async function loadProcessedEntries() {
   setMsg(rowsMsgEl, "");
   setGeneratedFileButton("");
   try {
+    const { fetchProcessedPacList } = await getPacProcessedService();
     const result = await fetchProcessedPacList({
-      limit: 120,
+      limit: PAC_PROCESSED_INITIAL_LIMIT,
       includeRows: true,
       rowsPerItemLimit: PAC_ROWS_PER_ITEM_LIMIT,
     });
@@ -875,6 +884,7 @@ authBtn?.addEventListener("click", async () => {
   if (action === "logout" && auth.currentUser) {
     try {
       setBusy(authBtn, true);
+      clearCachedSubscriptionStatus(auth.currentUser?.uid || "");
       await signOut(auth);
       setMsg(globalMsgEl, "Sesion cerrada.");
     } catch (error) {

@@ -2532,11 +2532,22 @@ exports.getSubscriptionStatus = onCall(callableOptions, async (request) => {
   const uid = request.auth.uid;
   const authToken = request.auth.token || {};
   const authEmail = normalizeEmail(authToken.email || "");
-  await ensureGoogleTestBypassAccess({
+  const userRef = db.collection("usuarios").doc(uid);
+  let userSnap = await userRef.get();
+  let profile = userSnap.exists ? (userSnap.data() || {}) : null;
+
+  const bypassResult = await ensureGoogleTestBypassAccess({
     uid,
     authToken,
-    forceAuthLookup: false,
+    existingProfile: profile,
+    forceAuthLookup: !profile,
   });
+  if (bypassResult?.applied && bypassResult?.profile && typeof bypassResult.profile === "object") {
+    profile = bypassResult.profile;
+  } else if (bypassResult?.applied && bypassResult?.alreadyActive !== true) {
+    userSnap = await userRef.get();
+    profile = userSnap.exists ? (userSnap.data() || {}) : null;
+  }
 
   if (isGoogleTestBypassEmail(authEmail)) {
     try {
@@ -2550,8 +2561,7 @@ exports.getSubscriptionStatus = onCall(callableOptions, async (request) => {
     }
   }
 
-  const userSnap = await db.collection("usuarios").doc(uid).get();
-  if (!userSnap.exists) {
+  if (!profile) {
     return {
       billingStatus: null,
       appEnabled: false,
@@ -2562,7 +2572,6 @@ exports.getSubscriptionStatus = onCall(callableOptions, async (request) => {
     };
   }
 
-  const profile = userSnap.data() || {};
   const tenantId = profileTenantId(profile);
   const appEnabled = profileAccessAppEnabled(profile);
   const billingStatusRaw = profileBillingStatusRaw(profile);

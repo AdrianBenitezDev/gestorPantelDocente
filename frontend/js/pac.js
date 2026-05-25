@@ -6,6 +6,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-functions.js";
 import { auth, functions } from "./firebaseClient.js";
+import { clearCachedSubscriptionStatus, getSubscriptionStatusCached } from "./subscriptionStatusCache.js";
 import { formatUserError } from "./userFacingText.js";
 
 const connectBtn = document.getElementById("pac-connect-btn");
@@ -183,6 +184,25 @@ let copyToastTimer = null;
 
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function scheduleLowPriorityTask(task) {
+  const safeTask = typeof task === "function" ? task : null;
+  if (!safeTask) {
+    return;
+  }
+  const runner = () => {
+    Promise.resolve()
+      .then(() => safeTask())
+      .catch((error) => {
+        console.error("Tarea diferida PAC fallo", error);
+      });
+  };
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(runner, { timeout: 1200 });
+    return;
+  }
+  window.setTimeout(runner, 0);
 }
 
 async function registerPacSessionIfNeeded(user) {
@@ -814,9 +834,7 @@ async function refreshPacTenantAccess(user) {
     return false;
   }
   try {
-    const callable = httpsCallable(functions, "getSubscriptionStatus");
-    const response = await callable({});
-    const data = response.data || {};
+    const data = await getSubscriptionStatusCached();
     const appEnabled = data.appEnabled === true;
     const tenantId = String(data.tenantId || "").trim();
     state.tenantId = tenantId;
@@ -2470,6 +2488,8 @@ if (logoutBtn) {
       return;
     }
     try {
+      const currentUid = String(auth.currentUser?.uid || "").trim();
+      clearCachedSubscriptionStatus(currentUid);
       await signOut(auth);
       state.accessToken = "";
       clearGrantedScopes();
@@ -2508,15 +2528,6 @@ onAuthStateChanged(auth, (user) => {
     return;
   }
 
-  if (guestSection) {
-    guestSection.hidden = true;
-    guestSection.classList.add("is-hidden");
-  }
-  if (authenticatedContent) {
-    authenticatedContent.hidden = true;
-    authenticatedContent.classList.add("is-hidden");
-  }
-
   userNameEl.textContent = user.displayName || user.email || "Usuario";
   userEmailEl.textContent = user.email || "-";
   state.headerLoadedFromRemote = false;
@@ -2528,27 +2539,37 @@ onAuthStateChanged(auth, (user) => {
     clearGrantedScopes();
     rememberGrantedScopes(restorePersistedGrantedScopes(user));
   }
+  updateGuestView(user);
   syncOnboardingFromState();
   void (async () => {
-    const waylistHeaderPrimed = await primeWaylistPacHeaderForUser(user);
-    if (waylistHeaderPrimed) {
-      state.headerLoadedFromRemote = true;
-    }
-    if (String(auth.currentUser?.uid || "") !== String(user?.uid || "")) {
-      return;
-    }
-    updateGuestView(user);
+    const authUid = String(user?.uid || "");
+    const waylistHeaderPromise = primeWaylistPacHeaderForUser(user)
+      .then((waylistHeaderPrimed) => {
+        if (waylistHeaderPrimed) {
+          state.headerLoadedFromRemote = true;
+        }
+      })
+      .catch((error) => {
+        console.error("No se pudo preparar encabezado waylist PAC", error);
+      });
     const hasTenantAccess = await refreshPacTenantAccess(user);
-    if (String(auth.currentUser?.uid || "") !== String(user?.uid || "")) {
+    if (String(auth.currentUser?.uid || "") !== authUid) {
       return;
     }
     if (!hasTenantAccess) {
       return;
     }
-    await registerPacSessionIfNeeded(user);
-    await hydratePacHeaderForCurrentUser(user);
-    await hydratePacExtractionConfigForCurrentUser(user);
+
+    await Promise.all([
+      waylistHeaderPromise,
+      hydratePacHeaderForCurrentUser(user),
+      hydratePacExtractionConfigForCurrentUser(user),
+    ]);
+    if (String(auth.currentUser?.uid || "") !== authUid) {
+      return;
+    }
     syncOnboardingFromState();
+    scheduleLowPriorityTask(() => registerPacSessionIfNeeded(user));
   })();
   if (state.accessToken) {
     setMsg(authMsg, "Sesion iniciada con Google. Token PAC disponible.");
