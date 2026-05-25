@@ -1,0 +1,110 @@
+﻿.stockfacil-modal-overlay{
+  position:relative;
+  max-width:1200px;
+  margin:8px auto 0;
+  padding:0 16px;
+}
+
+.stockfacil-modal{
+  position:relative;
+  width:min(980px, 100%);
+  margin:0 auto;
+  background:rgba(255,255,255,0.96);
+  border:1px solid rgba(0,0,0,0.08);
+  border-radius:14px;
+  box-shadow:0 14px 34px rgba(0,0,0,0.22);
+  padding:10px;
+}
+
+.stockfacil-modal-link{
+  display:block;
+  text-decoration:none;
+}
+
+.stockfacil-carousel{
+  position:relative;
+}
+
+.stockfacil-modal-tag{
+  display:inline-block;
+  margin:0 0 8px;
+  font-size:0.72rem;
+  font-weight:700;
+  color:var(--muted, #5f6b7f);
+  letter-spacing:0.03em;
+  text-transform:uppercase;
+}
+
+.stockfacil-modal-image{
+  width:100%;
+  height:auto;
+  object-fit:contain;
+  display:block;
+  border-radius:10px;
+  box-shadow:0 6px 16px rgba(0,0,0,0.12);
+}
+
+.stockfacil-nav{
+  position:absolute;
+  top:50%;
+  transform:translateY(-50%);
+  width:38px;
+  height:38px;
+  border:none;
+  border-radius:999px;
+  background:rgba(13,18,35,0.72);
+  color:#fff;
+  font-size:1.5rem;
+  line-height:1;
+  cursor:pointer;
+  z-index:2;
+}
+
+.stockfacil-nav:hover{
+  background:rgba(13,18,35,0.9);
+}
+
+.stockfacil-nav.prev{
+  left:10px;
+}
+
+.stockfacil-nav.next{
+  right:10px;
+}
+
+.stockfacil-indicators{
+  display:flex;
+  justify-content:center;
+  gap:6px;
+  margin-top:8px;
+}
+
+.stockfacil-dot{
+  width:8px;
+  height:8px;
+  border-radius:50%;
+  border:none;
+  background:rgba(15,20,35,0.28);
+  cursor:pointer;
+  padding:0;
+}
+
+.stockfacil-dot.is-active{
+  background:var(--accent, #2268d6);
+}
+
+@media(max-width:480px){
+  .stockfacil-modal-overlay{
+    padding:12px;
+  }
+
+  .stockfacil-modal{
+    padding:8px;
+  }
+
+  .stockfacil-nav{
+    width:34px;
+    height:34px;
+    font-size:1.25rem;
+  }
+}
