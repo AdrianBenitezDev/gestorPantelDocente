@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="./css/styles.css?v=20260318-theme1" />
   <title>Admin | PanelDocente</title>
   <link rel="stylesheet" href="./publicidad/stockfacil-banner.css" />
+  <link rel="preload" as="image" href="./publicidad/banner_1.webp" fetchpriority="high" />
 </head>
 <body>
   <header class="top-banner">
@@ -63,12 +64,39 @@
     </section>
   </main>
 
-  <div id="stockfacil-banner-slot"></div>
+  <div id="stockfacil-banner-slot">
+    <div class="stockfacil-modal-overlay" id="stockfacilModal" aria-hidden="false">
+      <div class="stockfacil-modal" role="region" aria-label="Publicidad Stock Facil">
+        <span class="stockfacil-modal-tag">Publicidad</span>
+        <div class="stockfacil-carousel">
+          <button type="button" class="stockfacil-nav prev" id="stockfacilPrev" aria-label="Imagen anterior">&#8249;</button>
+          <a class="stockfacil-modal-link" href="https://stockfacil.com.ar" target="_blank" rel="noopener noreferrer sponsored" aria-label="Ir a Stock Facil">
+            <img
+              id="stockfacilModalImage"
+              class="stockfacil-modal-image"
+              src="./publicidad/banner_1.webp"
+              alt="Stock Facil banner 1"
+              width="2048"
+              height="682"
+              loading="eager"
+              fetchpriority="high"
+              decoding="async"
+            />
+          </a>
+          <button type="button" class="stockfacil-nav next" id="stockfacilNext" aria-label="Imagen siguiente">&#8250;</button>
+        </div>
+        <div class="stockfacil-indicators">
+          <button type="button" class="stockfacil-dot is-active" aria-label="Ir al banner 1"></button>
+          <button type="button" class="stockfacil-dot" aria-label="Ir al banner 2"></button>
+          <button type="button" class="stockfacil-dot" aria-label="Ir al banner 3"></button>
+        </div>
+      </div>
+    </div>
+  </div>
   <div id="shared-footer-root"></div>
   <script src="./footer/footer.js" defer></script>
   <script type="module" src="./js/admin.js"></script>
   <script src="./publicidad/stockfacil-banner.js" defer></script>
 </body>
 </html>
-
 
